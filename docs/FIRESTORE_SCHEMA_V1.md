@@ -79,7 +79,7 @@ Food analysis records created from text or image input.
     "commentTh": "โปรตีนโอเค แต่คาร์บและน้ำมันค่อนข้างสูง"
   },
   "ai": {
-    "model": "gemini-2.5-flash",
+    "model": "gemini-3-flash-preview",
     "promptVersion": "meal-v1"
   },
   "loggedAt": "timestamp",

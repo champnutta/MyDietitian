@@ -28,6 +28,8 @@
   - `updateProfile`
   - `analyzeMeal`
   - `lineWebhook`
+- `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
+- `lineWebhook` is a staging receiver only. It verifies signatures and logs events, but it does not reply to customers yet.
 - Health endpoint verified:
   - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
 - Secrets are configured and attached to Functions:

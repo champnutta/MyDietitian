@@ -19,7 +19,7 @@ const LINE_CHANNEL_SECRET = defineSecret("LINE_CHANNEL_SECRET");
 const LINE_CHANNEL_ACCESS_TOKEN = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const ADMIN_LINE_USER_ID = defineSecret("ADMIN_LINE_USER_ID");
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3-flash-preview";
 const MEAL_PROMPT_VERSION = "meal-v1";
 
 export const health = onRequest((request, response) => {
@@ -183,15 +183,18 @@ export const lineWebhook = onRequest(
   const now = Timestamp.now();
 
   await db.collection("adminAuditLogs").add({
-    type: "line-webhook-received",
+    type: "line-webhook-staging-received",
     eventCount: payload?.events?.length ?? 0,
     payload,
+    status: "received-only-no-reply",
     createdAt: now
   });
 
   response.json({
     ok: true,
-    received: payload?.events?.length ?? 0
+    received: payload?.events?.length ?? 0,
+    status: "staging-receiver-only",
+    warning: "This endpoint verifies LINE signatures but does not reply to users yet."
   });
 });
 

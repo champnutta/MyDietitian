@@ -31,14 +31,19 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - Health: `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
 - Update profile: `https://asia-southeast1-mydietitian.cloudfunctions.net/updateProfile`
 - Analyze meal: `https://asia-southeast1-mydietitian.cloudfunctions.net/analyzeMeal`
-- LINE webhook: `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook`
+- LINE webhook staging receiver: `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook`
 
 ## Backend progress
 
 - `analyzeMeal` is connected to Gemini through Secret Manager.
+- `analyzeMeal` uses `gemini-3-flash-preview`, matching the current GAS source constants.
 - `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore.
-- `lineWebhook` verifies LINE signatures before accepting events.
+- `lineWebhook` verifies LINE signatures before accepting events, but it is not a production replacement yet because it does not route events or reply to users.
 - Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
+
+## Production warning
+
+Do not switch the production LINE OA webhook from GAS to this Firebase endpoint until the LINE parity checklist is complete. The current Firebase `lineWebhook` is a staging receiver only.
 
 ## Immediate next steps
 

@@ -37,3 +37,7 @@
 ## Security fix required before broad rollout
 
 The current LIFF/web flow relies on `uid` from URL state. The new system must derive user identity from authenticated tokens instead of trusting a user ID passed from the client.
+
+## Production LINE OA status
+
+Do not move the production LINE OA webhook to Firebase yet. The Firebase `lineWebhook` currently verifies signatures and logs events only. It does not yet implement the GAS `doPost` behavior, user routing, image download, subscription checks, or LINE replies.
