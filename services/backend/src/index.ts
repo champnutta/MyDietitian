@@ -6,6 +6,7 @@ import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   AnalyzeMealRequest,
+  DashboardDataRequest,
   LineWebhookEvent,
   MealAnalysisResult,
   UpdateProfileRequest
@@ -65,6 +66,78 @@ export const updateProfile = onRequest(async (request, response) => {
   );
 
   response.json({ ok: true, userId: body.userId });
+});
+
+export const getDashboardData = onRequest(async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  const body = request.body as DashboardDataRequest;
+  if (!body?.userId) {
+    response.status(400).json({ ok: false, error: "missing-user-id" });
+    return;
+  }
+
+  const { startDate, endDate } = resolveDashboardRange(body);
+  const history = buildDailyHistory(startDate, endDate);
+  const profileSnap = await db.collection("profiles").doc(body.userId).get();
+  const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
+  const target = normalizeTarget(profile);
+
+  await fillMealHistory(body.userId, startDate, endDate, history);
+  await fillExerciseHistory(body.userId, startDate, endDate, history);
+  await fillWeightHistory(body.userId, startDate, endDate, history);
+
+  const labels = Object.keys(history);
+  const calories = labels.map((key) => history[key].cal);
+  const weights = labels.map((key) => history[key].weight);
+  const fats = labels.map((key) => history[key].fat);
+  const muscles = labels.map((key) => history[key].muscle);
+  const devices = labels.map((key) => history[key].device);
+  const macros = {
+    p: labels.map((key) => history[key].p),
+    c: labels.map((key) => history[key].c),
+    f: labels.map((key) => history[key].f),
+    fib: labels.map((key) => history[key].fib)
+  };
+
+  const tdeeLine = labels.map((key) => target.cal + history[key].burn);
+  const totalCal = calories.reduce((sum, value) => sum + value, 0);
+  const activeDays = calories.filter((value) => value > 0).length || 1;
+  const successDays = labels.filter((key) => {
+    const intake = history[key].cal;
+    const limit = target.cal + history[key].burn + 100;
+    return intake > 0 && intake <= limit;
+  }).length;
+
+  let currentWeight = 0;
+  for (let index = weights.length - 1; index >= 0; index -= 1) {
+    if (weights[index] !== null) {
+      currentWeight = weights[index] ?? 0;
+      break;
+    }
+  }
+
+  response.json({
+    ok: true,
+    profile: {
+      name: profile.displayName ?? "Member",
+      target
+    },
+    current: { weight: currentWeight },
+    labels,
+    calories,
+    bodyData: { weight: weights, fat: fats, muscle: muscles, devices },
+    tdeeLine,
+    macros,
+    stats: {
+      avgCal: totalCal / activeDays,
+      totalDays: activeDays,
+      successDays
+    }
+  });
 });
 
 export const analyzeMeal = onRequest({ secrets: [GEMINI_API_KEY] }, async (request, response) => {
@@ -297,4 +370,146 @@ function parseJsonOutput<T>(raw: string): T {
     .trim();
 
   return JSON.parse(cleaned) as T;
+}
+
+type DailyHistory = Record<string, {
+  cal: number;
+  p: number;
+  c: number;
+  f: number;
+  fib: number;
+  burn: number;
+  weight: number | null;
+  fat: number | null;
+  muscle: number | null;
+  device: string | null;
+}>;
+
+function resolveDashboardRange(request: DashboardDataRequest): { startDate: Date; endDate: Date } {
+  const now = new Date();
+  const today = new Date(now);
+  today.setHours(0, 0, 0, 0);
+
+  let startDate: Date;
+  let endDate: Date;
+
+  if (request.option === "custom" && request.customStartStr && request.customEndStr) {
+    startDate = new Date(request.customStartStr);
+    endDate = new Date(request.customEndStr);
+  } else {
+    const days = typeof request.option === "number" ? request.option : 7;
+    endDate = new Date(today);
+    startDate = new Date(today);
+    startDate.setDate(today.getDate() - days + 1);
+  }
+
+  startDate.setHours(0, 0, 0, 0);
+  endDate.setHours(23, 59, 59, 999);
+  return { startDate, endDate };
+}
+
+function buildDailyHistory(startDate: Date, endDate: Date): DailyHistory {
+  const history: DailyHistory = {};
+  const cursor = new Date(startDate);
+
+  while (cursor <= endDate) {
+    history[formatDayKey(cursor)] = {
+      cal: 0,
+      p: 0,
+      c: 0,
+      f: 0,
+      fib: 0,
+      burn: 0,
+      weight: null,
+      fat: null,
+      muscle: null,
+      device: null
+    };
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return history;
+}
+
+async function fillMealHistory(userId: string, startDate: Date, endDate: Date, history: DailyHistory) {
+  const snap = await db.collection("mealLogs")
+    .where("userId", "==", userId)
+    .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+    .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+    .orderBy("loggedAt", "asc")
+    .get();
+
+  snap.forEach((doc) => {
+    const data = doc.data();
+    const key = timestampDayKey(data.loggedAt);
+    if (!key || !history[key]) return;
+    const nutrients = data.nutrients ?? {};
+    history[key].cal += Number(nutrients.caloriesKcal ?? 0);
+    history[key].p += Number(nutrients.proteinG ?? 0);
+    history[key].c += Number(nutrients.carbsG ?? 0);
+    history[key].f += Number(nutrients.fatG ?? 0);
+    history[key].fib += Number(nutrients.fiberG ?? 0);
+  });
+}
+
+async function fillExerciseHistory(userId: string, startDate: Date, endDate: Date, history: DailyHistory) {
+  const snap = await db.collection("exerciseLogs")
+    .where("userId", "==", userId)
+    .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+    .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+    .orderBy("loggedAt", "asc")
+    .get();
+
+  snap.forEach((doc) => {
+    const data = doc.data();
+    const key = timestampDayKey(data.loggedAt);
+    if (!key || !history[key]) return;
+    history[key].burn += Number(data.caloriesBurned ?? 0);
+  });
+}
+
+async function fillWeightHistory(userId: string, startDate: Date, endDate: Date, history: DailyHistory) {
+  const snap = await db.collection("weightLogs")
+    .where("userId", "==", userId)
+    .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+    .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+    .orderBy("loggedAt", "asc")
+    .get();
+
+  snap.forEach((doc) => {
+    const data = doc.data();
+    const key = timestampDayKey(data.loggedAt);
+    if (!key || !history[key]) return;
+    history[key].weight = Number(data.weightKg ?? 0) || null;
+    history[key].fat = Number(data.bodyFatPct ?? 0) || null;
+    history[key].muscle = Number(data.muscleMassKg ?? 0) || null;
+    history[key].device = data.deviceName ?? "Legacy Sheet";
+  });
+}
+
+function normalizeTarget(profile: Record<string, unknown>) {
+  const target = (profile.target ?? {}) as Record<string, unknown>;
+  return {
+    cal: Number(target.calories ?? target.cal ?? 0),
+    p: Number(target.proteinG ?? target.p ?? 0),
+    c: Number(target.carbsG ?? target.c ?? 0),
+    f: Number(target.fatG ?? target.f ?? 0),
+    fib: Number(target.fiberG ?? target.fib ?? 25)
+  };
+}
+
+function timestampDayKey(value: unknown): string | null {
+  if (value instanceof Timestamp) {
+    return formatDayKey(value.toDate());
+  }
+  if (value instanceof Date) {
+    return formatDayKey(value);
+  }
+  return null;
+}
+
+function formatDayKey(date: Date): string {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  return `${day}/${month}`;
 }

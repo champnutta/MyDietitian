@@ -9,7 +9,8 @@
   "scripts": {
     "dev:mobile": "npm --workspace @mydietitian/mobile run dev",
     "dev:backend": "npm --workspace @mydietitian/backend run serve",
-    "lint": "npm --workspace @mydietitian/backend run lint"
+    "lint": "npm --workspace @mydietitian/backend run lint",
+    "migrate:sheets:dry-run": "node tools/migrate_sheet_to_firestore.js"
   },
   "devDependencies": {
     "jose": "^4.15.9"

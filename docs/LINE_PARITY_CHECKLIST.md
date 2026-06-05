@@ -31,5 +31,6 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 
 - Signature verification: done.
 - Event logging: done.
+- Dashboard endpoint: staging endpoint deployed, pending migrated production data verification.
 - Customer replies: not done.
 - Production replacement: not ready.

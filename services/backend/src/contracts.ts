@@ -28,6 +28,13 @@ export interface AnalyzeMealRequest {
   mimeType?: string;
 }
 
+export interface DashboardDataRequest {
+  userId: string;
+  option?: number | "custom";
+  customStartStr?: string;
+  customEndStr?: string;
+}
+
 export interface MealAnalysisResult {
   dish_name: {
     th: string;

@@ -31,6 +31,7 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - Health: `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
 - Update profile: `https://asia-southeast1-mydietitian.cloudfunctions.net/updateProfile`
 - Analyze meal: `https://asia-southeast1-mydietitian.cloudfunctions.net/analyzeMeal`
+- Dashboard data: `https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData`
 - LINE webhook staging receiver: `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook`
 
 ## Backend progress
@@ -39,7 +40,9 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - `analyzeMeal` uses `gemini-3-flash-preview`, matching the current GAS source constants.
 - `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore.
 - `lineWebhook` verifies LINE signatures before accepting events, but it is not a production replacement yet because it does not route events or reply to users.
+- `getDashboardData` is available for post-migration dashboard verification against Firestore data.
 - Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
+- Google Sheet data migration is intentionally deferred until the final pre-production cutover window.
 
 ## Production warning
 

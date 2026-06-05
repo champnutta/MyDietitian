@@ -27,7 +27,9 @@
   - `health`
   - `updateProfile`
   - `analyzeMeal`
+  - `getDashboardData`
   - `lineWebhook`
+- `getDashboardData` was deployed and tested against existing Firestore test records only.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `lineWebhook` is a staging receiver only. It verifies signatures and logs events, but it does not reply to customers yet.
 - Health endpoint verified:
@@ -40,6 +42,7 @@
 - `analyzeMeal` was deployed with Gemini integration and successfully created test `aiRuns` and `mealLogs` records.
 - Note: the first Windows PowerShell inline JSON test garbled Thai input text, so app/LINE clients should send UTF-8 JSON bodies.
 - The failed leftover `health(us-central1)` function from the first deployment attempt was deleted.
+- Google Sheet data migration is intentionally deferred until the final pre-production cutover window.
 
 ## Local tooling
 
