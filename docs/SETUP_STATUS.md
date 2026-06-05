@@ -21,9 +21,16 @@
   - Location: `asia-southeast3 (Bangkok)`
 - Firestore rules and indexes deployed successfully
 - Functions scaffold compiles locally
-- Functions deploy is blocked until the Firebase project is upgraded to the Blaze plan:
-  - Required API: `artifactregistry.googleapis.com`
-  - Console: `https://console.firebase.google.com/project/mydietitian/usage/details`
+- Firebase Functions cannot be deployed to `asia-southeast3` through Firebase Functions in this project.
+- Functions region is set to `asia-southeast1 (Singapore)` as the closest Firebase Functions region to Bangkok.
+- Functions deployed successfully in `asia-southeast1`:
+  - `health`
+  - `updateProfile`
+  - `analyzeMeal`
+  - `lineWebhook`
+- Health endpoint verified:
+  - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
+- The failed leftover `health(us-central1)` function from the first deployment attempt was deleted.
 
 ## Local tooling
 
