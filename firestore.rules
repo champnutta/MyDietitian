@@ -1,0 +1,78 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return signedIn() && request.auth.token.admin == true;
+    }
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    match /profiles/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+
+    match /subscriptions/{userId} {
+      allow read: if isOwner(userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /mealLogs/{mealLogId} {
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if (
+        isOwner(resource.data.userId) ||
+        isAdmin()
+      );
+    }
+
+    match /exerciseLogs/{exerciseLogId} {
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if (
+        isOwner(resource.data.userId) ||
+        isAdmin()
+      );
+    }
+
+    match /weightLogs/{weightLogId} {
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read, update, delete: if (
+        isOwner(resource.data.userId) ||
+        isAdmin()
+      );
+    }
+
+    match /feedback/{feedbackId} {
+      allow create: if signedIn() &&
+        request.resource.data.userId == request.auth.uid;
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow update, delete: if isAdmin();
+    }
+
+    match /aiRuns/{runId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /lineLinks/{lineUserId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /adminAuditLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
+  }
+}
+

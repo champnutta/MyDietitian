@@ -1,0 +1,17 @@
+{
+  "expo": {
+    "name": "Mydietitian",
+    "slug": "mydietitian",
+    "scheme": "mydietitian",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": [
+      "ios",
+      "android"
+    ],
+    "assetBundlePatterns": [
+      "**/*"
+    ]
+  }
+}
+

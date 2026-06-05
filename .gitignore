@@ -1,0 +1,16 @@
+node_modules/
+.expo/
+.firebase/
+GAS data/
+dist/
+build/
+services/backend/lib/
+.DS_Store
+Thumbs.db
+*.log
+.env
+.env.*
+!.env.example
+coverage/
+.idea/
+.vscode/

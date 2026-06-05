@@ -1,0 +1,15 @@
+{
+  "name": "mydietitian",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "services/*"
+  ],
+  "scripts": {
+    "dev:mobile": "npm --workspace @mydietitian/mobile run dev",
+    "dev:backend": "npm --workspace @mydietitian/backend run serve",
+    "lint": "npm --workspace @mydietitian/backend run lint"
+  }
+}
+
