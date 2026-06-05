@@ -13,7 +13,7 @@
 ### 1. High priority
 
 - `callGemini`
-  - Move to backend first
+  - Moved into `analyzeMeal` for text and inline image analysis
 - `getDashboardData`
   - Rebuild on Firestore queries
 - `updateUserProfileFromLIFF`
@@ -37,4 +37,3 @@
 ## Security fix required before broad rollout
 
 The current LIFF/web flow relies on `uid` from URL state. The new system must derive user identity from authenticated tokens instead of trusting a user ID passed from the client.
-

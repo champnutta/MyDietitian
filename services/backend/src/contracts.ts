@@ -24,6 +24,28 @@ export interface AnalyzeMealRequest {
   inputType: "text" | "image";
   text?: string;
   imageUrl?: string;
+  imageBase64?: string;
+  mimeType?: string;
+}
+
+export interface MealAnalysisResult {
+  dish_name: {
+    th: string;
+    en: string;
+  };
+  portion_description: string;
+  nutrients: {
+    calories_kcal: number;
+    protein_g: number;
+    carbs_g: number;
+    fat_g: number;
+    fiber_g?: number;
+    sugar_g?: number;
+  };
+  health_rating: {
+    score: number;
+    comment: string;
+  };
 }
 
 export interface LineWebhookEvent {
@@ -43,4 +65,3 @@ export interface LineWebhookEvent {
     };
   }>;
 }
-

@@ -33,6 +33,13 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - Analyze meal: `https://asia-southeast1-mydietitian.cloudfunctions.net/analyzeMeal`
 - LINE webhook: `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook`
 
+## Backend progress
+
+- `analyzeMeal` is connected to Gemini through Secret Manager.
+- `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore.
+- `lineWebhook` verifies LINE signatures before accepting events.
+- Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
+
 ## Immediate next steps
 
 1. Add environment secrets.
