@@ -39,14 +39,15 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - `analyzeMeal` is connected to Gemini through Secret Manager.
 - `analyzeMeal` uses `gemini-3-flash-preview`, matching the current GAS source constants.
 - `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore.
-- `lineWebhook` verifies LINE signatures before accepting events, but it is not a production replacement yet because it does not route events or reply to users.
+- `lineWebhook` verifies LINE signatures before accepting events, but it is not a production replacement yet because it only supports a limited staging text-food flow.
+- `lineWebhook` can analyze and reply to staging text food messages, while known legacy commands are explicitly deferred to GAS.
 - `getDashboardData` is available for post-migration dashboard verification against Firestore data.
 - Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
 - Google Sheet data migration is intentionally deferred until the final pre-production cutover window.
 
 ## Production warning
 
-Do not switch the production LINE OA webhook from GAS to this Firebase endpoint until the LINE parity checklist is complete. The current Firebase `lineWebhook` is a staging receiver only.
+Do not switch the production LINE OA webhook from GAS to this Firebase endpoint until the LINE parity checklist is complete. The current Firebase `lineWebhook` is staging only.
 
 ## Immediate next steps
 

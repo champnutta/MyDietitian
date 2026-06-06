@@ -40,4 +40,4 @@ The current LIFF/web flow relies on `uid` from URL state. The new system must de
 
 ## Production LINE OA status
 
-Do not move the production LINE OA webhook to Firebase yet. The Firebase `lineWebhook` currently verifies signatures and logs events only. It does not yet implement the GAS `doPost` behavior, user routing, image download, subscription checks, or LINE replies.
+Do not move the production LINE OA webhook to Firebase yet. The Firebase `lineWebhook` currently verifies signatures, logs events, and supports limited staging text food replies only. It does not yet implement the full GAS `doPost` behavior, image download, subscription checks, admin/payment flows, or full LINE reply parity.

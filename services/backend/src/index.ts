@@ -23,6 +23,12 @@ const ADMIN_LINE_USER_ID = defineSecret("ADMIN_LINE_USER_ID");
 const GEMINI_MODEL = "gemini-3-flash-preview";
 const MEAL_PROMPT_VERSION = "meal-v1";
 
+type SavedMealAnalysis = {
+  runId: string;
+  mealLogId: string;
+  mealLog: Record<string, unknown>;
+};
+
 export const health = onRequest((request, response) => {
   response.json({
     ok: true,
@@ -152,95 +158,25 @@ export const analyzeMeal = onRequest({ secrets: [GEMINI_API_KEY] }, async (reque
     return;
   }
 
-  const now = Timestamp.now();
-  const aiRunRef = db.collection("aiRuns").doc();
-
-  await aiRunRef.set({
-    runId: aiRunRef.id,
-    userId: body.userId,
-    source: body.source,
-    inputType: body.inputType,
-    text: body.text ?? null,
-    imageUrl: body.imageUrl ?? null,
-    status: "running",
-    createdAt: now,
-    promptVersion: MEAL_PROMPT_VERSION,
-    model: GEMINI_MODEL
-  });
-
   try {
-    const analysis = await callGeminiMealAnalysis(body, GEMINI_API_KEY.value());
-    const mealLogRef = db.collection("mealLogs").doc();
-    const savedAt = Timestamp.now();
-
-    const mealLog = {
-      userId: body.userId,
-      source: body.source,
-      inputType: body.inputType,
-      text: body.text ?? null,
-      imageUrl: body.imageUrl ?? null,
-      mealNameTh: analysis.dish_name.th,
-      mealNameEn: analysis.dish_name.en,
-      portionDescription: analysis.portion_description,
-      nutrients: {
-        caloriesKcal: Number(analysis.nutrients.calories_kcal) || 0,
-        proteinG: Number(analysis.nutrients.protein_g) || 0,
-        carbsG: Number(analysis.nutrients.carbs_g) || 0,
-        fatG: Number(analysis.nutrients.fat_g) || 0,
-        fiberG: Number(analysis.nutrients.fiber_g) || 0,
-        sugarG: Number(analysis.nutrients.sugar_g) || 0
-      },
-      healthRating: {
-        score: Math.max(1, Math.min(10, Number(analysis.health_rating.score) || 5)),
-        commentTh: analysis.health_rating.comment
-      },
-      ai: {
-        runId: aiRunRef.id,
-        model: GEMINI_MODEL,
-        promptVersion: MEAL_PROMPT_VERSION
-      },
-      loggedAt: savedAt,
-      createdAt: savedAt,
-      updatedAt: savedAt
-    };
-
-    await mealLogRef.set(mealLog);
-    await aiRunRef.set(
-      {
-        status: "completed",
-        mealLogId: mealLogRef.id,
-        completedAt: savedAt,
-        output: analysis
-      },
-      { merge: true }
-    );
+    const saved = await analyzeAndSaveMeal(body);
 
     response.json({
       ok: true,
-      runId: aiRunRef.id,
-      mealLogId: mealLogRef.id,
-      analysis: mealLog
+      runId: saved.runId,
+      mealLogId: saved.mealLogId,
+      analysis: saved.mealLog
     });
   } catch (error) {
-    const failedAt = Timestamp.now();
-    await aiRunRef.set(
-      {
-        status: "failed",
-        failedAt,
-        error: error instanceof Error ? error.message : String(error)
-      },
-      { merge: true }
-    );
     response.status(500).json({
       ok: false,
-      runId: aiRunRef.id,
       error: "meal-analysis-failed"
     });
   }
 });
 
 export const lineWebhook = onRequest(
-  { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID] },
+  { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID, GEMINI_API_KEY] },
   async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
@@ -254,20 +190,26 @@ export const lineWebhook = onRequest(
 
   const payload = request.body as LineWebhookEvent;
   const now = Timestamp.now();
+  const results = [];
 
   await db.collection("adminAuditLogs").add({
     type: "line-webhook-staging-received",
     eventCount: payload?.events?.length ?? 0,
     payload,
-    status: "received-only-no-reply",
+    status: "staging-processing",
     createdAt: now
   });
+
+  for (const event of payload?.events ?? []) {
+    results.push(await handleLineEvent(event));
+  }
 
   response.json({
     ok: true,
     received: payload?.events?.length ?? 0,
-    status: "staging-receiver-only",
-    warning: "This endpoint verifies LINE signatures but does not reply to users yet."
+    results,
+    status: "staging-line-text-enabled",
+    warning: "This endpoint is still staging and is not a full production GAS replacement."
   });
 });
 
@@ -327,6 +269,214 @@ async function callGeminiMealAnalysis(
   if (!text) throw new Error("Gemini returned no text output");
 
   return parseJsonOutput(text);
+}
+
+async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMealAnalysis> {
+  const now = Timestamp.now();
+  const aiRunRef = db.collection("aiRuns").doc();
+
+  await aiRunRef.set({
+    runId: aiRunRef.id,
+    userId: request.userId,
+    source: request.source,
+    inputType: request.inputType,
+    text: request.text ?? null,
+    imageUrl: request.imageUrl ?? null,
+    status: "running",
+    createdAt: now,
+    promptVersion: MEAL_PROMPT_VERSION,
+    model: GEMINI_MODEL
+  });
+
+  try {
+    const analysis = await callGeminiMealAnalysis(request, GEMINI_API_KEY.value());
+    const mealLogRef = db.collection("mealLogs").doc();
+    const savedAt = Timestamp.now();
+
+    const mealLog = {
+      userId: request.userId,
+      source: request.source,
+      inputType: request.inputType,
+      text: request.text ?? null,
+      imageUrl: request.imageUrl ?? null,
+      mealNameTh: analysis.dish_name.th,
+      mealNameEn: analysis.dish_name.en,
+      portionDescription: analysis.portion_description,
+      nutrients: {
+        caloriesKcal: Number(analysis.nutrients.calories_kcal) || 0,
+        proteinG: Number(analysis.nutrients.protein_g) || 0,
+        carbsG: Number(analysis.nutrients.carbs_g) || 0,
+        fatG: Number(analysis.nutrients.fat_g) || 0,
+        fiberG: Number(analysis.nutrients.fiber_g) || 0,
+        sugarG: Number(analysis.nutrients.sugar_g) || 0
+      },
+      healthRating: {
+        score: Math.max(1, Math.min(10, Number(analysis.health_rating.score) || 5)),
+        commentTh: analysis.health_rating.comment
+      },
+      ai: {
+        runId: aiRunRef.id,
+        model: GEMINI_MODEL,
+        promptVersion: MEAL_PROMPT_VERSION
+      },
+      loggedAt: savedAt,
+      createdAt: savedAt,
+      updatedAt: savedAt
+    };
+
+    await mealLogRef.set(mealLog);
+    await aiRunRef.set(
+      {
+        status: "completed",
+        mealLogId: mealLogRef.id,
+        completedAt: savedAt,
+        output: analysis
+      },
+      { merge: true }
+    );
+
+    return { runId: aiRunRef.id, mealLogId: mealLogRef.id, mealLog };
+  } catch (error) {
+    await aiRunRef.set(
+      {
+        status: "failed",
+        failedAt: Timestamp.now(),
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { merge: true }
+    );
+    throw error;
+  }
+}
+
+type LineEvent = LineWebhookEvent["events"][number];
+
+async function handleLineEvent(event: LineEvent) {
+  const lineUserId = event.source?.userId;
+  const replyToken = event.replyToken;
+
+  if (!lineUserId || !replyToken) {
+    return { ok: false, type: event.type, reason: "missing-user-or-reply-token" };
+  }
+
+  if (event.message?.id && !(await markLineMessageIfNew(event.message.id))) {
+    return { ok: true, type: event.type, status: "duplicate-skipped" };
+  }
+
+  if (event.type === "follow") {
+    await replyToLine(replyToken, "ยินดีต้อนรับครับ ตอนนี้ระบบ Firebase ยังอยู่ในโหมดทดสอบ กรุณาใช้งานผ่าน LINE OA เดิมต่อไปก่อนครับ");
+    return { ok: true, type: event.type, status: "follow-replied" };
+  }
+
+  if (event.type !== "message") {
+    return { ok: true, type: event.type, status: "ignored" };
+  }
+
+  if (event.message?.type !== "text") {
+    await replyToLine(replyToken, "ระบบ Firebase staging ตอนนี้รองรับข้อความอาหารเท่านั้น รูปภาพ/ไฟล์จะยังใช้ระบบ GAS เดิมจนกว่า parity จะครบครับ");
+    return { ok: true, type: event.type, status: "unsupported-message-replied" };
+  }
+
+  const text = event.message.text?.trim();
+  if (!text) {
+    await replyToLine(replyToken, "ยังไม่พบข้อความอาหารครับ");
+    return { ok: false, type: event.type, status: "empty-text" };
+  }
+
+  if (isKnownLegacyCommand(text)) {
+    await replyToLine(replyToken, "คำสั่งนี้ยังอยู่ในระบบ GAS production เดิมครับ Firebase staging ยังไม่พร้อมแทนที่คำสั่งนี้");
+    return { ok: true, type: event.type, status: "legacy-command-deferred" };
+  }
+
+  try {
+    const saved = await analyzeAndSaveMeal({
+      userId: lineUserId,
+      source: "line",
+      inputType: "text",
+      text
+    });
+
+    await replyToLine(replyToken, formatMealReply(saved.mealLog));
+    return {
+      ok: true,
+      type: event.type,
+      status: "meal-analyzed-and-replied",
+      runId: saved.runId,
+      mealLogId: saved.mealLogId
+    };
+  } catch (error) {
+    await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์อาหารฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
+    return {
+      ok: false,
+      type: event.type,
+      status: "meal-analysis-failed",
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function markLineMessageIfNew(messageId: string): Promise<boolean> {
+  try {
+    await db.collection("lineEventDedup").doc(messageId).create({
+      messageId,
+      createdAt: Timestamp.now()
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isKnownLegacyCommand(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower === "undo" ||
+    lower.startsWith("code") ||
+    lower.startsWith("weight") ||
+    text === "ลบ" ||
+    text === "ยกเลิก" ||
+    text.startsWith("ตั้งค่า") ||
+    text.startsWith("โค้ด") ||
+    text.startsWith("เติมโค้ด") ||
+    text.startsWith("หนัก") ||
+    text.startsWith("ติดต่อ") ||
+    text.startsWith("แอดมิน") ||
+    text.includes("เติมวัน") ||
+    text.includes("สมัคร") ||
+    text.includes("สรุป") ||
+    text.includes("ยอด") ||
+    text.includes("กินไรดี") ||
+    text.includes("แนะนำ");
+}
+
+async function replyToLine(replyToken: string, text: string): Promise<void> {
+  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
+    },
+    body: JSON.stringify({
+      replyToken,
+      messages: [{ type: "text", text: text.slice(0, 4900) }]
+    })
+  });
+
+  if (!res.ok) {
+    throw new Error(`LINE reply failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+function formatMealReply(mealLog: Record<string, unknown>): string {
+  const nutrients = mealLog.nutrients as Record<string, number>;
+  const rating = mealLog.healthRating as Record<string, string | number>;
+
+  return [
+    `บันทึกอาหารแล้ว: ${mealLog.mealNameTh}`,
+    `พลังงานประมาณ ${Math.round(nutrients.caloriesKcal ?? 0)} kcal`,
+    `P ${Math.round(nutrients.proteinG ?? 0)}g | C ${Math.round(nutrients.carbsG ?? 0)}g | F ${Math.round(nutrients.fatG ?? 0)}g | Fiber ${Math.round(nutrients.fiberG ?? 0)}g`,
+    `คะแนน: ${rating.score}/10`,
+    String(rating.commentTh ?? "")
+  ].join("\n");
 }
 
 function buildMealPrompt(request: AnalyzeMealRequest): string {
