@@ -3,6 +3,7 @@ import { Timestamp, type Transaction } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   callGeminiExerciseAnalysis,
+  callGeminiImageClassification,
   callGeminiMealAnalysis,
   getAiAgentConfig
 } from "./ai-provider.js";
@@ -571,16 +572,7 @@ async function handleLineEvent(event: LineEvent) {
       await replyWithOnboarding(replyToken, lineUserId);
       return { ok: true, type: event.type, canonicalUserId, status: "profile-required-before-image" };
     }
-    if (!readiness.subscriptionActive) {
-      await handleSubscriptionRequest(
-        replyToken,
-        canonicalUserId,
-        lineUserId,
-        "วันใช้งานหมดแล้วครับ ตอนนี้ Firebase staging ยังรับสลิปจากรูปอัตโนมัติไม่ครบ กรุณาใช้ระบบเดิมสำหรับสลิปจนกว่าจะ cutover"
-      );
-      return { ok: true, type: event.type, canonicalUserId, status: "subscription-required-before-image" };
-    }
-    return handleLineImageMessage(event, replyToken, canonicalUserId, lineUserId);
+    return handleLineImageMessage(event, replyToken, canonicalUserId, lineUserId, readiness);
   }
 
   if (event.message?.type !== "text") {
@@ -672,7 +664,8 @@ async function handleLineImageMessage(
   event: LineEvent,
   replyToken: string,
   canonicalUserId: string,
-  lineUserId: string
+  lineUserId: string,
+  readiness: UserReadiness
 ): Promise<Record<string, unknown>> {
   const messageId = event.message?.id;
   if (!messageId) {
@@ -684,6 +677,49 @@ async function handleLineImageMessage(
 
   try {
     const content = await downloadLineContent(messageId);
+    const classification = await classifyLineImage(content.base64, content.mimeType);
+
+    if (classification.type === "slip") {
+      const result = await handleSlipPaymentImage({
+        replyToken,
+        canonicalUserId,
+        lineUserId,
+        messageId,
+        mimeType: content.mimeType,
+        slipData: classification.slip_data ?? {}
+      });
+      return {
+        ok: true,
+        type: event.type,
+        status: "slip-payment-review-created",
+        canonicalUserId,
+        paymentReviewId: result.paymentReviewId
+      };
+    }
+
+    if (classification.type === "bia") {
+      await replyToLine(replyToken, "ตรวจพบว่าเป็นรายงาน BIA/สุขภาพครับ Firebase staging ยังไม่รองรับ BIA เต็มรูปแบบ กรุณาใช้ระบบ GAS เดิมก่อนจนกว่า parity จะครบ");
+      await db.collection("lineUnsupportedImages").add({
+        canonicalUserId,
+        lineUserId,
+        messageId,
+        imageType: classification.type,
+        mimeType: content.mimeType,
+        createdAt: Timestamp.now()
+      });
+      return { ok: true, type: event.type, status: "bia-image-deferred", canonicalUserId };
+    }
+
+    if (classification.type === "other") {
+      await replyToLine(replyToken, "รูปนี้ยังไม่ใช่อาหาร/สลิป/BIA ที่ระบบ staging รองรับครับ กรุณาส่งรูปอาหารหรือสลิปโอนเงิน");
+      return { ok: true, type: event.type, status: "other-image-replied", canonicalUserId };
+    }
+
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ (ส่งสลิปได้ แต่ยังวิเคราะห์อาหารไม่ได้)");
+      return { ok: true, type: event.type, status: "subscription-required-before-image-food", canonicalUserId };
+    }
+
     const saved = await analyzeAndSaveMeal({
       userId: canonicalUserId,
       canonicalUserId,
@@ -703,7 +739,8 @@ async function handleLineImageMessage(
       canonicalUserId,
       runId: saved.runId,
       mealLogId: saved.mealLogId,
-      mimeType: content.mimeType
+      mimeType: content.mimeType,
+      imageType: classification.type
     };
   } catch (error) {
     await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์รูปอาหารฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
@@ -715,6 +752,89 @@ async function handleLineImageMessage(
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+async function classifyLineImage(base64: string, mimeType: string) {
+  const agent = await getAiAgentConfig("mealAnalysis");
+  if (!agent.enabled || agent.provider !== "gemini") {
+    return { type: "food" as const, confidence: 0 };
+  }
+
+  try {
+    return await callGeminiImageClassification(base64, mimeType, GEMINI_API_KEY.value(), agent);
+  } catch (error) {
+    await db.collection("adminAuditLogs").add({
+      type: "image-classification-failed",
+      error: error instanceof Error ? error.message : String(error),
+      createdAt: Timestamp.now()
+    });
+    return { type: "food" as const, confidence: 0 };
+  }
+}
+
+async function handleSlipPaymentImage(input: {
+  replyToken: string;
+  canonicalUserId: string;
+  lineUserId: string;
+  messageId: string;
+  mimeType: string;
+  slipData: Record<string, unknown>;
+}): Promise<{ paymentReviewId: string }> {
+  const now = Timestamp.now();
+  const profile = await getUserProfile(input.canonicalUserId);
+  const reviewRef = db.collection("paymentReviews").doc();
+  const amount = Number(input.slipData.amount ?? 0) || null;
+  await reviewRef.set({
+    paymentReviewId: reviewRef.id,
+    canonicalUserId: input.canonicalUserId,
+    lineUserId: input.lineUserId,
+    displayName: profile.name,
+    status: "pending-admin-review",
+    source: "line-image",
+    lineMessageId: input.messageId,
+    imageUrl: `line-message://${input.messageId}`,
+    mimeType: input.mimeType,
+    slipData: {
+      amount,
+      date: String(input.slipData.date ?? ""),
+      time: String(input.slipData.time ?? ""),
+      receiverName: String(input.slipData.receiver_name ?? ""),
+      bankFrom: String(input.slipData.bank_from ?? ""),
+      bankTo: String(input.slipData.bank_to ?? "")
+    },
+    createdAt: now,
+    updatedAt: now
+  });
+
+  await db.collection("subscriptionEvents").add({
+    type: "slip-submitted",
+    paymentReviewId: reviewRef.id,
+    canonicalUserId: input.canonicalUserId,
+    lineUserId: input.lineUserId,
+    amount,
+    createdAt: now
+  });
+
+  await replyToLine(input.replyToken, [
+    "ได้รับสลิปแล้วครับ",
+    amount ? `ยอดเงินที่อ่านได้: ${amount} บาท` : "ยังอ่านยอดเงินไม่ได้ชัดเจน",
+    "ระบบส่งให้แอดมินตรวจสอบแล้ว กรุณารอสักครู่นะครับ"
+  ].join("\n"));
+
+  await pushMessage(ADMIN_LINE_USER_ID.value(), [
+    "มีสลิปโอนเงินใหม่รอตรวจ",
+    `ลูกค้า: ${profile.name}`,
+    `LINE User ID: ${input.lineUserId}`,
+    `Canonical ID: ${input.canonicalUserId}`,
+    amount ? `ยอดที่อ่านได้: ${amount} บาท` : "ยอดที่อ่านได้: -",
+    `Review ID: ${reviewRef.id}`,
+    "",
+    `อนุมัติ 30 วัน: อนุมัติ ${input.lineUserId} 30`,
+    `อนุมัติ 90 วัน: อนุมัติ ${input.lineUserId} 90`,
+    `ปฏิเสธ: ปฏิเสธ ${input.lineUserId}`
+  ].join("\n"));
+
+  return { paymentReviewId: reviewRef.id };
 }
 
 function isKnownLegacyCommand(text: string): boolean {
@@ -1226,15 +1346,24 @@ async function handleAdminSubscriptionCommand(
 
   if (command.action === "reject") {
     const now = Timestamp.now();
-    await db.collection("paymentReviews").add({
-      canonicalUserId: target.canonicalUserId,
-      lineUserId: target.lineUserId,
+    const pendingReview = await getLatestPendingPaymentReview(target.canonicalUserId);
+    const reviewPayload = {
       status: "rejected",
       reason: command.reason,
       reviewedBy: adminLineUserId,
       reviewedAt: now,
-      createdAt: now
-    });
+      updatedAt: now
+    };
+    if (pendingReview) {
+      await pendingReview.ref.set(reviewPayload, { merge: true });
+    } else {
+      await db.collection("paymentReviews").add({
+        canonicalUserId: target.canonicalUserId,
+        lineUserId: target.lineUserId,
+        ...reviewPayload,
+        createdAt: now
+      });
+    }
     await db.collection("subscriptionEvents").add({
       type: "admin-reject",
       canonicalUserId: target.canonicalUserId,
@@ -1258,6 +1387,7 @@ async function handleAdminSubscriptionCommand(
   const currentExpiry = await getSubscriptionExpiry(target.canonicalUserId);
   const expiresAt = subscriptionExpiryAfterDays(command.days, currentExpiry);
   const now = Timestamp.now();
+  const pendingReview = await getLatestPendingPaymentReview(target.canonicalUserId);
   await Promise.all([
     db.collection("subscriptions").doc(target.canonicalUserId).set({
       userId: target.canonicalUserId,
@@ -1278,16 +1408,25 @@ async function handleAdminSubscriptionCommand(
       expiresAt,
       updatedAt: now
     }, { merge: true }),
-    db.collection("paymentReviews").add({
-      canonicalUserId: target.canonicalUserId,
-      lineUserId: target.lineUserId,
-      status: "approved",
-      days: command.days,
-      expiresAt,
-      reviewedBy: adminLineUserId,
-      reviewedAt: now,
-      createdAt: now
-    }),
+    pendingReview
+      ? pendingReview.ref.set({
+        status: "approved",
+        days: command.days,
+        expiresAt,
+        reviewedBy: adminLineUserId,
+        reviewedAt: now,
+        updatedAt: now
+      }, { merge: true })
+      : db.collection("paymentReviews").add({
+        canonicalUserId: target.canonicalUserId,
+        lineUserId: target.lineUserId,
+        status: "approved",
+        days: command.days,
+        expiresAt,
+        reviewedBy: adminLineUserId,
+        reviewedAt: now,
+        createdAt: now
+      }),
     db.collection("subscriptionEvents").add({
       type: "admin-approve",
       canonicalUserId: target.canonicalUserId,
@@ -1338,6 +1477,16 @@ async function resolveSubscriptionTarget(target: string): Promise<SubscriptionTa
     canonicalUserId: target,
     lineUserId: linkQuery.empty ? null : linkQuery.docs[0].id
   };
+}
+
+async function getLatestPendingPaymentReview(canonicalUserId: string) {
+  const snap = await db.collection("paymentReviews")
+    .where("canonicalUserId", "==", canonicalUserId)
+    .where("status", "==", "pending-admin-review")
+    .orderBy("createdAt", "desc")
+    .limit(1)
+    .get();
+  return snap.empty ? null : snap.docs[0];
 }
 
 async function getSubscriptionExpiry(canonicalUserId: string): Promise<Timestamp | null> {

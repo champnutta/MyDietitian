@@ -76,6 +76,19 @@ export interface MealAnalysisResult {
   };
 }
 
+export interface ImageClassificationResult {
+  type: "food" | "slip" | "bia" | "other";
+  confidence?: number;
+  slip_data?: {
+    amount?: number;
+    date?: string;
+    time?: string;
+    receiver_name?: string;
+    bank_from?: string;
+    bank_to?: string;
+  };
+}
+
 export interface ExerciseAnalysisResult {
   activity_name: string;
   calories_burned: number;

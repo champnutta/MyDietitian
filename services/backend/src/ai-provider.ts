@@ -3,6 +3,7 @@ import type {
   AnalyzeExerciseRequest,
   AnalyzeMealRequest,
   ExerciseAnalysisResult,
+  ImageClassificationResult,
   MealAnalysisResult
 } from "./contracts.js";
 import { db } from "./runtime.js";
@@ -82,6 +83,51 @@ export async function callGeminiMealAnalysis(
   if (!text) throw new Error("Gemini returned no text output");
 
   return parseJsonOutput(text);
+}
+
+export async function callGeminiImageClassification(
+  imageBase64: string,
+  mimeType: string,
+  apiKey: string,
+  agent: AiAgentConfig
+): Promise<ImageClassificationResult> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: buildImageClassificationPrompt() },
+            { inline_data: { mime_type: mimeType || "image/jpeg", data: imageBase64 } }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0,
+          response_mime_type: "application/json"
+        }
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini image classification failed: ${res.status} ${text}`);
+  }
+
+  const json = await res.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no image classification output");
+
+  const parsed = parseJsonOutput<ImageClassificationResult>(text);
+  return {
+    ...parsed,
+    type: normalizeImageType(parsed.type)
+  };
 }
 
 export async function callGeminiExerciseAnalysis(
@@ -166,6 +212,36 @@ Rules:
 - Use Thai language for health_rating.comment.
 - health_rating.score must be 1 to 10.
 - Use numbers, not strings, for nutrients.`;
+}
+
+function buildImageClassificationPrompt(): string {
+  return `Classify this LINE image for a Thai diet coach/payment bot.
+
+Return JSON only with this exact shape:
+{
+  "type": "food" | "slip" | "bia" | "other",
+  "confidence": 0.0,
+  "slip_data": {
+    "amount": 0,
+    "date": "string",
+    "time": "string",
+    "receiver_name": "string",
+    "bank_from": "string",
+    "bank_to": "string"
+  }
+}
+
+Rules:
+- "slip" means bank transfer slip, payment confirmation, QR payment receipt, or mobile banking transfer screenshot.
+- "bia" means InBody/body composition/smart scale/medical report/table of health metrics.
+- "food" means food, drink, snack, menu, or nutrition label.
+- "other" means anything else.
+- If not a payment slip, omit slip_data or set fields empty.
+- Use numeric amount only when visible.`;
+}
+
+function normalizeImageType(type: unknown): ImageClassificationResult["type"] {
+  return type === "slip" || type === "bia" || type === "other" ? type : "food";
 }
 
 function buildExercisePrompt(request: AnalyzeExerciseRequest): string {

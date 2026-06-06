@@ -20,7 +20,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `checkUserStatus` | User registration state | partial Firestore profile readiness |
 | `checkSubscription` | Subscription gate | partial Firestore staging gate for food/image/exercise |
 | `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo/setup/subscription |
-| `handleImageMessage` | LINE image message flow | partial Firestore staging |
+| `handleImageMessage` | LINE image message flow | partial Firestore staging with food/slip/BIA/other classification |
 | `getLineContent` | Download LINE image/file content | partial image-only staging |
 | `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` staging |
 | `saveToSheetAndGetSummary` | Save meal and return daily summary | partial Firestore write and reply only |
@@ -32,7 +32,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleWeightLog` | Weight logging | partial Firestore staging |
 | `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
 | `handleSubscriptionRequest` | Payment request flow | partial staging packages/QR response |
-| `handleSlipPayment` | Slip parsing and admin review | not started |
+| `handleSlipPayment` | Slip parsing and admin review | partial Firestore staging pending-review flow |
 | `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | partial Firestore staging |
 | `handleContactAdmin` | Customer to admin escalation | partial Firestore staging |
 | Admin chat mode | Temporary admin-to-customer chat | partial Firestore staging |

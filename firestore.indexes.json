@@ -47,6 +47,15 @@
         { "fieldPath": "userId", "order": "ASCENDING" },
         { "fieldPath": "loggedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "paymentReviews",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "canonicalUserId", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

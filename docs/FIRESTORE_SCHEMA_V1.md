@@ -179,9 +179,23 @@ Admin review/audit records for subscription approval or rejection.
 
 ```json
 {
+  "paymentReviewId": "review-id",
   "canonicalUserId": "canonical-user-id",
   "lineUserId": "Uxxxxxxxx",
-  "status": "approved",
+  "displayName": "Member",
+  "status": "pending-admin-review",
+  "source": "line-image",
+  "lineMessageId": "LINE message id",
+  "imageUrl": "line-message://...",
+  "mimeType": "image/jpeg",
+  "slipData": {
+    "amount": 59,
+    "date": "string",
+    "time": "string",
+    "receiverName": "string",
+    "bankFrom": "string",
+    "bankTo": "string"
+  },
   "days": 30,
   "expiresAt": "timestamp",
   "reviewedBy": "admin-line-user-id",
