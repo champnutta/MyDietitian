@@ -41,6 +41,13 @@ export interface AnalyzeMealRequest {
   mimeType?: string;
 }
 
+export interface AnalyzeExerciseRequest {
+  userId: string;
+  canonicalUserId?: string;
+  source: SourceChannel;
+  text: string;
+}
+
 export interface DashboardDataRequest {
   userId: string;
   canonicalUserId?: string;
@@ -67,6 +74,12 @@ export interface MealAnalysisResult {
     score: number;
     comment: string;
   };
+}
+
+export interface ExerciseAnalysisResult {
+  activity_name: string;
+  calories_burned: number;
+  comment: string;
 }
 
 export interface LineWebhookEvent {

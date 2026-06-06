@@ -1,8 +1,13 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { Timestamp } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { callGeminiMealAnalysis, getAiAgentConfig } from "./ai-provider.js";
+import {
+  callGeminiExerciseAnalysis,
+  callGeminiMealAnalysis,
+  getAiAgentConfig
+} from "./ai-provider.js";
 import type {
+  AnalyzeExerciseRequest,
   AnalyzeMealRequest,
   DashboardDataRequest,
   LineWebhookEvent,
@@ -29,6 +34,12 @@ type SavedMealAnalysis = {
   runId: string;
   mealLogId: string;
   mealLog: Record<string, unknown>;
+};
+
+type SavedExerciseAnalysis = {
+  runId: string;
+  exerciseLogId: string;
+  exerciseLog: Record<string, unknown>;
 };
 
 type UserProfile = {
@@ -244,6 +255,37 @@ export const analyzeMeal = onRequest({ secrets: [GEMINI_API_KEY] }, async (reque
   }
 });
 
+export const analyzeExercise = onRequest({ secrets: [GEMINI_API_KEY] }, async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  const body = request.body as AnalyzeExerciseRequest;
+  if (!body?.userId || !body?.source || !body?.text) {
+    response.status(400).json({ ok: false, error: "invalid-request" });
+    return;
+  }
+
+  try {
+    const canonicalUserId = await resolveCanonicalUserId(body);
+    const saved = await analyzeAndSaveExercise({ ...body, canonicalUserId, userId: canonicalUserId });
+
+    response.json({
+      ok: true,
+      canonicalUserId,
+      runId: saved.runId,
+      exerciseLogId: saved.exerciseLogId,
+      analysis: saved.exerciseLog
+    });
+  } catch (error) {
+    response.status(500).json({
+      ok: false,
+      error: "exercise-analysis-failed"
+    });
+  }
+});
+
 export const lineWebhook = onRequest(
   { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID, GEMINI_API_KEY] },
   async (request, response) => {
@@ -382,6 +424,86 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
     );
 
     return { runId: aiRunRef.id, mealLogId: mealLogRef.id, mealLog };
+  } catch (error) {
+    await aiRunRef.set(
+      {
+        status: "failed",
+        failedAt: Timestamp.now(),
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { merge: true }
+    );
+    throw error;
+  }
+}
+
+async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<SavedExerciseAnalysis> {
+  const now = Timestamp.now();
+  const aiRunRef = db.collection("aiRuns").doc();
+  const agent = await getAiAgentConfig("exerciseAnalysis");
+  if (!agent.enabled) {
+    throw new Error("AI exerciseAnalysis agent is disabled");
+  }
+  if (agent.provider !== "gemini") {
+    throw new Error(`Unsupported exerciseAnalysis provider: ${agent.provider}`);
+  }
+
+  await aiRunRef.set({
+    runId: aiRunRef.id,
+    userId: request.userId,
+    canonicalUserId: request.canonicalUserId ?? request.userId,
+    source: request.source,
+    inputType: "exercise_text",
+    text: request.text,
+    status: "running",
+    createdAt: now,
+    agentId: agent.agentId,
+    provider: agent.provider,
+    promptVersion: agent.promptVersion,
+    model: agent.model
+  });
+
+  try {
+    const analysis = await callGeminiExerciseAnalysis(request, GEMINI_API_KEY.value(), agent);
+    const exerciseLogRef = db.collection("exerciseLogs").doc();
+    const savedAt = Timestamp.now();
+    const rawCaloriesBurned = Math.max(0, Math.round(Number(analysis.calories_burned) || 0));
+    const caloriesBurned = Math.round(rawCaloriesBurned * 0.5);
+
+    const exerciseLog = {
+      userId: request.userId,
+      canonicalUserId: request.canonicalUserId ?? request.userId,
+      source: request.source,
+      text: request.text,
+      activityName: String(analysis.activity_name || request.text),
+      rawCaloriesBurned,
+      caloriesBurned,
+      safetyFactor: 0.5,
+      commentTh: String(analysis.comment || ""),
+      ai: {
+        runId: aiRunRef.id,
+        agentId: agent.agentId,
+        provider: agent.provider,
+        model: agent.model,
+        promptVersion: agent.promptVersion
+      },
+      loggedAt: savedAt,
+      createdAt: savedAt,
+      updatedAt: savedAt
+    };
+
+    await exerciseLogRef.set(exerciseLog);
+    await aiRunRef.set(
+      {
+        status: "completed",
+        exerciseLogId: exerciseLogRef.id,
+        completedAt: savedAt,
+        output: analysis
+      },
+      { merge: true }
+    );
+
+    return { runId: aiRunRef.id, exerciseLogId: exerciseLogRef.id, exerciseLog };
   } catch (error) {
     await aiRunRef.set(
       {
@@ -562,6 +684,28 @@ async function handleLineTextCommand(
     return { status: "help-replied" };
   }
 
+  if (text === "ออกกำลังกาย") {
+    await replyToLine(replyToken, formatExerciseGuideReply());
+    return { status: "exercise-guide-replied" };
+  }
+
+  if (looksLikeExerciseLog(text)) {
+    const saved = await analyzeAndSaveExercise({
+      userId: canonicalUserId,
+      canonicalUserId,
+      source: "line",
+      text
+    });
+    const profile = await getUserProfile(canonicalUserId);
+    const summary = await getTodaySummary(canonicalUserId, profile);
+    await replyToLine(replyToken, formatExerciseReply(saved.exerciseLog, summary));
+    return {
+      status: "exercise-logged",
+      runId: saved.runId,
+      exerciseLogId: saved.exerciseLogId
+    };
+  }
+
   if (text.includes("ข้อมูลส่วนตัว") || text.includes("เช็คสถานะ") || lower.includes("setting")) {
     const profile = await getUserProfile(canonicalUserId);
     await replyToLine(replyToken, formatProfileReply(profile));
@@ -705,6 +849,16 @@ function parseWeightCommand(text: string): { weightKg: number; bodyFatPct: numbe
   };
 }
 
+function looksLikeExerciseLog(text: string): boolean {
+  const lower = text.toLowerCase();
+  const hasExerciseKeyword =
+    /วิ่ง|เดิน|เดินชัน|เวท|ยกน้ำหนัก|ปั่น|จักรยาน|ว่ายน้ำ|โยคะ|พิลาทิส|hiit|cardio|run|running|walk|walking|bike|cycling|swim|weight|workout|exercise/.test(lower);
+  const hasMeasure =
+    /\d+\s*(นาที|ชม|ชั่วโมง|hr|hrs|hour|hours|min|mins|minute|minutes|km|กม|กิโล|รอบ|sets?|reps?)/i.test(text);
+  const asksQuestion = /ดีไหม|อะไรดี|แนะนำ|ควร|ไหม|\?/.test(text);
+  return hasExerciseKeyword && hasMeasure && !asksQuestion;
+}
+
 async function saveWeightLog(
   userId: string,
   weight: { weightKg: number; bodyFatPct: number | null; muscleMassKg: number | null }
@@ -785,6 +939,30 @@ function formatWeightReply(weight: { weightKg: number; bodyFatPct: number | null
   if (weight.bodyFatPct !== null) lines.push(`ไขมัน: ${weight.bodyFatPct}%`);
   if (weight.muscleMassKg !== null) lines.push(`กล้ามเนื้อ: ${weight.muscleMassKg} kg`);
   return lines.join("\n");
+}
+
+function formatExerciseGuideReply(): string {
+  return [
+    "บันทึกการออกกำลังกาย",
+    "พิมพ์บอกโค้ชได้เลยครับว่าทำอะไรไปบ้าง เช่น",
+    "วิ่ง 30 นาที",
+    "เดินชัน 15% ความเร็ว 4.5 นาน 45 นาที",
+    "เวทเทรนนิ่ง 1 ชั่วโมง",
+    "โค้ชจะคำนวณแคลอรี่ที่เบิร์นได้และปรับโควต้าการกินให้ครับ"
+  ].join("\n");
+}
+
+function formatExerciseReply(exerciseLog: Record<string, unknown>, summary: TodaySummary): string {
+  return [
+    "บันทึกการเบิร์นเรียบร้อย",
+    `กิจกรรม: ${exerciseLog.activityName}`,
+    `เบิร์นจริง: ${Math.round(Number(exerciseLog.rawCaloriesBurned ?? 0))} kcal`,
+    `ได้กินเพิ่ม: +${Math.round(Number(exerciseLog.caloriesBurned ?? 0))} kcal (50%)`,
+    "------------------",
+    `เป้าหมายใหม่: ${Math.round(summary.dynamicTarget)} kcal`,
+    `กินได้อีก: ${Math.round(summary.remaining.cal)} kcal`,
+    String(exerciseLog.commentTh ?? "")
+  ].join("\n");
 }
 
 function formatDashboardReply(lineUserId: string): string {

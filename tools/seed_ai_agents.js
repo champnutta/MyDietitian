@@ -6,14 +6,24 @@ const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
 const commit = Boolean(args.commit);
 
-const MEAL_AGENT_CONFIG = {
-  agentId: "mealAnalysis",
-  provider: "gemini",
-  model: "gemini-3-flash-preview",
-  promptVersion: "meal-v1",
-  temperature: 0.2,
-  enabled: true
-};
+const AI_AGENT_CONFIGS = [
+  {
+    agentId: "mealAnalysis",
+    provider: "gemini",
+    model: "gemini-3-flash-preview",
+    promptVersion: "meal-v1",
+    temperature: 0.2,
+    enabled: true
+  },
+  {
+    agentId: "exerciseAnalysis",
+    provider: "gemini",
+    model: "gemini-3-flash-preview",
+    promptVersion: "exercise-v1",
+    temperature: 0.2,
+    enabled: true
+  }
+];
 
 main().catch((error) => {
   console.error(error);
@@ -24,22 +34,19 @@ async function main() {
   initializeFirebase(projectId, args.serviceAccount);
 
   const db = admin.firestore();
-  const ref = db.collection("aiAgents").doc(MEAL_AGENT_CONFIG.agentId);
   const now = admin.firestore.FieldValue.serverTimestamp();
-  const payload = {
-    ...MEAL_AGENT_CONFIG,
-    updatedAt: now
-  };
 
   console.log(JSON.stringify({
     projectId,
     collection: "aiAgents",
-    documentId: MEAL_AGENT_CONFIG.agentId,
     commit,
-    payload: {
-      ...MEAL_AGENT_CONFIG,
-      updatedAt: "<serverTimestamp>"
-    }
+    documents: AI_AGENT_CONFIGS.map((config) => ({
+      documentId: config.agentId,
+      payload: {
+        ...config,
+        updatedAt: "<serverTimestamp>"
+      }
+    }))
   }, null, 2));
 
   if (!commit) {
@@ -47,16 +54,20 @@ async function main() {
     return;
   }
 
-  const snap = await ref.get();
-  await ref.set(
-    {
-      ...payload,
-      createdAt: snap.exists ? snap.data()?.createdAt ?? now : now
-    },
-    { merge: true }
-  );
+  for (const config of AI_AGENT_CONFIGS) {
+    const ref = db.collection("aiAgents").doc(config.agentId);
+    const snap = await ref.get();
+    await ref.set(
+      {
+        ...config,
+        updatedAt: now,
+        createdAt: snap.exists ? snap.data()?.createdAt ?? now : now
+      },
+      { merge: true }
+    );
+  }
 
-  console.log("Seeded aiAgents/mealAnalysis successfully.");
+  console.log("Seeded AI agent configs successfully.");
 }
 
 function parseArgs(argv) {

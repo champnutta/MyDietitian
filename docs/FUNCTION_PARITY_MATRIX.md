@@ -28,7 +28,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `showLoadingAnimation` | LINE loading UX | partial best-effort image flow |
 | `handleFileMessage` | PDF/BIA/file routing | not started |
 | `handleBIAReport` | Body composition report analysis | not started |
-| `handleExerciseLog` | Exercise logging | not started |
+| `handleExerciseLog` | Exercise logging | partial Firestore staging with `exerciseAnalysis` |
 | `handleWeightLog` | Weight logging | partial Firestore staging |
 | `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
 | `handleSubscriptionRequest` | Payment request flow | not started |

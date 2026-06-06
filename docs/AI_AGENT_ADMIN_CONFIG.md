@@ -6,7 +6,7 @@ The backend reads AI agent settings from Firestore before calling the provider. 
 
 `aiAgents/{agentId}`
 
-## Current agent
+## Current agents
 
 `aiAgents/mealAnalysis`
 
@@ -16,6 +16,21 @@ The backend reads AI agent settings from Firestore before calling the provider. 
   "provider": "gemini",
   "model": "gemini-3-flash-preview",
   "promptVersion": "meal-v1",
+  "temperature": 0.2,
+  "enabled": true,
+  "updatedBy": "admin",
+  "updatedAt": "timestamp"
+}
+```
+
+`aiAgents/exerciseAnalysis`
+
+```json
+{
+  "agentId": "exerciseAnalysis",
+  "provider": "gemini",
+  "model": "gemini-3-flash-preview",
+  "promptVersion": "exercise-v1",
   "temperature": 0.2,
   "enabled": true,
   "updatedBy": "admin",
