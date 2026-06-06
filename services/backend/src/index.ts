@@ -1,35 +1,27 @@
 import { onRequest } from "firebase-functions/v2/https";
-import { setGlobalOptions } from "firebase-functions/v2/options";
-import { defineSecret } from "firebase-functions/params";
-import { initializeApp } from "firebase-admin/app";
-import { getFirestore, Timestamp } from "firebase-admin/firestore";
+import { Timestamp } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { callGeminiMealAnalysis, getAiAgentConfig } from "./ai-provider.js";
 import type {
-  AiAgentConfig,
   AnalyzeMealRequest,
   DashboardDataRequest,
   LineWebhookEvent,
-  MealAnalysisResult,
-  SourceChannel,
   UpdateProfileRequest
 } from "./contracts.js";
-
-initializeApp();
-setGlobalOptions({ region: "asia-southeast1" });
-const db = getFirestore();
-const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");
-const LINE_CHANNEL_SECRET = defineSecret("LINE_CHANNEL_SECRET");
-const LINE_CHANNEL_ACCESS_TOKEN = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
-const ADMIN_LINE_USER_ID = defineSecret("ADMIN_LINE_USER_ID");
-
-const DEFAULT_MEAL_AGENT: AiAgentConfig = {
-  agentId: "mealAnalysis",
-  provider: "gemini",
-  model: "gemini-3-flash-preview",
-  promptVersion: "meal-v1",
-  temperature: 0.2,
-  enabled: true
-};
+import { resolveCanonicalUserId, resolveLineCanonicalUserId } from "./identity-service.js";
+import {
+  downloadLineContent,
+  pushMessage,
+  replyToLine,
+  showLoadingAnimation
+} from "./line-client.js";
+import {
+  ADMIN_LINE_USER_ID,
+  db,
+  GEMINI_API_KEY,
+  LINE_CHANNEL_ACCESS_TOKEN,
+  LINE_CHANNEL_SECRET
+} from "./runtime.js";
 const LEGACY_GAS_DASHBOARD_URL =
   "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
 
@@ -312,53 +304,6 @@ function verifyLineSignature(rawBody: Buffer, signature: string): boolean {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
-async function callGeminiMealAnalysis(
-  request: AnalyzeMealRequest,
-  apiKey: string,
-  agent: AiAgentConfig
-): Promise<MealAnalysisResult> {
-  const prompt = buildMealPrompt(request);
-  const parts: Array<Record<string, unknown>> = [{ text: prompt }];
-
-  if (request.imageBase64) {
-    parts.push({
-      inline_data: {
-        mime_type: request.mimeType || "image/jpeg",
-        data: request.imageBase64
-      }
-    });
-  }
-
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: agent.temperature,
-          response_mime_type: "application/json"
-        }
-      })
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini API failed: ${res.status} ${text}`);
-  }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no text output");
-
-  return parseJsonOutput(text);
-}
-
 async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMealAnalysis> {
   const now = Timestamp.now();
   const aiRunRef = db.collection("aiRuns").doc();
@@ -590,43 +535,6 @@ async function handleLineImageMessage(
   }
 }
 
-async function downloadLineContent(messageId: string): Promise<{ base64: string; mimeType: string }> {
-  const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
-    headers: {
-      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
-    }
-  });
-
-  if (!res.ok) {
-    throw new Error(`LINE content download failed: ${res.status} ${await res.text()}`);
-  }
-
-  const mimeType = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
-  const buffer = Buffer.from(await res.arrayBuffer());
-  return {
-    base64: buffer.toString("base64"),
-    mimeType
-  };
-}
-
-async function showLoadingAnimation(chatId: string, seconds: number): Promise<void> {
-  try {
-    await fetch("https://api.line.me/v2/bot/chat/loading/start", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
-      },
-      body: JSON.stringify({
-        chatId,
-        loadingSeconds: Math.max(5, Math.min(60, seconds))
-      })
-    });
-  } catch {
-    // Loading animation is nice-to-have; reply flow must continue if LINE ignores it.
-  }
-}
-
 function isKnownLegacyCommand(text: string): boolean {
   const lower = text.toLowerCase();
   return lower.startsWith("code") ||
@@ -691,42 +599,6 @@ async function handleLineTextCommand(
   }
 
   return null;
-}
-
-async function replyToLine(replyToken: string, text: string): Promise<void> {
-  const res = await fetch("https://api.line.me/v2/bot/message/reply", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
-    },
-    body: JSON.stringify({
-      replyToken,
-      messages: [{ type: "text", text: text.slice(0, 4900) }]
-    })
-  });
-
-  if (!res.ok) {
-    throw new Error(`LINE reply failed: ${res.status} ${await res.text()}`);
-  }
-}
-
-async function pushMessage(userId: string, text: string): Promise<void> {
-  const res = await fetch("https://api.line.me/v2/bot/message/push", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
-    },
-    body: JSON.stringify({
-      to: userId,
-      messages: [{ type: "text", text: text.slice(0, 4900) }]
-    })
-  });
-
-  if (!res.ok) {
-    throw new Error(`LINE push failed: ${res.status} ${await res.text()}`);
-  }
 }
 
 async function notifyAdminError(context: string, error: unknown): Promise<void> {
@@ -980,120 +852,6 @@ function formatMealReply(mealLog: Record<string, unknown>): string {
     `คะแนน: ${rating.score}/10`,
     String(rating.commentTh ?? "")
   ].join("\n");
-}
-
-async function resolveCanonicalUserId(request: {
-  userId?: string;
-  canonicalUserId?: string;
-  source?: SourceChannel;
-}): Promise<string> {
-  if (request.canonicalUserId) return request.canonicalUserId;
-  if (!request.userId) throw new Error("Missing user id");
-
-  if (request.source === "line") {
-    return resolveLineCanonicalUserId(request.userId);
-  }
-
-  const authLink = await db.collection("authLinks").doc(request.userId).get();
-  if (authLink.exists) {
-    return String(authLink.data()?.canonicalUserId ?? request.userId);
-  }
-
-  return request.userId;
-}
-
-async function resolveLineCanonicalUserId(lineUserId: string): Promise<string> {
-  const linkRef = db.collection("lineLinks").doc(lineUserId);
-  const link = await linkRef.get();
-
-  if (link.exists) {
-    return String(link.data()?.canonicalUserId ?? lineUserId);
-  }
-
-  const now = Timestamp.now();
-  const canonicalUserId = lineUserId;
-  await linkRef.set({
-    lineUserId,
-    canonicalUserId,
-    status: "legacy-line-primary",
-    createdAt: now,
-    updatedAt: now
-  }, { merge: true });
-
-  await db.collection("users").doc(canonicalUserId).set({
-    userId: canonicalUserId,
-    canonicalUserId,
-    status: "active",
-    source: { line: true, app: false },
-    createdAt: now,
-    updatedAt: now
-  }, { merge: true });
-
-  return canonicalUserId;
-}
-
-async function getAiAgentConfig(agentId: string): Promise<AiAgentConfig> {
-  const snap = await db.collection("aiAgents").doc(agentId).get();
-  if (!snap.exists) {
-    return DEFAULT_MEAL_AGENT;
-  }
-
-  const data = snap.data() ?? {};
-  return {
-    agentId,
-    provider: normalizeAiProvider(data.provider),
-    model: String(data.model ?? DEFAULT_MEAL_AGENT.model),
-    promptVersion: String(data.promptVersion ?? DEFAULT_MEAL_AGENT.promptVersion),
-    temperature: Number(data.temperature ?? DEFAULT_MEAL_AGENT.temperature),
-    enabled: data.enabled !== false
-  };
-}
-
-function normalizeAiProvider(provider: unknown): AiAgentConfig["provider"] {
-  return provider === "anthropic" ? "anthropic" : "gemini";
-}
-
-function buildMealPrompt(request: AnalyzeMealRequest): string {
-  const inputHint = request.inputType === "image"
-    ? "Analyze the visible food image only. Do not assume hidden ingredients."
-    : `Analyze this user food text: ${request.text ?? ""}`;
-
-  return `Act as an expert Thai nutrition coach. ${inputHint}
-
-Return JSON only with this exact shape:
-{
-  "dish_name": { "th": "Thai dish name", "en": "English dish name" },
-  "portion_description": "Short Thai portion description",
-  "nutrients": {
-    "calories_kcal": 0,
-    "protein_g": 0,
-    "carbs_g": 0,
-    "fat_g": 0,
-    "fiber_g": 0,
-    "sugar_g": 0
-  },
-  "health_rating": {
-    "score": 1,
-    "comment": "Thai coaching comment"
-  }
-}
-
-Rules:
-- Estimate only the food that is visible or explicitly described.
-- Use Thai language for health_rating.comment.
-- health_rating.score must be 1 to 10.
-- Use numbers, not strings, for nutrients.`;
-}
-
-function parseJsonOutput<T>(raw: string): T {
-  const cleaned = raw
-    .trim()
-    .replace(/^```json\s*/i, "")
-    .replace(/^```\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-
-  return JSON.parse(cleaned) as T;
 }
 
 type DailyHistory = Record<string, {

@@ -12,6 +12,13 @@ These are recommended upgrades while migrating GAS to Firebase. They are not blo
 - `subscription-service`: subscription checks, code redemption, slip review, admin approve/reject.
 - `profile-service`: canonical user links, profile updates, native app account linking.
 
+Current refactor progress:
+
+- `runtime`: Firebase initialization, shared Firestore client, and Secret Manager bindings.
+- `ai-provider`: meal agent config, Gemini request formatting, response parsing.
+- `identity-service`: canonical user resolution and LINE link bootstrap.
+- `line-client`: LINE reply, push, content download, and loading animation helpers.
+
 ## Store image metadata, not raw images
 
 The staging image flow intentionally analyzes LINE images in memory and stores only `line-message://{messageId}`. For production, prefer:
