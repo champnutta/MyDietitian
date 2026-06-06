@@ -55,6 +55,21 @@ export async function downloadLineContent(messageId: string): Promise<{ base64: 
   };
 }
 
+export async function getLineProfile(userId: string): Promise<{ displayName: string }> {
+  const res = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
+    headers: {
+      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
+    }
+  });
+
+  if (!res.ok) {
+    return { displayName: "Member" };
+  }
+
+  const profile = await res.json() as { displayName?: string };
+  return { displayName: profile.displayName || "Member" };
+}
+
 export async function showLoadingAnimation(chatId: string, seconds: number): Promise<void> {
   try {
     await fetch("https://api.line.me/v2/bot/chat/loading/start", {

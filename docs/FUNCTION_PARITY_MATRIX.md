@@ -6,7 +6,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 - GAS production: still authoritative.
 - Firebase backend: migration/staging only.
-- Firebase `lineWebhook`: verifies signature, logs events, and supports staging text/image food, exercise, weight, contact-admin, subscription request, redeem-code, and admin approve/reject flows.
+- Firebase `lineWebhook`: verifies signature, logs events, and supports staging onboarding, manual profile setup, subscription gate, text/image food, exercise, weight, contact-admin, subscription request, redeem-code, and admin approve/reject flows.
 - Firestore: ready for migrated data.
 - Data migration: deferred until final production cutover.
 
@@ -16,10 +16,10 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | --- | --- | --- |
 | `doPost` | LINE event entry point and routing | partial |
 | `isDuplicate` | Prevent duplicate LINE message processing | partial staging text dedupe |
-| `handleFollowEvent` | Follow/onboarding | not started |
-| `checkUserStatus` | User registration state | partial schema only |
-| `checkSubscription` | Subscription gate | partial schema/expiry update only, not enforced for production cutover |
-| `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo |
+| `handleFollowEvent` | Follow/onboarding | partial Firestore staging |
+| `checkUserStatus` | User registration state | partial Firestore profile readiness |
+| `checkSubscription` | Subscription gate | partial Firestore staging gate for food/image/exercise |
+| `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo/setup/subscription |
 | `handleImageMessage` | LINE image message flow | partial Firestore staging |
 | `getLineContent` | Download LINE image/file content | partial image-only staging |
 | `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` staging |
@@ -49,7 +49,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `getTodaySummary` | Today's nutrition summary | partial Firestore staging |
 | `updateUserStreak` | Streak tracking | not started |
 | `archiveOldLogs` | Move old rows into archive sheets | not needed after Firestore migration |
-| `saveSettingsFromWeb` | LIFF settings save | partial through `updateProfile` only |
+| `saveSettingsFromWeb` | LIFF settings save | partial through `updateProfile`; LINE quick setup added for staging |
 
 ## Cutover Rule
 

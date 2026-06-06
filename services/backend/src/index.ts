@@ -16,6 +16,7 @@ import type {
 import { resolveCanonicalUserId, resolveLineCanonicalUserId } from "./identity-service.js";
 import {
   downloadLineContent,
+  getLineProfile,
   pushMessage,
   replyToLine,
   showLoadingAnimation
@@ -30,6 +31,7 @@ import {
 const LEGACY_GAS_DASHBOARD_URL =
   "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
 const PAYMENT_QR_IMAGE = "https://img2.pic.in.th/1613478.jpg";
+const LIFF_SETTINGS_URL = "https://liff.line.me/2009365288-Ux31tFWT?page=form";
 const SUBSCRIPTION_PACKAGES = [
   { days: 30, priceThb: 59 },
   { days: 90, priceThb: 150 }
@@ -87,6 +89,12 @@ type SubscriptionTarget = {
 type AdminSubscriptionCommand =
   | { action: "approve"; target: string; days: number }
   | { action: "reject"; target: string; reason: string | null };
+
+type UserReadiness = {
+  profileComplete: boolean;
+  subscriptionActive: boolean;
+  expiresAt: Timestamp | null;
+};
 
 export const health = onRequest((request, response) => {
   response.json({
@@ -546,8 +554,8 @@ async function handleLineEvent(event: LineEvent) {
   }
 
   if (event.type === "follow") {
-    await replyToLine(replyToken, "ยินดีต้อนรับครับ ตอนนี้ระบบ Firebase ยังอยู่ในโหมดทดสอบ กรุณาใช้งานผ่าน LINE OA เดิมต่อไปก่อนครับ");
-    return { ok: true, type: event.type, status: "follow-replied" };
+    const result = await handleFollowEvent(replyToken, lineUserId);
+    return { ok: true, type: event.type, ...result };
   }
 
   if (event.type !== "message") {
@@ -556,6 +564,20 @@ async function handleLineEvent(event: LineEvent) {
 
   if (event.message?.type === "image") {
     const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyToLine(replyToken, formatOnboardingReply(lineUserId));
+      return { ok: true, type: event.type, canonicalUserId, status: "profile-required-before-image" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(
+        replyToken,
+        canonicalUserId,
+        lineUserId,
+        "วันใช้งานหมดแล้วครับ ตอนนี้ Firebase staging ยังรับสลิปจากรูปอัตโนมัติไม่ครบ กรุณาใช้ระบบเดิมสำหรับสลิปจนกว่าจะ cutover"
+      );
+      return { ok: true, type: event.type, canonicalUserId, status: "subscription-required-before-image" };
+    }
     return handleLineImageMessage(event, replyToken, canonicalUserId, lineUserId);
   }
 
@@ -591,6 +613,16 @@ async function handleLineEvent(event: LineEvent) {
   if (isKnownLegacyCommand(text)) {
     await replyToLine(replyToken, "คำสั่งนี้ยังอยู่ในระบบ GAS production เดิมครับ Firebase staging ยังไม่พร้อมแทนที่คำสั่งนี้");
     return { ok: true, type: event.type, status: "legacy-command-deferred" };
+  }
+
+  const readiness = await getUserReadiness(canonicalUserId);
+  if (!readiness.profileComplete) {
+    await replyToLine(replyToken, formatOnboardingReply(lineUserId));
+    return { ok: true, type: event.type, canonicalUserId, status: "profile-required-before-meal" };
+  }
+  if (!readiness.subscriptionActive) {
+    await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ");
+    return { ok: true, type: event.type, canonicalUserId, status: "subscription-required-before-meal" };
   }
 
   try {
@@ -778,6 +810,11 @@ async function handleLineTextCommand(
     return { status: "redeem-code-processed", ...result };
   }
 
+  if (isManualProfileSetupCommand(text)) {
+    const result = await handleManualProfileSetup(text, replyToken, canonicalUserId, lineUserId);
+    return { status: "manual-profile-setup", ...result };
+  }
+
   if (text.startsWith("ติดต่อ") || text.startsWith("แอดมิน") || lower.startsWith("admin")) {
     const result = await handleContactAdmin(text, replyToken, canonicalUserId, lineUserId);
     return { status: "contact-admin-forwarded", ...result };
@@ -794,6 +831,16 @@ async function handleLineTextCommand(
   }
 
   if (looksLikeExerciseLog(text)) {
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyToLine(replyToken, formatOnboardingReply(lineUserId));
+      return { status: "profile-required-before-exercise" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ");
+      return { status: "subscription-required-before-exercise" };
+    }
+
     const saved = await analyzeAndSaveExercise({
       userId: canonicalUserId,
       canonicalUserId,
@@ -849,6 +896,45 @@ async function handleLineTextCommand(
   return null;
 }
 
+async function handleFollowEvent(replyToken: string, lineUserId: string): Promise<Record<string, unknown>> {
+  const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+  const lineProfile = await getLineProfile(lineUserId);
+  const readiness = await getUserReadiness(canonicalUserId);
+  const now = Timestamp.now();
+
+  await Promise.all([
+    db.collection("users").doc(canonicalUserId).set({
+      userId: canonicalUserId,
+      canonicalUserId,
+      status: readiness.profileComplete ? "active" : "needs_profile",
+      source: { line: true, app: false },
+      updatedAt: now,
+      createdAt: now
+    }, { merge: true }),
+    db.collection("profiles").doc(canonicalUserId).set({
+      userId: canonicalUserId,
+      canonicalUserId,
+      lineUserId,
+      displayName: lineProfile.displayName,
+      updatedAt: now,
+      createdAt: now
+    }, { merge: true })
+  ]);
+
+  if (!readiness.profileComplete) {
+    await replyToLine(replyToken, formatOnboardingReply(lineUserId, lineProfile.displayName));
+    return { status: "follow-onboarding-replied", canonicalUserId };
+  }
+
+  if (!readiness.subscriptionActive) {
+    await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "ยินดีต้อนรับกลับครับ แต่วันใช้งานหมดแล้ว");
+    return { status: "follow-subscription-replied", canonicalUserId };
+  }
+
+  await replyToLine(replyToken, `ยินดีต้อนรับกลับครับคุณ ${lineProfile.displayName}\nพิมพ์อาหารหรือส่งรูปอาหารได้เลยครับ`);
+  return { status: "follow-ready-replied", canonicalUserId };
+}
+
 function isSubscriptionRequestCommand(text: string): boolean {
   const lower = text.toLowerCase();
   return lower.includes("subscribe") ||
@@ -864,15 +950,132 @@ function isRedeemCodeCommand(text: string): boolean {
     text.startsWith("เติมโค้ด");
 }
 
-async function handleSubscriptionRequest(
+function isManualProfileSetupCommand(text: string): boolean {
+  return text.startsWith("ตั้งค่า");
+}
+
+async function handleManualProfileSetup(
+  text: string,
   replyToken: string,
   canonicalUserId: string,
   lineUserId: string
+): Promise<Record<string, unknown>> {
+  const parsed = await parseManualProfileSetup(text, canonicalUserId, lineUserId);
+  if (!parsed) {
+    await replyToLine(replyToken, [
+      "รูปแบบคำสั่งตั้งค่ายังไม่ถูกต้องครับ",
+      "ตัวอย่าง:",
+      "ตั้งค่า แชมป์ 2000 40-30-30",
+      "ตั้งค่า 2000 40-30-30"
+    ].join("\n"));
+    return { updated: false, reason: "invalid-profile-setup" };
+  }
+
+  const now = Timestamp.now();
+  const existingExpiry = await getSubscriptionExpiry(canonicalUserId);
+  const expiresAt = existingExpiry ?? subscriptionExpiryAfterDays(3, null);
+  await Promise.all([
+    db.collection("profiles").doc(canonicalUserId).set({
+      userId: canonicalUserId,
+      canonicalUserId,
+      lineUserId,
+      displayName: parsed.displayName,
+      target: parsed.target,
+      updatedAt: now,
+      createdAt: now
+    }, { merge: true }),
+    db.collection("users").doc(canonicalUserId).set({
+      userId: canonicalUserId,
+      canonicalUserId,
+      status: "active",
+      source: { line: true, app: false },
+      updatedAt: now,
+      createdAt: now
+    }, { merge: true }),
+    db.collection("subscriptions").doc(canonicalUserId).set({
+      userId: canonicalUserId,
+      canonicalUserId,
+      status: expiresAt.toMillis() >= Date.now() ? "active" : "expired",
+      expiresAt,
+      trialGranted: existingExpiry ? false : true,
+      updatedAt: now,
+      createdAt: now
+    }, { merge: true }),
+    db.collection("profileEvents").add({
+      type: "manual-line-setup",
+      canonicalUserId,
+      lineUserId,
+      displayName: parsed.displayName,
+      target: parsed.target,
+      createdAt: now
+    })
+  ]);
+
+  await replyToLine(replyToken, [
+    "ตั้งค่าเป้าหมายเรียบร้อยครับ",
+    `คุณ: ${parsed.displayName}`,
+    `TDEE: ${parsed.target.calories} kcal`,
+    `P:${parsed.target.proteinG}g C:${parsed.target.carbsG}g F:${parsed.target.fatG}g`,
+    existingExpiry ? `หมดอายุ: ${formatBangkokDate(expiresAt.toDate())}` : `เริ่มทดลองใช้ฟรีถึง: ${formatBangkokDate(expiresAt.toDate())}`
+  ].join("\n"));
+
+  return { updated: true, trialGranted: !existingExpiry, expiresAt: expiresAt.toDate().toISOString() };
+}
+
+async function parseManualProfileSetup(
+  text: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<{
+  displayName: string;
+  target: { calories: number; proteinPct: number; carbsPct: number; fatPct: number; proteinG: number; carbsG: number; fatG: number; fiberG: number };
+} | null> {
+  const parts = text.split(/\s+/).filter(Boolean);
+  if (parts.length < 3) return null;
+
+  const ratioText = parts[parts.length - 1];
+  const tdee = Number(parts[parts.length - 2]);
+  const ratios = ratioText.split("-").map((part) => Number(part));
+  if (!Number.isFinite(tdee) || tdee < 800 || tdee > 6000 || ratios.length !== 3 || ratios.some((value) => !Number.isFinite(value) || value <= 0)) {
+    return null;
+  }
+
+  let displayName = parts.slice(1, parts.length - 2).join(" ").trim();
+  if (!displayName) {
+    const [profileSnap, lineProfile] = await Promise.all([
+      db.collection("profiles").doc(canonicalUserId).get(),
+      getLineProfile(lineUserId)
+    ]);
+    displayName = String(profileSnap.data()?.displayName ?? lineProfile.displayName ?? "Member");
+  }
+
+  const [proteinPct, carbsPct, fatPct] = ratios;
+  return {
+    displayName,
+    target: {
+      calories: Math.round(tdee),
+      proteinPct,
+      carbsPct,
+      fatPct,
+      proteinG: Math.round((tdee * proteinPct / 100) / 4),
+      carbsG: Math.round((tdee * carbsPct / 100) / 4),
+      fatG: Math.round((tdee * fatPct / 100) / 9),
+      fiberG: 25
+    }
+  };
+}
+
+async function handleSubscriptionRequest(
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string,
+  warningText = ""
 ): Promise<Record<string, unknown>> {
   const profile = await getUserProfile(canonicalUserId);
   const packageLines = SUBSCRIPTION_PACKAGES.map((plan) => `- ${plan.days} วัน = ${plan.priceThb} บาท`);
   const expireText = profile.expiresAt ? formatBangkokDate(profile.expiresAt.toDate()) : "-";
   const message = [
+    warningText,
     `สมาชิก: ${profile.name}`,
     `หมดอายุ: ${expireText}`,
     "",
@@ -883,7 +1086,7 @@ async function handleSubscriptionRequest(
     `QR: ${PAYMENT_QR_IMAGE}`,
     "",
     `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`
-  ].join("\n");
+  ].filter((line) => line !== "").join("\n");
 
   await db.collection("subscriptionRequests").add({
     canonicalUserId,
@@ -1247,6 +1450,21 @@ async function getActiveAdminChat(adminLineUserId: string): Promise<{ targetLine
   };
 }
 
+async function getUserReadiness(userId: string): Promise<UserReadiness> {
+  const [profileSnap, subscriptionSnap] = await Promise.all([
+    db.collection("profiles").doc(userId).get(),
+    db.collection("subscriptions").doc(userId).get()
+  ]);
+  const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
+  const target = normalizeTarget(profile);
+  const expiresAt = subscriptionSnap.exists ? normalizeTimestamp(subscriptionSnap.data()?.expiresAt) : normalizeTimestamp(profile.expiresAt);
+  return {
+    profileComplete: Boolean(profileSnap.exists && target.cal > 0 && target.p > 0 && target.c > 0 && target.f > 0),
+    subscriptionActive: Boolean(expiresAt && expiresAt.toMillis() >= Date.now()),
+    expiresAt
+  };
+}
+
 async function getUserProfile(userId: string): Promise<UserProfile> {
   const [profileSnap, subscriptionSnap] = await Promise.all([
     db.collection("profiles").doc(userId).get(),
@@ -1443,6 +1661,22 @@ function formatExerciseReply(exerciseLog: Record<string, unknown>, summary: Toda
     `เป้าหมายใหม่: ${Math.round(summary.dynamicTarget)} kcal`,
     `กินได้อีก: ${Math.round(summary.remaining.cal)} kcal`,
     String(exerciseLog.commentTh ?? "")
+  ].join("\n");
+}
+
+function formatOnboardingReply(lineUserId: string, displayName = "Member"): string {
+  const liffUrl = `${LIFF_SETTINGS_URL}&uid=${encodeURIComponent(lineUserId)}`;
+  return [
+    `ยินดีต้อนรับครับคุณ ${displayName}`,
+    "ก่อนให้ AI coach ประเมินอาหาร/ออกกำลังกาย ต้องตั้งค่าโปรไฟล์และเป้าหมายก่อนครับ",
+    "",
+    "ตั้งค่าแบบเร็วในแชท:",
+    "ตั้งค่า ชื่อ 2000 40-30-30",
+    "หรือถ้าเคยมีชื่อแล้ว: ตั้งค่า 2000 40-30-30",
+    "",
+    `ฟอร์มเดิม: ${liffUrl}`,
+    "",
+    "หมายเหตุ: Firebase ยังเป็น staging ส่วน production LINE OA เดิมยังใช้งานตามปกติ"
   ].join("\n");
 }
 

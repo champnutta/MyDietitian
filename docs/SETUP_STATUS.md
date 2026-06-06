@@ -36,6 +36,7 @@
 - Backend now resolves canonical users through `lineLinks` and `authLinks`, so LINE OA and the future native app can share the same Firestore data after account linking.
 - `lineWebhook` is staging only. It verifies signatures, deduplicates text message IDs, can analyze/reply to text food messages, and defers known legacy commands to GAS.
 - `lineWebhook` staging text commands now support help, profile/status, legacy dashboard link, daily summary from Firestore, manual weight logging, and undo latest Firestore meal log.
+- `lineWebhook` staging onboarding now handles follow events, creates/updates LINE-linked users, supports quick manual setup with `ตั้งค่า ชื่อ 2000 40-30-30`, grants a 3-day trial for newly configured users, and gates food/image/exercise analysis until profile and subscription readiness pass.
 - `lineWebhook` staging image flow now downloads LINE image content in memory, analyzes it with `aiAgents/mealAnalysis`, saves a Firestore meal log, replies with a summary, and starts best-effort LINE loading animation.
 - `lineWebhook` staging exercise flow now detects exercise text, analyzes burn with `aiAgents/exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies the legacy 50% safety factor, writes Firestore `exerciseLogs`, and updates daily summary/dashboard burn totals.
 - `lineWebhook` staging contact-admin flow now forwards customer contact messages to admin LINE, stores `adminContactRequests`, and supports 30-minute admin chat sessions through `adminChatSessions`.

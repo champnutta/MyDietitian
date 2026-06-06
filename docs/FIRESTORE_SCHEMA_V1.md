@@ -133,6 +133,30 @@ Subscription and entitlement record managed by backend/admin flow.
 }
 ```
 
+### `profileEvents/{eventId}`
+
+Append-only profile setup/update events, including LINE quick setup during staging.
+
+```json
+{
+  "type": "manual-line-setup",
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "displayName": "Champ",
+  "target": {
+    "calories": 2000,
+    "proteinPct": 40,
+    "carbsPct": 30,
+    "fatPct": 30,
+    "proteinG": 200,
+    "carbsG": 150,
+    "fatG": 67,
+    "fiberG": 25
+  },
+  "createdAt": "timestamp"
+}
+```
+
 ### `subscriptionRequests/{requestId}`
 
 Staging record created when a LINE user asks for `สมัคร` / `เติมวัน`.
