@@ -6,8 +6,8 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 
 - Verify LINE signature.
 - Deduplicate message events. Done for staging text messages.
-- Handle `follow` events. Partial: staging creates/updates LINE user links, stores display name, and replies with onboarding or subscription guidance.
-- Handle new user onboarding. Partial: staging supports quick manual setup with `ตั้งค่า ชื่อ 2000 40-30-30` and links to the legacy LIFF form.
+- Handle `follow` events. Partial: staging creates/updates LINE user links, stores display name for incomplete profiles, and replies with onboarding/subscription guidance.
+- Handle new user onboarding. Partial: staging uses a LINE Flex onboarding card with legacy LIFF link and quick manual setup via `ตั้งค่า ชื่อ 2000 40-30-30`.
 - Check user subscription status. Partial: staging gates LINE food/image/exercise analysis when profile is incomplete or subscription is expired.
 - Route text commands. Partial: staging supports help, profile/status, dashboard link, daily summary, weight log, undo latest meal, quick setup, subscription, redeem code, contact admin, and exercise logs.
 - Route image messages. Partial: staging supports LINE image food messages.

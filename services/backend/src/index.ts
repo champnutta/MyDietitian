@@ -17,8 +17,10 @@ import { resolveCanonicalUserId, resolveLineCanonicalUserId } from "./identity-s
 import {
   downloadLineContent,
   getLineProfile,
+  type LineMessage,
   pushMessage,
   replyToLine,
+  replyToLineMessages,
   showLoadingAnimation
 } from "./line-client.js";
 import {
@@ -566,7 +568,7 @@ async function handleLineEvent(event: LineEvent) {
     const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
     const readiness = await getUserReadiness(canonicalUserId);
     if (!readiness.profileComplete) {
-      await replyToLine(replyToken, formatOnboardingReply(lineUserId));
+      await replyWithOnboarding(replyToken, lineUserId);
       return { ok: true, type: event.type, canonicalUserId, status: "profile-required-before-image" };
     }
     if (!readiness.subscriptionActive) {
@@ -617,7 +619,7 @@ async function handleLineEvent(event: LineEvent) {
 
   const readiness = await getUserReadiness(canonicalUserId);
   if (!readiness.profileComplete) {
-    await replyToLine(replyToken, formatOnboardingReply(lineUserId));
+    await replyWithOnboarding(replyToken, lineUserId);
     return { ok: true, type: event.type, canonicalUserId, status: "profile-required-before-meal" };
   }
   if (!readiness.subscriptionActive) {
@@ -833,7 +835,7 @@ async function handleLineTextCommand(
   if (looksLikeExerciseLog(text)) {
     const readiness = await getUserReadiness(canonicalUserId);
     if (!readiness.profileComplete) {
-      await replyToLine(replyToken, formatOnboardingReply(lineUserId));
+      await replyWithOnboarding(replyToken, lineUserId);
       return { status: "profile-required-before-exercise" };
     }
     if (!readiness.subscriptionActive) {
@@ -901,6 +903,16 @@ async function handleFollowEvent(replyToken: string, lineUserId: string): Promis
   const lineProfile = await getLineProfile(lineUserId);
   const readiness = await getUserReadiness(canonicalUserId);
   const now = Timestamp.now();
+  const profileUpdate: Record<string, unknown> = {
+    userId: canonicalUserId,
+    canonicalUserId,
+    lineUserId,
+    updatedAt: now,
+    createdAt: now
+  };
+  if (!readiness.profileComplete) {
+    profileUpdate.displayName = lineProfile.displayName;
+  }
 
   await Promise.all([
     db.collection("users").doc(canonicalUserId).set({
@@ -911,18 +923,11 @@ async function handleFollowEvent(replyToken: string, lineUserId: string): Promis
       updatedAt: now,
       createdAt: now
     }, { merge: true }),
-    db.collection("profiles").doc(canonicalUserId).set({
-      userId: canonicalUserId,
-      canonicalUserId,
-      lineUserId,
-      displayName: lineProfile.displayName,
-      updatedAt: now,
-      createdAt: now
-    }, { merge: true })
+    db.collection("profiles").doc(canonicalUserId).set(profileUpdate, { merge: true })
   ]);
 
   if (!readiness.profileComplete) {
-    await replyToLine(replyToken, formatOnboardingReply(lineUserId, lineProfile.displayName));
+    await replyWithOnboarding(replyToken, lineUserId, lineProfile.displayName);
     return { status: "follow-onboarding-replied", canonicalUserId };
   }
 
@@ -1664,20 +1669,87 @@ function formatExerciseReply(exerciseLog: Record<string, unknown>, summary: Toda
   ].join("\n");
 }
 
-function formatOnboardingReply(lineUserId: string, displayName = "Member"): string {
+async function replyWithOnboarding(replyToken: string, lineUserId: string, displayName = "Member"): Promise<void> {
+  await replyToLineMessages(replyToken, buildOnboardingMessages(lineUserId, displayName));
+}
+
+function buildOnboardingMessages(lineUserId: string, displayName = "Member"): LineMessage[] {
   const liffUrl = `${LIFF_SETTINGS_URL}&uid=${encodeURIComponent(lineUserId)}`;
-  return [
-    `ยินดีต้อนรับครับคุณ ${displayName}`,
-    "ก่อนให้ AI coach ประเมินอาหาร/ออกกำลังกาย ต้องตั้งค่าโปรไฟล์และเป้าหมายก่อนครับ",
-    "",
-    "ตั้งค่าแบบเร็วในแชท:",
-    "ตั้งค่า ชื่อ 2000 40-30-30",
-    "หรือถ้าเคยมีชื่อแล้ว: ตั้งค่า 2000 40-30-30",
-    "",
-    `ฟอร์มเดิม: ${liffUrl}`,
-    "",
-    "หมายเหตุ: Firebase ยังเป็น staging ส่วน production LINE OA เดิมยังใช้งานตามปกติ"
-  ].join("\n");
+  return [{
+    type: "flex",
+    altText: "ตั้งค่าโปรไฟล์ MyDietitian",
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: "#EAF7EF",
+        contents: [
+          { type: "text", text: "Welcome to MyDietitian", weight: "bold", color: "#1B7F4C", size: "sm" },
+          { type: "text", text: `สวัสดีครับคุณ ${displayName}`, weight: "bold", size: "xl", margin: "sm", wrap: true }
+        ]
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          {
+            type: "text",
+            text: "ก่อนให้ AI coach ประเมินอาหารและออกกำลังกาย ต้องตั้งค่าเป้าหมายโภชนาการก่อนครับ",
+            wrap: true,
+            size: "sm",
+            color: "#334155"
+          },
+          {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: "#F8FAFC",
+            cornerRadius: "md",
+            paddingAll: "12px",
+            contents: [
+              { type: "text", text: "ตั้งค่าเร็วในแชท", weight: "bold", size: "sm", color: "#0F172A" },
+              { type: "text", text: "ตั้งค่า ชื่อ 2000 40-30-30", size: "sm", color: "#475569", margin: "xs", wrap: true }
+            ]
+          },
+          {
+            type: "text",
+            text: "หลังตั้งค่าใหม่ ระบบ staging จะให้ trial 3 วันเพื่อทดสอบ flow ก่อน production cutover",
+            wrap: true,
+            size: "xs",
+            color: "#64748B"
+          }
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#1DB446",
+            action: { type: "uri", label: "เปิดฟอร์มตั้งค่า", uri: liffUrl }
+          },
+          {
+            type: "button",
+            style: "secondary",
+            action: { type: "message", label: "ใช้ตัวอย่างตั้งค่า", text: "ตั้งค่า 2000 40-30-30" }
+          },
+          {
+            type: "text",
+            text: "Production LINE OA เดิมยังใช้งานตามปกติ",
+            align: "center",
+            size: "xxs",
+            color: "#94A3B8",
+            wrap: true
+          }
+        ]
+      }
+    }
+  }];
 }
 
 function formatDashboardReply(lineUserId: string): string {

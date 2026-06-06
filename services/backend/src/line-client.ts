@@ -1,6 +1,14 @@
 import { LINE_CHANNEL_ACCESS_TOKEN } from "./runtime.js";
 
+export type LineMessage =
+  | { type: "text"; text: string }
+  | { type: "flex"; altText: string; contents: Record<string, unknown> };
+
 export async function replyToLine(replyToken: string, text: string): Promise<void> {
+  await replyToLineMessages(replyToken, [{ type: "text", text: text.slice(0, 4900) }]);
+}
+
+export async function replyToLineMessages(replyToken: string, messages: LineMessage[]): Promise<void> {
   const res = await fetch("https://api.line.me/v2/bot/message/reply", {
     method: "POST",
     headers: {
@@ -9,7 +17,7 @@ export async function replyToLine(replyToken: string, text: string): Promise<voi
     },
     body: JSON.stringify({
       replyToken,
-      messages: [{ type: "text", text: text.slice(0, 4900) }]
+      messages
     })
   });
 
