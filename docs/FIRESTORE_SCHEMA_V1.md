@@ -119,6 +119,82 @@ Weight and body composition history.
 
 Subscription and entitlement record managed by backend/admin flow.
 
+```json
+{
+  "userId": "canonical-user-id",
+  "canonicalUserId": "canonical-user-id",
+  "status": "active",
+  "expiresAt": "timestamp",
+  "lastApprovedDays": 30,
+  "lastApprovedBy": "admin-line-user-id",
+  "lastApprovedAt": "timestamp",
+  "lastRedeemedCode": "ABC123",
+  "updatedAt": "timestamp"
+}
+```
+
+### `subscriptionRequests/{requestId}`
+
+Staging record created when a LINE user asks for `สมัคร` / `เติมวัน`.
+
+```json
+{
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "displayName": "Member",
+  "status": "payment-instructions-sent",
+  "packages": [{ "days": 30, "priceThb": 59 }],
+  "paymentQrImage": "https://...",
+  "createdAt": "timestamp"
+}
+```
+
+### `paymentReviews/{reviewId}`
+
+Admin review/audit records for subscription approval or rejection.
+
+```json
+{
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "status": "approved",
+  "days": 30,
+  "expiresAt": "timestamp",
+  "reviewedBy": "admin-line-user-id",
+  "reviewedAt": "timestamp",
+  "createdAt": "timestamp"
+}
+```
+
+### `subscriptionEvents/{eventId}`
+
+Append-only subscription audit trail for admin actions and code redemption.
+
+```json
+{
+  "type": "admin-approve",
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "days": 30,
+  "expiresAt": "timestamp",
+  "createdAt": "timestamp"
+}
+```
+
+### `redeemCodes/{code}`
+
+Migrated subscription codes from the legacy `Codes` sheet.
+
+```json
+{
+  "code": "ABC123",
+  "days": 30,
+  "status": "available",
+  "usedBy": null,
+  "usedDate": null
+}
+```
+
 ### `feedback/{feedbackId}`
 
 User feedback on AI output.

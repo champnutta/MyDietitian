@@ -1,5 +1,5 @@
 import { onRequest } from "firebase-functions/v2/https";
-import { Timestamp } from "firebase-admin/firestore";
+import { Timestamp, type Transaction } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   callGeminiExerciseAnalysis,
@@ -29,6 +29,11 @@ import {
 } from "./runtime.js";
 const LEGACY_GAS_DASHBOARD_URL =
   "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
+const PAYMENT_QR_IMAGE = "https://img2.pic.in.th/1613478.jpg";
+const SUBSCRIPTION_PACKAGES = [
+  { days: 30, priceThb: 59 },
+  { days: 90, priceThb: 150 }
+] as const;
 
 type SavedMealAnalysis = {
   runId: string;
@@ -73,6 +78,15 @@ type TodaySummary = {
     fib: number;
   };
 };
+
+type SubscriptionTarget = {
+  canonicalUserId: string;
+  lineUserId: string | null;
+};
+
+type AdminSubscriptionCommand =
+  | { action: "approve"; target: string; days: number }
+  | { action: "reject"; target: string; reason: string | null };
 
 export const health = onRequest((request, response) => {
   response.json({
@@ -687,6 +701,11 @@ async function handleAdminTextCommand(
   adminLineUserId: string
 ): Promise<Record<string, unknown> | null> {
   const activeChat = await getActiveAdminChat(adminLineUserId);
+  const subscriptionCommand = parseAdminSubscriptionCommand(text);
+  if (subscriptionCommand) {
+    const result = await handleAdminSubscriptionCommand(subscriptionCommand, replyToken, adminLineUserId);
+    return { status: `admin-subscription-${subscriptionCommand.action}`, ...result };
+  }
 
   if (text === "จบ" || text === "ออก" || text.toLowerCase() === "exit") {
     if (!activeChat) {
@@ -748,6 +767,16 @@ async function handleLineTextCommand(
   lineUserId: string
 ): Promise<Record<string, unknown> | null> {
   const lower = text.toLowerCase();
+
+  if (isSubscriptionRequestCommand(text)) {
+    const result = await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId);
+    return { status: "subscription-request-replied", ...result };
+  }
+
+  if (isRedeemCodeCommand(text)) {
+    const result = await handleRedeemCode(text, replyToken, canonicalUserId, lineUserId);
+    return { status: "redeem-code-processed", ...result };
+  }
 
   if (text.startsWith("ติดต่อ") || text.startsWith("แอดมิน") || lower.startsWith("admin")) {
     const result = await handleContactAdmin(text, replyToken, canonicalUserId, lineUserId);
@@ -818,6 +847,308 @@ async function handleLineTextCommand(
   }
 
   return null;
+}
+
+function isSubscriptionRequestCommand(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.includes("subscribe") ||
+    lower.includes("renew") ||
+    text.includes("สมัคร") ||
+    text.includes("เติมวัน");
+}
+
+function isRedeemCodeCommand(text: string): boolean {
+  const lower = text.toLowerCase();
+  return lower.startsWith("code") ||
+    text.startsWith("โค้ด") ||
+    text.startsWith("เติมโค้ด");
+}
+
+async function handleSubscriptionRequest(
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown>> {
+  const profile = await getUserProfile(canonicalUserId);
+  const packageLines = SUBSCRIPTION_PACKAGES.map((plan) => `- ${plan.days} วัน = ${plan.priceThb} บาท`);
+  const expireText = profile.expiresAt ? formatBangkokDate(profile.expiresAt.toDate()) : "-";
+  const message = [
+    `สมาชิก: ${profile.name}`,
+    `หมดอายุ: ${expireText}`,
+    "",
+    "แพ็กเกจเติมวัน",
+    ...packageLines,
+    "",
+    "โอนเงินแล้วส่งสลิปเข้าระบบเดิมก่อนนะครับ ระหว่างนี้ Firebase staging จะยังไม่รับสลิปจริงจนกว่า parity ครบ",
+    `QR: ${PAYMENT_QR_IMAGE}`,
+    "",
+    `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`
+  ].join("\n");
+
+  await db.collection("subscriptionRequests").add({
+    canonicalUserId,
+    lineUserId,
+    displayName: profile.name,
+    status: "payment-instructions-sent",
+    packages: SUBSCRIPTION_PACKAGES,
+    paymentQrImage: PAYMENT_QR_IMAGE,
+    createdAt: Timestamp.now()
+  });
+  await replyToLine(replyToken, message);
+  return { requested: true, packages: SUBSCRIPTION_PACKAGES.length };
+}
+
+async function handleRedeemCode(
+  text: string,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown>> {
+  const code = text.replace(/^(code|โค้ด|เติมโค้ด)\s*/i, "").trim();
+  if (!code) {
+    await replyToLine(replyToken, "กรุณาระบุโค้ด เช่น `code ABC123`");
+    return { redeemed: false, reason: "missing-code" };
+  }
+
+  const codeRef = db.collection("redeemCodes").doc(code);
+  let result: { ok: boolean; days: number; expiresAt: Timestamp | null; reason?: string } = {
+    ok: false,
+    days: 0,
+    expiresAt: null
+  };
+
+  await db.runTransaction(async (transaction) => {
+    const codeSnap = await transaction.get(codeRef);
+    if (!codeSnap.exists) {
+      result = { ok: false, days: 0, expiresAt: null, reason: "not-found" };
+      return;
+    }
+
+    const codeData = codeSnap.data() ?? {};
+    const status = String(codeData.status ?? "").toLowerCase();
+    const days = Number(codeData.days ?? codeData.Days ?? 0);
+    if (!days || days <= 0) {
+      result = { ok: false, days: 0, expiresAt: null, reason: "invalid-days" };
+      return;
+    }
+    if (status && status !== "available") {
+      result = { ok: false, days, expiresAt: null, reason: "already-used" };
+      return;
+    }
+
+    const newExpiry = subscriptionExpiryAfterDays(days, await getSubscriptionExpiryInTransaction(transaction, canonicalUserId));
+    const now = Timestamp.now();
+    transaction.set(db.collection("subscriptions").doc(canonicalUserId), {
+      userId: canonicalUserId,
+      canonicalUserId,
+      status: "active",
+      expiresAt: newExpiry,
+      lastRedeemedCode: code,
+      updatedAt: now
+    }, { merge: true });
+    transaction.set(db.collection("users").doc(canonicalUserId), {
+      subscriptionStatus: "active",
+      subscriptionExpiresAt: newExpiry,
+      updatedAt: now
+    }, { merge: true });
+    transaction.set(db.collection("profiles").doc(canonicalUserId), {
+      expiresAt: newExpiry,
+      updatedAt: now
+    }, { merge: true });
+    transaction.update(codeRef, {
+      status: "used",
+      usedBy: canonicalUserId,
+      usedLineUserId: lineUserId,
+      usedDate: now,
+      updatedAt: now
+    });
+    transaction.create(db.collection("subscriptionEvents").doc(), {
+      type: "redeem-code",
+      canonicalUserId,
+      lineUserId,
+      code,
+      days,
+      expiresAt: newExpiry,
+      createdAt: now
+    });
+    result = { ok: true, days, expiresAt: newExpiry };
+  });
+
+  if (!result.ok) {
+    await replyToLine(replyToken, `โค้ดนี้ใช้ไม่ได้ครับ (${result.reason ?? "unknown"})`);
+    return { redeemed: false, reason: result.reason ?? "unknown" };
+  }
+
+  await replyToLine(replyToken, `เติมวันสำเร็จ (+${result.days} วัน)\nหมดอายุ: ${formatBangkokDate(result.expiresAt!.toDate())}`);
+  return { redeemed: true, days: result.days, expiresAt: result.expiresAt!.toDate().toISOString() };
+}
+
+function parseAdminSubscriptionCommand(text: string): AdminSubscriptionCommand | null {
+  const approve = text.match(/^(?:approve|อนุมัติ)\s+(\S+)(?:\s+(\d+))?/i);
+  if (approve) {
+    return {
+      action: "approve",
+      target: approve[1],
+      days: Number(approve[2] ?? SUBSCRIPTION_PACKAGES[0].days)
+    };
+  }
+
+  const reject = text.match(/^(?:reject|ปฏิเสธ|ไม่อนุมัติ)\s+(\S+)(?:\s+(.+))?/i);
+  if (reject) {
+    return {
+      action: "reject",
+      target: reject[1],
+      reason: reject[2]?.trim() || null
+    };
+  }
+
+  return null;
+}
+
+async function handleAdminSubscriptionCommand(
+  command: AdminSubscriptionCommand,
+  replyToken: string,
+  adminLineUserId: string
+): Promise<Record<string, unknown>> {
+  const target = await resolveSubscriptionTarget(command.target);
+  if (!target) {
+    await replyToLine(replyToken, `ไม่พบลูกค้า: ${command.target}`);
+    return { ok: false, reason: "target-not-found", target: command.target };
+  }
+
+  if (command.action === "reject") {
+    const now = Timestamp.now();
+    await db.collection("paymentReviews").add({
+      canonicalUserId: target.canonicalUserId,
+      lineUserId: target.lineUserId,
+      status: "rejected",
+      reason: command.reason,
+      reviewedBy: adminLineUserId,
+      reviewedAt: now,
+      createdAt: now
+    });
+    await db.collection("subscriptionEvents").add({
+      type: "admin-reject",
+      canonicalUserId: target.canonicalUserId,
+      lineUserId: target.lineUserId,
+      reason: command.reason,
+      adminLineUserId,
+      createdAt: now
+    });
+    if (target.lineUserId) {
+      await pushMessage(target.lineUserId, "สลิปของคุณยังไม่ผ่านการตรวจสอบครับ กรุณาติดต่อแอดมินหรือลองส่งใหม่อีกครั้ง");
+    }
+    await replyToLine(replyToken, `ปฏิเสธรายการของ ${target.canonicalUserId} แล้ว`);
+    return { ok: true, canonicalUserId: target.canonicalUserId, action: "reject" };
+  }
+
+  if (!Number.isFinite(command.days) || command.days <= 0 || command.days > 3660) {
+    await replyToLine(replyToken, "จำนวนวันไม่ถูกต้องครับ เช่น `อนุมัติ Uxxxxxxxx 30`");
+    return { ok: false, reason: "invalid-days", days: command.days };
+  }
+
+  const currentExpiry = await getSubscriptionExpiry(target.canonicalUserId);
+  const expiresAt = subscriptionExpiryAfterDays(command.days, currentExpiry);
+  const now = Timestamp.now();
+  await Promise.all([
+    db.collection("subscriptions").doc(target.canonicalUserId).set({
+      userId: target.canonicalUserId,
+      canonicalUserId: target.canonicalUserId,
+      status: "active",
+      expiresAt,
+      lastApprovedDays: command.days,
+      lastApprovedBy: adminLineUserId,
+      lastApprovedAt: now,
+      updatedAt: now
+    }, { merge: true }),
+    db.collection("users").doc(target.canonicalUserId).set({
+      subscriptionStatus: "active",
+      subscriptionExpiresAt: expiresAt,
+      updatedAt: now
+    }, { merge: true }),
+    db.collection("profiles").doc(target.canonicalUserId).set({
+      expiresAt,
+      updatedAt: now
+    }, { merge: true }),
+    db.collection("paymentReviews").add({
+      canonicalUserId: target.canonicalUserId,
+      lineUserId: target.lineUserId,
+      status: "approved",
+      days: command.days,
+      expiresAt,
+      reviewedBy: adminLineUserId,
+      reviewedAt: now,
+      createdAt: now
+    }),
+    db.collection("subscriptionEvents").add({
+      type: "admin-approve",
+      canonicalUserId: target.canonicalUserId,
+      lineUserId: target.lineUserId,
+      days: command.days,
+      expiresAt,
+      adminLineUserId,
+      createdAt: now
+    })
+  ]);
+
+  if (target.lineUserId) {
+    await pushMessage(target.lineUserId, `ชำระเงินสำเร็จ ระบบต่ออายุให้ ${command.days} วัน\nหมดอายุ: ${formatBangkokDate(expiresAt.toDate())}`);
+  }
+  await replyToLine(replyToken, `อนุมัติ ${target.canonicalUserId} +${command.days} วัน\nหมดอายุ: ${formatBangkokDate(expiresAt.toDate())}`);
+  return {
+    ok: true,
+    canonicalUserId: target.canonicalUserId,
+    lineUserId: target.lineUserId,
+    action: "approve",
+    days: command.days,
+    expiresAt: expiresAt.toDate().toISOString()
+  };
+}
+
+async function resolveSubscriptionTarget(target: string): Promise<SubscriptionTarget | null> {
+  const lineSnap = await db.collection("lineLinks").doc(target).get();
+  if (lineSnap.exists) {
+    return {
+      canonicalUserId: String(lineSnap.data()?.canonicalUserId ?? target),
+      lineUserId: target
+    };
+  }
+
+  const [userSnap, profileSnap] = await Promise.all([
+    db.collection("users").doc(target).get(),
+    db.collection("profiles").doc(target).get()
+  ]);
+  if (!userSnap.exists && !profileSnap.exists) {
+    return null;
+  }
+
+  const linkQuery = await db.collection("lineLinks")
+    .where("canonicalUserId", "==", target)
+    .limit(1)
+    .get();
+  return {
+    canonicalUserId: target,
+    lineUserId: linkQuery.empty ? null : linkQuery.docs[0].id
+  };
+}
+
+async function getSubscriptionExpiry(canonicalUserId: string): Promise<Timestamp | null> {
+  const snap = await db.collection("subscriptions").doc(canonicalUserId).get();
+  return snap.exists ? normalizeTimestamp(snap.data()?.expiresAt) : null;
+}
+
+async function getSubscriptionExpiryInTransaction(
+  transaction: Transaction,
+  canonicalUserId: string
+): Promise<Timestamp | null> {
+  const snap = await transaction.get(db.collection("subscriptions").doc(canonicalUserId));
+  return snap.exists ? normalizeTimestamp(snap.data()?.expiresAt) : null;
+}
+
+function subscriptionExpiryAfterDays(days: number, currentExpiry: Timestamp | null): Timestamp {
+  const nowMs = Date.now();
+  const baseMs = currentExpiry && currentExpiry.toMillis() > nowMs ? currentExpiry.toMillis() : nowMs;
+  return Timestamp.fromMillis(baseMs + days * 24 * 60 * 60 * 1000);
 }
 
 async function notifyAdminError(context: string, error: unknown): Promise<void> {

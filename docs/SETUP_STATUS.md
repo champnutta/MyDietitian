@@ -27,6 +27,7 @@
   - `health`
   - `updateProfile`
   - `analyzeMeal`
+  - `analyzeExercise`
   - `getDashboardData`
   - `lineWebhook`
 - `getDashboardData` was deployed and tested against existing Firestore test records only.
@@ -36,8 +37,9 @@
 - `lineWebhook` is staging only. It verifies signatures, deduplicates text message IDs, can analyze/reply to text food messages, and defers known legacy commands to GAS.
 - `lineWebhook` staging text commands now support help, profile/status, legacy dashboard link, daily summary from Firestore, manual weight logging, and undo latest Firestore meal log.
 - `lineWebhook` staging image flow now downloads LINE image content in memory, analyzes it with `aiAgents/mealAnalysis`, saves a Firestore meal log, replies with a summary, and starts best-effort LINE loading animation.
-- `lineWebhook` staging exercise flow now detects exercise text, analyzes burn with `aiAgents/exerciseAnalysis`, applies the legacy 50% safety factor, writes Firestore `exerciseLogs`, and updates daily summary/dashboard burn totals.
+- `lineWebhook` staging exercise flow now detects exercise text, analyzes burn with `aiAgents/exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies the legacy 50% safety factor, writes Firestore `exerciseLogs`, and updates daily summary/dashboard burn totals.
 - `lineWebhook` staging contact-admin flow now forwards customer contact messages to admin LINE, stores `adminContactRequests`, and supports 30-minute admin chat sessions through `adminChatSessions`.
+- `lineWebhook` staging subscription flow now supports package/QR instructions for `สมัคร/เติมวัน`, redeeming migrated codes from `redeemCodes`, and admin approve/reject commands that update `subscriptions`, `users`, and `profiles`.
 - `lineWebhook` still needs a signed webhook test from a staging LINE OA before it can be marked verified.
 - Health endpoint verified:
   - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`

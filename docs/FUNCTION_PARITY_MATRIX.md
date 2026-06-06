@@ -6,7 +6,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 - GAS production: still authoritative.
 - Firebase backend: migration/staging only.
-- Firebase `lineWebhook`: verifies signature, logs events, and supports limited staging text food replies only.
+- Firebase `lineWebhook`: verifies signature, logs events, and supports staging text/image food, exercise, weight, contact-admin, subscription request, redeem-code, and admin approve/reject flows.
 - Firestore: ready for migrated data.
 - Data migration: deferred until final production cutover.
 
@@ -18,7 +18,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `isDuplicate` | Prevent duplicate LINE message processing | partial staging text dedupe |
 | `handleFollowEvent` | Follow/onboarding | not started |
 | `checkUserStatus` | User registration state | partial schema only |
-| `checkSubscription` | Subscription gate | not started |
+| `checkSubscription` | Subscription gate | partial schema/expiry update only, not enforced for production cutover |
 | `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo |
 | `handleImageMessage` | LINE image message flow | partial Firestore staging |
 | `getLineContent` | Download LINE image/file content | partial image-only staging |
@@ -31,12 +31,13 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleExerciseLog` | Exercise logging | partial Firestore staging with `exerciseAnalysis` |
 | `handleWeightLog` | Weight logging | partial Firestore staging |
 | `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
-| `handleSubscriptionRequest` | Payment request flow | not started |
+| `handleSubscriptionRequest` | Payment request flow | partial staging packages/QR response |
 | `handleSlipPayment` | Slip parsing and admin review | not started |
-| `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | not started |
+| `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | partial Firestore staging |
 | `handleContactAdmin` | Customer to admin escalation | partial Firestore staging |
 | Admin chat mode | Temporary admin-to-customer chat | partial Firestore staging |
-| `notifyAdminError` | Error reporting | not started |
+| `handleRedeemCode` | Redeem subscription code | partial Firestore staging with `redeemCodes` |
+| `notifyAdminError` | Error reporting | partial Firestore staging |
 
 ## Dashboard and Data Behaviors
 

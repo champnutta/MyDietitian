@@ -89,34 +89,39 @@ export async function callGeminiExerciseAnalysis(
   apiKey: string,
   agent: AiAgentConfig
 ): Promise<ExerciseAnalysisResult> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: buildExercisePrompt(request) }] }],
-        generationConfig: {
-          temperature: agent.temperature,
-          response_mime_type: "application/json"
-        }
-      })
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: buildExercisePrompt(request) }] }],
+          generationConfig: {
+            temperature: agent.temperature,
+            response_mime_type: "application/json"
+          }
+        })
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`Gemini exercise API failed: ${res.status} ${text}`);
     }
-  );
 
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini exercise API failed: ${res.status} ${text}`);
+    const json = await res.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error("Gemini returned no exercise text output");
+
+    return parseJsonOutput(text);
+  } catch (error) {
+    console.warn("Falling back to rule-based exercise estimate", error);
+    return buildFallbackExerciseAnalysis(request);
   }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no exercise text output");
-
-  return parseJsonOutput(text);
 }
 
 function getDefaultAgent(agentId: string): AiAgentConfig {
@@ -178,6 +183,51 @@ Return JSON only with this exact shape:
   "calories_burned": 0,
   "comment": "Thai coaching comment"
 }`;
+}
+
+function buildFallbackExerciseAnalysis(request: AnalyzeExerciseRequest): ExerciseAnalysisResult {
+  const lower = request.text.toLowerCase();
+  const minutes = extractExerciseMinutes(lower);
+  const met = estimateExerciseMet(lower);
+  const assumedWeightKg = 60;
+  const calories = Math.max(20, Math.round((met * 3.5 * assumedWeightKg / 200) * minutes));
+  return {
+    activity_name: estimateExerciseName(lower),
+    calories_burned: calories,
+    comment: "ประเมินแบบ conservative จาก rule-based fallback เพราะ AI exercise analysis ตอบไม่สำเร็จชั่วคราว"
+  };
+}
+
+function extractExerciseMinutes(lowerText: string): number {
+  const minuteMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:นาที|min|mins|minute|minutes)/i);
+  if (minuteMatch) return Number(minuteMatch[1]);
+
+  const hourMatch = lowerText.match(/(\d+(?:\.\d+)?)\s*(?:ชม|ชั่วโมง|hr|hrs|hour|hours)/i);
+  if (hourMatch) return Number(hourMatch[1]) * 60;
+
+  return 30;
+}
+
+function estimateExerciseMet(lowerText: string): number {
+  if (/วิ่ง|run|running/.test(lowerText)) return 8;
+  if (/เดิน|walk|walking/.test(lowerText)) return 3.5;
+  if (/ปั่น|จักรยาน|bike|cycling/.test(lowerText)) return 6;
+  if (/ว่าย|swim|swimming/.test(lowerText)) return 7;
+  if (/เวท|weight|workout|ยกน้ำหนัก/.test(lowerText)) return 4.5;
+  if (/hiit|cardio/.test(lowerText)) return 7;
+  if (/โยคะ|yoga|pilates/.test(lowerText)) return 3;
+  return 4;
+}
+
+function estimateExerciseName(lowerText: string): string {
+  if (/วิ่ง|run|running/.test(lowerText)) return "วิ่ง";
+  if (/เดิน|walk|walking/.test(lowerText)) return "เดิน";
+  if (/ปั่น|จักรยาน|bike|cycling/.test(lowerText)) return "ปั่นจักรยาน";
+  if (/ว่าย|swim|swimming/.test(lowerText)) return "ว่ายน้ำ";
+  if (/เวท|weight|workout|ยกน้ำหนัก/.test(lowerText)) return "เวทเทรนนิ่ง";
+  if (/โยคะ|yoga/.test(lowerText)) return "โยคะ";
+  if (/pilates/.test(lowerText)) return "พิลาทิส";
+  return "ออกกำลังกาย";
 }
 
 function parseJsonOutput<T>(raw: string): T {
