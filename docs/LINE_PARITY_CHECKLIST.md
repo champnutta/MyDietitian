@@ -23,8 +23,8 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Handle subscription request flow.
 - Handle slip/payment review.
 - Handle admin approve/reject.
-- Handle admin chat mode.
-- Handle contact-admin flow.
+- Handle admin chat mode. Partial: staging supports admin `คุย {LINE_USER_ID}` and `จบ` with 30-minute Firestore session.
+- Handle contact-admin flow. Partial: staging forwards `ติดต่อ/แอดมิน/admin ...` messages to admin LINE and stores `adminContactRequests`.
 - Log errors and notify admin. Partial: staging writes event errors to `adminAuditLogs` and best-effort pushes admin LINE notification.
 
 ## Current Firebase status
@@ -37,6 +37,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Text command parity: help, profile/status, dashboard link, daily summary, manual weight log, and undo latest meal are implemented for Firestore staging data.
 - Exercise parity: staging supports exercise guide and exercise text logs such as running/walking/weight training with measurable duration or distance.
 - Image food parity: staging downloads LINE image content, analyzes it with `aiAgents/mealAnalysis`, saves a Firestore meal log, and replies with the meal summary. Signed LINE image test is still pending.
+- Contact/admin chat parity: staging forwards customer contact messages to admin, supports temporary admin chat mode, and logs chat messages in Firestore.
 - Error reporting: staging logs failed LINE event processing and best-effort notifies the configured admin LINE user.
 - Dashboard endpoint: staging endpoint deployed, pending migrated production data verification.
 - Full production customer replies: not done.

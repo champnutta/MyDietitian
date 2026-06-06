@@ -34,7 +34,8 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleSubscriptionRequest` | Payment request flow | not started |
 | `handleSlipPayment` | Slip parsing and admin review | not started |
 | `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | not started |
-| `handleContactAdmin` | Customer to admin escalation | not started |
+| `handleContactAdmin` | Customer to admin escalation | partial Firestore staging |
+| Admin chat mode | Temporary admin-to-customer chat | partial Firestore staging |
 | `notifyAdminError` | Error reporting | not started |
 
 ## Dashboard and Data Behaviors

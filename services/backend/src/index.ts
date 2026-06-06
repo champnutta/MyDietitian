@@ -556,7 +556,19 @@ async function handleLineEvent(event: LineEvent) {
     return { ok: false, type: event.type, status: "empty-text" };
   }
 
+  if (lineUserId === ADMIN_LINE_USER_ID.value()) {
+    const adminResult = await handleAdminTextCommand(text, replyToken, lineUserId);
+    if (adminResult) {
+      return { ok: true, type: event.type, ...adminResult };
+    }
+  }
+
   const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+  const forwardedToAdmin = await forwardCustomerReplyIfAdminChatActive(text, lineUserId, canonicalUserId);
+  if (forwardedToAdmin) {
+    return { ok: true, type: event.type, canonicalUserId, status: "customer-reply-forwarded-to-admin" };
+  }
+
   const commandResult = await handleLineTextCommand(text, replyToken, canonicalUserId, lineUserId);
   if (commandResult) {
     return { ok: true, type: event.type, canonicalUserId, ...commandResult };
@@ -663,12 +675,70 @@ function isKnownLegacyCommand(text: string): boolean {
     text.startsWith("ตั้งค่า") ||
     text.startsWith("โค้ด") ||
     text.startsWith("เติมโค้ด") ||
-    text.startsWith("ติดต่อ") ||
-    text.startsWith("แอดมิน") ||
     text.includes("เติมวัน") ||
     text.includes("สมัคร") ||
     text.includes("กินไรดี") ||
     text.includes("แนะนำ");
+}
+
+async function handleAdminTextCommand(
+  text: string,
+  replyToken: string,
+  adminLineUserId: string
+): Promise<Record<string, unknown> | null> {
+  const activeChat = await getActiveAdminChat(adminLineUserId);
+
+  if (text === "จบ" || text === "ออก" || text.toLowerCase() === "exit") {
+    if (!activeChat) {
+      await replyToLine(replyToken, "ไม่ได้อยู่ในโหมดคุยครับ");
+      return { status: "admin-chat-not-active" };
+    }
+
+    await db.collection("adminChatSessions").doc(adminLineUserId).set(
+      {
+        status: "closed",
+        closedAt: Timestamp.now(),
+        updatedAt: Timestamp.now()
+      },
+      { merge: true }
+    );
+    await replyToLine(replyToken, "จบการสนทนา กลับสู่โหมดบอทปกติแล้วครับ");
+    return { status: "admin-chat-closed", targetLineUserId: activeChat.targetLineUserId };
+  }
+
+  if (activeChat) {
+    await pushMessage(activeChat.targetLineUserId, `Admin: ${text}`);
+    await db.collection("adminChatMessages").add({
+      adminLineUserId,
+      targetLineUserId: activeChat.targetLineUserId,
+      direction: "admin-to-customer",
+      text,
+      createdAt: Timestamp.now()
+    });
+    return { status: "admin-message-forwarded", targetLineUserId: activeChat.targetLineUserId };
+  }
+
+  if (text.startsWith("คุย")) {
+    const targetLineUserId = text.split(/\s+/)[1]?.trim();
+    if (!targetLineUserId) {
+      await replyToLine(replyToken, "กรุณาระบุ User ID เช่น `คุย Uxxxxxxxx`");
+      return { status: "admin-chat-missing-target" };
+    }
+
+    const expiresAt = Timestamp.fromMillis(Date.now() + 30 * 60 * 1000);
+    await db.collection("adminChatSessions").doc(adminLineUserId).set({
+      adminLineUserId,
+      targetLineUserId,
+      status: "active",
+      expiresAt,
+      createdAt: Timestamp.now(),
+      updatedAt: Timestamp.now()
+    });
+    await replyToLine(replyToken, `เริ่มแชทกับลูกค้า ${targetLineUserId}\nทุกข้อความที่คุณพิมพ์จะส่งไปหาเขา\nพิมพ์ "จบ" เพื่อออก`);
+    return { status: "admin-chat-started", targetLineUserId };
+  }
+
+  return null;
 }
 
 async function handleLineTextCommand(
@@ -678,6 +748,11 @@ async function handleLineTextCommand(
   lineUserId: string
 ): Promise<Record<string, unknown> | null> {
   const lower = text.toLowerCase();
+
+  if (text.startsWith("ติดต่อ") || text.startsWith("แอดมิน") || lower.startsWith("admin")) {
+    const result = await handleContactAdmin(text, replyToken, canonicalUserId, lineUserId);
+    return { status: "contact-admin-forwarded", ...result };
+  }
 
   if (text.includes("คู่มือ") || text.includes("วิธีใช้") || lower.includes("help")) {
     await replyToLine(replyToken, formatHelpReply());
@@ -764,6 +839,81 @@ async function notifyAdminError(context: string, error: unknown): Promise<void> 
   } catch {
     // Avoid cascading failures if admin push itself is unavailable.
   }
+}
+
+async function handleContactAdmin(
+  text: string,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown>> {
+  const message = text.replace(/^(ติดต่อ|แอดมิน|admin)/i, "").trim();
+  if (!message) {
+    await replyToLine(replyToken, "พิมพ์ข้อความต่อท้ายได้เลยครับ เช่น `ติดต่อ ขอเปลี่ยนวันเริ่ม`");
+    return { forwarded: false, reason: "empty-contact-message" };
+  }
+
+  const profile = await getUserProfile(canonicalUserId);
+  const adminMessage = [
+    "ข้อความจากลูกค้า",
+    `ชื่อ: ${profile.name}`,
+    `LINE User ID: ${lineUserId}`,
+    `Canonical ID: ${canonicalUserId}`,
+    `ข้อความ: ${message}`,
+    "",
+    `ตอบกลับ: คุย ${lineUserId}`
+  ].join("\n");
+
+  await db.collection("adminContactRequests").add({
+    canonicalUserId,
+    lineUserId,
+    displayName: profile.name,
+    message,
+    status: "forwarded",
+    createdAt: Timestamp.now()
+  });
+
+  await pushMessage(ADMIN_LINE_USER_ID.value(), adminMessage);
+  await replyToLine(replyToken, "ส่งข้อความถึงแอดมินเรียบร้อยครับ");
+  return { forwarded: true };
+}
+
+async function forwardCustomerReplyIfAdminChatActive(
+  text: string,
+  lineUserId: string,
+  canonicalUserId: string
+): Promise<boolean> {
+  const activeChat = await getActiveAdminChat(ADMIN_LINE_USER_ID.value());
+  if (!activeChat || activeChat.targetLineUserId !== lineUserId) {
+    return false;
+  }
+
+  const profile = await getUserProfile(canonicalUserId);
+  await pushMessage(ADMIN_LINE_USER_ID.value(), `${profile.name} ตอบกลับ:\n${text}`);
+  await db.collection("adminChatMessages").add({
+    adminLineUserId: ADMIN_LINE_USER_ID.value(),
+    targetLineUserId: lineUserId,
+    canonicalUserId,
+    direction: "customer-to-admin",
+    text,
+    createdAt: Timestamp.now()
+  });
+  return true;
+}
+
+async function getActiveAdminChat(adminLineUserId: string): Promise<{ targetLineUserId: string } | null> {
+  const snap = await db.collection("adminChatSessions").doc(adminLineUserId).get();
+  if (!snap.exists) return null;
+
+  const data = snap.data() ?? {};
+  const expiresAt = data.expiresAt instanceof Timestamp ? data.expiresAt.toMillis() : 0;
+  if (data.status !== "active" || expiresAt <= Date.now()) {
+    return null;
+  }
+
+  return {
+    targetLineUserId: String(data.targetLineUserId)
+  };
 }
 
 async function getUserProfile(userId: string): Promise<UserProfile> {
