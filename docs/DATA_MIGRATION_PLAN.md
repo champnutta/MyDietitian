@@ -10,7 +10,7 @@ Do not run a write migration now. Migration is intentionally deferred until the 
 
 | Sheet tab | Firestore target | Notes |
 | --- | --- | --- |
-| `Users` | `users`, `profiles`, `subscriptions`, `lineLinks` | LINE user ID is currently the primary ID. |
+| `Users` | `users`, `profiles`, `subscriptions`, `lineLinks` | LINE user ID becomes the first `canonicalUserId` until a native app account is linked. |
 | `Log` | `mealLogs`, `exerciseLogs` | Main active food/exercise history. |
 | `Logs_Archive_*` | `mealLogs`, `exerciseLogs` | Historical archived logs. |
 | `Weight_Log` | `weightLogs` | Weight and body composition history. |
@@ -50,6 +50,7 @@ Code, Days, Status, Used_By, Used_Date
 - Keep write mode locked until final production migration.
 - Count rows by tab before writing.
 - Generate deterministic Firestore document IDs from source tab + row number.
+- Preserve and write `canonicalUserId` so LINE OA and native app can share the same user record later.
 - Preserve `legacy` metadata on each imported document.
 - Never delete or mutate Google Sheet rows during migration.
 - Keep GAS production running until imported dashboard and LINE flows are verified.

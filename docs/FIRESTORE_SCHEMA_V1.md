@@ -4,13 +4,14 @@ This is the first-pass schema for migrating the current GAS + Google Sheets syst
 
 ## Collections
 
-### `users/{userId}`
+### `users/{canonicalUserId}`
 
-Top-level account document for auth-linked app users.
+Top-level account document shared by LINE OA and native app users.
 
 ```json
 {
-  "userId": "firebase-auth-uid",
+  "userId": "canonical-user-id",
+  "canonicalUserId": "canonical-user-id",
   "createdAt": "timestamp",
   "updatedAt": "timestamp",
   "roles": ["user"],
@@ -22,15 +23,17 @@ Top-level account document for auth-linked app users.
 }
 ```
 
-### `profiles/{userId}`
+### `profiles/{canonicalUserId}`
 
 Health and target profile used by the AI coach.
 
 ```json
 {
-  "userId": "firebase-auth-uid",
+  "userId": "canonical-user-id",
+  "canonicalUserId": "canonical-user-id",
   "displayName": "Champ",
   "lineUserId": "Uxxxxxxxx",
+  "firebaseAuthUid": "firebase-auth-uid",
   "gender": "male",
   "age": 30,
   "heightCm": 170,
@@ -60,6 +63,7 @@ Food analysis records created from text or image input.
 ```json
 {
   "userId": "firebase-auth-uid",
+  "canonicalUserId": "canonical-user-id",
   "source": "app",
   "inputType": "image",
   "imageUrl": "gs://...",
@@ -79,6 +83,8 @@ Food analysis records created from text or image input.
     "commentTh": "โปรตีนโอเค แต่คาร์บและน้ำมันค่อนข้างสูง"
   },
   "ai": {
+    "agentId": "mealAnalysis",
+    "provider": "gemini",
     "model": "gemini-3-flash-preview",
     "promptVersion": "meal-v1"
   },
@@ -99,6 +105,7 @@ Weight and body composition history.
 ```json
 {
   "userId": "firebase-auth-uid",
+  "canonicalUserId": "canonical-user-id",
   "weightKg": 72.4,
   "bodyFatPct": 19.3,
   "muscleMassKg": 31.2,
@@ -108,7 +115,7 @@ Weight and body composition history.
 }
 ```
 
-### `subscriptions/{userId}`
+### `subscriptions/{canonicalUserId}`
 
 Subscription and entitlement record managed by backend/admin flow.
 
@@ -127,14 +134,46 @@ Maps LINE users to app users during the migration period.
 ```json
 {
   "lineUserId": "Uxxxxxxxx",
-  "appUserId": "firebase-auth-uid",
+  "canonicalUserId": "canonical-user-id",
   "linkedAt": "timestamp",
   "status": "linked"
 }
 ```
 
+### `authLinks/{firebaseAuthUid}`
+
+Maps native app Firebase Auth users to the shared canonical user.
+
+```json
+{
+  "firebaseAuthUid": "firebase-auth-uid",
+  "canonicalUserId": "canonical-user-id",
+  "linkedAt": "timestamp",
+  "status": "linked"
+}
+```
+
+### `aiAgents/{agentId}`
+
+Admin-configurable AI agent settings. Backend reads this before calling the provider.
+
+```json
+{
+  "agentId": "mealAnalysis",
+  "provider": "gemini",
+  "model": "gemini-3-flash-preview",
+  "promptVersion": "meal-v1",
+  "temperature": 0.2,
+  "enabled": true,
+  "updatedBy": "admin-user-id",
+  "updatedAt": "timestamp"
+}
+```
+
+To switch models, update `model`. To switch providers later, create the new provider implementation and set `provider` to the supported provider name.
+
 ## Notes
 
 - `profiles` is split from `users` so app auth and health profile can evolve independently.
-- `lineLinks` is temporary but useful while LINE OA and app run in parallel.
+- `lineLinks` and `authLinks` allow LINE OA and native app to share one data record per user.
 - `subscriptions` is write-protected for admins/backend only.

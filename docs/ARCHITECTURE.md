@@ -35,14 +35,17 @@ Keep `LINE OA` as the familiar user channel during migration, but move the real 
 
 ## Recommended collections
 
-- `users/{userId}`
-- `profiles/{userId}`
+- `users/{canonicalUserId}`
+- `profiles/{canonicalUserId}`
 - `mealLogs/{mealLogId}`
 - `exerciseLogs/{exerciseLogId}`
 - `weightLogs/{weightLogId}`
-- `subscriptions/{userId}`
+- `subscriptions/{canonicalUserId}`
 - `feedback/{feedbackId}`
 - `aiRuns/{runId}`
+- `lineLinks/{lineUserId}`
+- `authLinks/{firebaseAuthUid}`
+- `aiAgents/{agentId}`
 
 ## Migration principle
 

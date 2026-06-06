@@ -10,63 +10,82 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
+    function isLinkedOwner(userId) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/authLinks/$(request.auth.uid))
+        && get(/databases/$(database)/documents/authLinks/$(request.auth.uid)).data.canonicalUserId == userId;
+    }
+
+    function canAccessUser(userId) {
+      return isOwner(userId) || isLinkedOwner(userId) || isAdmin();
+    }
+
     function isAdmin() {
       return signedIn() && request.auth.token.admin == true;
     }
 
     match /users/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read, write: if canAccessUser(userId);
     }
 
     match /profiles/{userId} {
-      allow read, write: if isOwner(userId) || isAdmin();
+      allow read, write: if canAccessUser(userId);
     }
 
     match /subscriptions/{userId} {
-      allow read: if isOwner(userId) || isAdmin();
+      allow read: if canAccessUser(userId);
       allow write: if isAdmin();
     }
 
     match /mealLogs/{mealLogId} {
       allow create: if signedIn() &&
-        request.resource.data.userId == request.auth.uid;
+        canAccessUser(request.resource.data.userId);
       allow read, update, delete: if (
-        isOwner(resource.data.userId) ||
-        isAdmin()
+        canAccessUser(resource.data.userId)
       );
     }
 
     match /exerciseLogs/{exerciseLogId} {
       allow create: if signedIn() &&
-        request.resource.data.userId == request.auth.uid;
+        canAccessUser(request.resource.data.userId);
       allow read, update, delete: if (
-        isOwner(resource.data.userId) ||
-        isAdmin()
+        canAccessUser(resource.data.userId)
       );
     }
 
     match /weightLogs/{weightLogId} {
       allow create: if signedIn() &&
-        request.resource.data.userId == request.auth.uid;
+        canAccessUser(request.resource.data.userId);
       allow read, update, delete: if (
-        isOwner(resource.data.userId) ||
-        isAdmin()
+        canAccessUser(resource.data.userId)
       );
     }
 
     match /feedback/{feedbackId} {
       allow create: if signedIn() &&
-        request.resource.data.userId == request.auth.uid;
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+        canAccessUser(request.resource.data.userId);
+      allow read: if canAccessUser(resource.data.userId);
       allow update, delete: if isAdmin();
     }
 
     match /aiRuns/{runId} {
-      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow read: if canAccessUser(resource.data.userId);
       allow write: if isAdmin();
     }
 
     match /lineLinks/{lineUserId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /authLinks/{firebaseAuthUid} {
+      allow read, write: if isAdmin();
+    }
+
+    match /aiAgents/{agentId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /appConfig/{configId} {
       allow read, write: if isAdmin();
     }
 
@@ -75,4 +94,3 @@ service cloud.firestore {
     }
   }
 }
-

@@ -1,8 +1,20 @@
 export type SourceChannel = "app" | "line" | "admin";
+export type AiProvider = "gemini" | "anthropic";
+
+export interface AiAgentConfig {
+  agentId: string;
+  provider: AiProvider;
+  model: string;
+  promptVersion: string;
+  temperature: number;
+  enabled: boolean;
+}
 
 export interface UpdateProfileRequest {
+  canonicalUserId?: string;
   displayName?: string;
   lineUserId?: string;
+  firebaseAuthUid?: string;
   gender?: "male" | "female" | "other";
   age?: number;
   heightCm?: number;
@@ -20,6 +32,7 @@ export interface UpdateProfileRequest {
 
 export interface AnalyzeMealRequest {
   userId: string;
+  canonicalUserId?: string;
   source: SourceChannel;
   inputType: "text" | "image";
   text?: string;
@@ -30,6 +43,7 @@ export interface AnalyzeMealRequest {
 
 export interface DashboardDataRequest {
   userId: string;
+  canonicalUserId?: string;
   option?: number | "custom";
   customStartStr?: string;
   customEndStr?: string;

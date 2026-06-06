@@ -63,9 +63,18 @@ function initializeFirebase(projectId, serviceAccountPath) {
   if (admin.apps.length) return;
 
   if (serviceAccountPath) {
-    const serviceAccount = require(serviceAccountPath);
+    const credentialJson = require(serviceAccountPath);
+    if (!credentialJson.project_id) {
+      process.env.GOOGLE_APPLICATION_CREDENTIALS = serviceAccountPath;
+      admin.initializeApp({
+        credential: admin.credential.applicationDefault(),
+        projectId
+      });
+      return;
+    }
+
     admin.initializeApp({
-      credential: admin.credential.cert(serviceAccount),
+      credential: admin.credential.cert(credentialJson),
       projectId
     });
     return;
@@ -143,27 +152,30 @@ function planMigration(workbook) {
   for (const row of workbook.Users || []) {
     const lineUserId = stringValue(row.UserID);
     if (!lineUserId) continue;
-    const userId = lineUserId;
+    const canonicalUserId = lineUserId;
     const target = targetFromUserRow(row);
 
-    docs.push(doc("users", userId, {
-      userId,
+    docs.push(doc("users", canonicalUserId, {
+      userId: canonicalUserId,
+      canonicalUserId,
       status: "active",
       roles: ["user"],
       source: { line: true, app: false },
       legacy: legacyMeta("Users", row)
     }));
 
-    docs.push(doc("profiles", userId, {
-      userId,
+    docs.push(doc("profiles", canonicalUserId, {
+      userId: canonicalUserId,
+      canonicalUserId,
       displayName: stringValue(row.Name) || "Member",
       lineUserId,
       target,
       legacy: legacyMeta("Users", row)
     }));
 
-    docs.push(doc("subscriptions", userId, {
-      userId,
+    docs.push(doc("subscriptions", canonicalUserId, {
+      userId: canonicalUserId,
+      canonicalUserId,
       status: isFutureDate(row.Expire_Date) ? "active" : "expired",
       expiresAt: dateOrNull(row.Expire_Date),
       legacy: legacyMeta("Users", row)
@@ -171,7 +183,7 @@ function planMigration(workbook) {
 
     docs.push(doc("lineLinks", lineUserId, {
       lineUserId,
-      appUserId: userId,
+      canonicalUserId,
       status: "legacy-line-primary",
       legacy: legacyMeta("Users", row)
     }));
@@ -182,17 +194,20 @@ function planMigration(workbook) {
     for (const row of rows) {
       const userId = stringValue(row.UserID);
       if (!userId) continue;
+      const canonicalUserId = userId;
       const type = stringValue(row.Dish_EN_or_Type || row.Column_4);
       const collection = type === "Exercise" || type === "Burn" ? "exerciseLogs" : "mealLogs";
-      docs.push(doc(collection, stableId(sheetName, row.__rowNumber), mapLogRow(sheetName, row, collection)));
+      docs.push(doc(collection, stableId(sheetName, row.__rowNumber), mapLogRow(sheetName, row, collection, canonicalUserId)));
     }
   }
 
   for (const row of workbook.Weight_Log || []) {
     const userId = stringValue(row.UserID);
     if (!userId) continue;
+    const canonicalUserId = userId;
     docs.push(doc("weightLogs", stableId("Weight_Log", row.__rowNumber), {
-      userId,
+      userId: canonicalUserId,
+      canonicalUserId,
       weightKg: numberValue(row.Weight_kg),
       bodyFatPct: numberValue(row["BodyFat_%"]),
       muscleMassKg: numberValue(row.MuscleMass_kg),
@@ -235,13 +250,15 @@ function targetFromUserRow(row) {
   };
 }
 
-function mapLogRow(sheetName, row, collection) {
+function mapLogRow(sheetName, row, collection, canonicalUserId) {
   const userId = stringValue(row.UserID);
   const loggedAt = dateOrNull(row.Date);
 
   if (collection === "exerciseLogs") {
     return {
-      userId,
+      userId: canonicalUserId,
+      canonicalUserId,
+      legacyLineUserId: userId,
       source: "legacy-sheet",
       exerciseName: stringValue(row.Dish_TH || row.Column_3) || "Exercise",
       caloriesBurned: numberValue(row.Calories || row.Column_6),
@@ -251,7 +268,9 @@ function mapLogRow(sheetName, row, collection) {
   }
 
   return {
-    userId,
+    userId: canonicalUserId,
+    canonicalUserId,
+    legacyLineUserId: userId,
     source: "legacy-sheet",
     inputType: "legacy",
     mealNameTh: stringValue(row.Dish_TH || row.Column_3) || "Unknown",

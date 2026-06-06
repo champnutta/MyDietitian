@@ -44,6 +44,7 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - `getDashboardData` is available for post-migration dashboard verification against Firestore data.
 - Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
 - Google Sheet data migration is intentionally deferred until the final pre-production cutover window.
+- AI model/provider settings are prepared through Firestore `aiAgents/{agentId}` config for future admin controls.
 
 ## Production warning
 

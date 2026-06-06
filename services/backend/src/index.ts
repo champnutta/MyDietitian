@@ -5,10 +5,12 @@ import { initializeApp } from "firebase-admin/app";
 import { getFirestore, Timestamp } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
+  AiAgentConfig,
   AnalyzeMealRequest,
   DashboardDataRequest,
   LineWebhookEvent,
   MealAnalysisResult,
+  SourceChannel,
   UpdateProfileRequest
 } from "./contracts.js";
 
@@ -20,8 +22,14 @@ const LINE_CHANNEL_SECRET = defineSecret("LINE_CHANNEL_SECRET");
 const LINE_CHANNEL_ACCESS_TOKEN = defineSecret("LINE_CHANNEL_ACCESS_TOKEN");
 const ADMIN_LINE_USER_ID = defineSecret("ADMIN_LINE_USER_ID");
 
-const GEMINI_MODEL = "gemini-3-flash-preview";
-const MEAL_PROMPT_VERSION = "meal-v1";
+const DEFAULT_MEAL_AGENT: AiAgentConfig = {
+  agentId: "mealAnalysis",
+  provider: "gemini",
+  model: "gemini-3-flash-preview",
+  promptVersion: "meal-v1",
+  temperature: 0.2,
+  enabled: true
+};
 
 type SavedMealAnalysis = {
   runId: string;
@@ -50,10 +58,12 @@ export const updateProfile = onRequest(async (request, response) => {
     return;
   }
 
+  const canonicalUserId = body.profile.canonicalUserId ?? body.userId;
   const now = Timestamp.now();
-  await db.collection("profiles").doc(body.userId).set(
+  await db.collection("profiles").doc(canonicalUserId).set(
     {
-      userId: body.userId,
+      userId: canonicalUserId,
+      canonicalUserId,
       ...body.profile,
       updatedAt: now,
       createdAt: now
@@ -61,17 +71,46 @@ export const updateProfile = onRequest(async (request, response) => {
     { merge: true }
   );
 
-  await db.collection("users").doc(body.userId).set(
+  await db.collection("users").doc(canonicalUserId).set(
     {
-      userId: body.userId,
+      userId: canonicalUserId,
+      canonicalUserId,
       updatedAt: now,
       createdAt: now,
-      status: "active"
+      status: "active",
+      source: {
+        app: Boolean(body.profile.firebaseAuthUid),
+        line: Boolean(body.profile.lineUserId)
+      }
     },
     { merge: true }
   );
 
-  response.json({ ok: true, userId: body.userId });
+  if (body.profile.lineUserId) {
+    await db.collection("lineLinks").doc(body.profile.lineUserId).set(
+      {
+        lineUserId: body.profile.lineUserId,
+        canonicalUserId,
+        status: "linked",
+        updatedAt: now
+      },
+      { merge: true }
+    );
+  }
+
+  if (body.profile.firebaseAuthUid) {
+    await db.collection("authLinks").doc(body.profile.firebaseAuthUid).set(
+      {
+        firebaseAuthUid: body.profile.firebaseAuthUid,
+        canonicalUserId,
+        status: "linked",
+        updatedAt: now
+      },
+      { merge: true }
+    );
+  }
+
+  response.json({ ok: true, userId: canonicalUserId, canonicalUserId });
 });
 
 export const getDashboardData = onRequest(async (request, response) => {
@@ -86,15 +125,16 @@ export const getDashboardData = onRequest(async (request, response) => {
     return;
   }
 
+  const canonicalUserId = await resolveCanonicalUserId(body);
   const { startDate, endDate } = resolveDashboardRange(body);
   const history = buildDailyHistory(startDate, endDate);
-  const profileSnap = await db.collection("profiles").doc(body.userId).get();
+  const profileSnap = await db.collection("profiles").doc(canonicalUserId).get();
   const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
   const target = normalizeTarget(profile);
 
-  await fillMealHistory(body.userId, startDate, endDate, history);
-  await fillExerciseHistory(body.userId, startDate, endDate, history);
-  await fillWeightHistory(body.userId, startDate, endDate, history);
+  await fillMealHistory(canonicalUserId, startDate, endDate, history);
+  await fillExerciseHistory(canonicalUserId, startDate, endDate, history);
+  await fillWeightHistory(canonicalUserId, startDate, endDate, history);
 
   const labels = Object.keys(history);
   const calories = labels.map((key) => history[key].cal);
@@ -128,6 +168,7 @@ export const getDashboardData = onRequest(async (request, response) => {
 
   response.json({
     ok: true,
+    canonicalUserId,
     profile: {
       name: profile.displayName ?? "Member",
       target
@@ -159,10 +200,12 @@ export const analyzeMeal = onRequest({ secrets: [GEMINI_API_KEY] }, async (reque
   }
 
   try {
-    const saved = await analyzeAndSaveMeal(body);
+    const canonicalUserId = await resolveCanonicalUserId(body);
+    const saved = await analyzeAndSaveMeal({ ...body, canonicalUserId, userId: canonicalUserId });
 
     response.json({
       ok: true,
+      canonicalUserId,
       runId: saved.runId,
       mealLogId: saved.mealLogId,
       analysis: saved.mealLog
@@ -227,7 +270,8 @@ function verifyLineSignature(rawBody: Buffer, signature: string): boolean {
 
 async function callGeminiMealAnalysis(
   request: AnalyzeMealRequest,
-  apiKey: string
+  apiKey: string,
+  agent: AiAgentConfig
 ): Promise<MealAnalysisResult> {
   const prompt = buildMealPrompt(request);
   const parts: Array<Record<string, unknown>> = [{ text: prompt }];
@@ -242,14 +286,14 @@ async function callGeminiMealAnalysis(
   }
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts }],
         generationConfig: {
-          temperature: 0.2,
+          temperature: agent.temperature,
           response_mime_type: "application/json"
         }
       })
@@ -274,27 +318,38 @@ async function callGeminiMealAnalysis(
 async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMealAnalysis> {
   const now = Timestamp.now();
   const aiRunRef = db.collection("aiRuns").doc();
+  const agent = await getAiAgentConfig("mealAnalysis");
+  if (!agent.enabled) {
+    throw new Error("AI mealAnalysis agent is disabled");
+  }
+  if (agent.provider !== "gemini") {
+    throw new Error(`Unsupported mealAnalysis provider: ${agent.provider}`);
+  }
 
   await aiRunRef.set({
     runId: aiRunRef.id,
     userId: request.userId,
+    canonicalUserId: request.canonicalUserId ?? request.userId,
     source: request.source,
     inputType: request.inputType,
     text: request.text ?? null,
     imageUrl: request.imageUrl ?? null,
     status: "running",
     createdAt: now,
-    promptVersion: MEAL_PROMPT_VERSION,
-    model: GEMINI_MODEL
+    agentId: agent.agentId,
+    provider: agent.provider,
+    promptVersion: agent.promptVersion,
+    model: agent.model
   });
 
   try {
-    const analysis = await callGeminiMealAnalysis(request, GEMINI_API_KEY.value());
+    const analysis = await callGeminiMealAnalysis(request, GEMINI_API_KEY.value(), agent);
     const mealLogRef = db.collection("mealLogs").doc();
     const savedAt = Timestamp.now();
 
     const mealLog = {
       userId: request.userId,
+      canonicalUserId: request.canonicalUserId ?? request.userId,
       source: request.source,
       inputType: request.inputType,
       text: request.text ?? null,
@@ -316,8 +371,10 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
       },
       ai: {
         runId: aiRunRef.id,
-        model: GEMINI_MODEL,
-        promptVersion: MEAL_PROMPT_VERSION
+        agentId: agent.agentId,
+        provider: agent.provider,
+        model: agent.model,
+        promptVersion: agent.promptVersion
       },
       loggedAt: savedAt,
       createdAt: savedAt,
@@ -388,9 +445,12 @@ async function handleLineEvent(event: LineEvent) {
     return { ok: true, type: event.type, status: "legacy-command-deferred" };
   }
 
+  const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+
   try {
     const saved = await analyzeAndSaveMeal({
-      userId: lineUserId,
+      userId: canonicalUserId,
+      canonicalUserId,
       source: "line",
       inputType: "text",
       text
@@ -401,6 +461,7 @@ async function handleLineEvent(event: LineEvent) {
       ok: true,
       type: event.type,
       status: "meal-analyzed-and-replied",
+      canonicalUserId,
       runId: saved.runId,
       mealLogId: saved.mealLogId
     };
@@ -477,6 +538,77 @@ function formatMealReply(mealLog: Record<string, unknown>): string {
     `คะแนน: ${rating.score}/10`,
     String(rating.commentTh ?? "")
   ].join("\n");
+}
+
+async function resolveCanonicalUserId(request: {
+  userId?: string;
+  canonicalUserId?: string;
+  source?: SourceChannel;
+}): Promise<string> {
+  if (request.canonicalUserId) return request.canonicalUserId;
+  if (!request.userId) throw new Error("Missing user id");
+
+  if (request.source === "line") {
+    return resolveLineCanonicalUserId(request.userId);
+  }
+
+  const authLink = await db.collection("authLinks").doc(request.userId).get();
+  if (authLink.exists) {
+    return String(authLink.data()?.canonicalUserId ?? request.userId);
+  }
+
+  return request.userId;
+}
+
+async function resolveLineCanonicalUserId(lineUserId: string): Promise<string> {
+  const linkRef = db.collection("lineLinks").doc(lineUserId);
+  const link = await linkRef.get();
+
+  if (link.exists) {
+    return String(link.data()?.canonicalUserId ?? lineUserId);
+  }
+
+  const now = Timestamp.now();
+  const canonicalUserId = lineUserId;
+  await linkRef.set({
+    lineUserId,
+    canonicalUserId,
+    status: "legacy-line-primary",
+    createdAt: now,
+    updatedAt: now
+  }, { merge: true });
+
+  await db.collection("users").doc(canonicalUserId).set({
+    userId: canonicalUserId,
+    canonicalUserId,
+    status: "active",
+    source: { line: true, app: false },
+    createdAt: now,
+    updatedAt: now
+  }, { merge: true });
+
+  return canonicalUserId;
+}
+
+async function getAiAgentConfig(agentId: string): Promise<AiAgentConfig> {
+  const snap = await db.collection("aiAgents").doc(agentId).get();
+  if (!snap.exists) {
+    return DEFAULT_MEAL_AGENT;
+  }
+
+  const data = snap.data() ?? {};
+  return {
+    agentId,
+    provider: normalizeAiProvider(data.provider),
+    model: String(data.model ?? DEFAULT_MEAL_AGENT.model),
+    promptVersion: String(data.promptVersion ?? DEFAULT_MEAL_AGENT.promptVersion),
+    temperature: Number(data.temperature ?? DEFAULT_MEAL_AGENT.temperature),
+    enabled: data.enabled !== false
+  };
+}
+
+function normalizeAiProvider(provider: unknown): AiAgentConfig["provider"] {
+  return provider === "anthropic" ? "anthropic" : "gemini";
 }
 
 function buildMealPrompt(request: AnalyzeMealRequest): string {
