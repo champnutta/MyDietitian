@@ -83,6 +83,7 @@ export interface LineWebhookEvent {
       id?: string;
       type?: string;
       text?: string;
+      fileName?: string;
     };
   }>;
 }

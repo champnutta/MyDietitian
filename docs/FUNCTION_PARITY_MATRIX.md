@@ -20,12 +20,12 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `checkUserStatus` | User registration state | partial schema only |
 | `checkSubscription` | Subscription gate | not started |
 | `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo |
-| `handleImageMessage` | LINE image message flow | not started |
-| `getLineContent` | Download LINE image/file content | not started |
-| `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` only |
-| `saveToSheetAndGetSummary` | Save meal and return daily summary | partial Firestore write only |
+| `handleImageMessage` | LINE image message flow | partial Firestore staging |
+| `getLineContent` | Download LINE image/file content | partial image-only staging |
+| `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` staging |
+| `saveToSheetAndGetSummary` | Save meal and return daily summary | partial Firestore write and reply only |
 | `replyToLine` / `pushMessage` | Reply and push messages | partial staging replies only |
-| `showLoadingAnimation` | LINE loading UX | not started |
+| `showLoadingAnimation` | LINE loading UX | partial best-effort image flow |
 | `handleFileMessage` | PDF/BIA/file routing | not started |
 | `handleBIAReport` | Body composition report analysis | not started |
 | `handleExerciseLog` | Exercise logging | not started |

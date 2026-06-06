@@ -278,14 +278,24 @@ export const lineWebhook = onRequest(
   });
 
   for (const event of payload?.events ?? []) {
-    results.push(await handleLineEvent(event));
+    try {
+      results.push(await handleLineEvent(event));
+    } catch (error) {
+      await notifyAdminError("lineWebhook event processing failed", error);
+      results.push({
+        ok: false,
+        type: event.type,
+        status: "event-processing-failed",
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   response.json({
     ok: true,
     received: payload?.events?.length ?? 0,
     results,
-    status: "staging-line-text-enabled",
+    status: "staging-line-text-image-enabled",
     warning: "This endpoint is still staging and is not a full production GAS replacement."
   });
 });
@@ -463,8 +473,13 @@ async function handleLineEvent(event: LineEvent) {
     return { ok: true, type: event.type, status: "ignored" };
   }
 
+  if (event.message?.type === "image") {
+    const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+    return handleLineImageMessage(event, replyToken, canonicalUserId, lineUserId);
+  }
+
   if (event.message?.type !== "text") {
-    await replyToLine(replyToken, "ระบบ Firebase staging ตอนนี้รองรับข้อความอาหารเท่านั้น รูปภาพ/ไฟล์จะยังใช้ระบบ GAS เดิมจนกว่า parity จะครบครับ");
+    await replyToLine(replyToken, "ระบบ Firebase staging ตอนนี้รองรับข้อความอาหารและรูปอาหารเท่านั้น ไฟล์/PDF/BIA จะยังใช้ระบบ GAS เดิมจนกว่า parity จะครบครับ");
     return { ok: true, type: event.type, status: "unsupported-message-replied" };
   }
 
@@ -523,6 +538,92 @@ async function markLineMessageIfNew(messageId: string): Promise<boolean> {
     return true;
   } catch {
     return false;
+  }
+}
+
+async function handleLineImageMessage(
+  event: LineEvent,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown>> {
+  const messageId = event.message?.id;
+  if (!messageId) {
+    await replyToLine(replyToken, "ไม่พบรหัสรูปภาพจาก LINE ครับ กรุณาส่งรูปอาหารอีกครั้ง");
+    return { ok: false, type: event.type, status: "missing-image-message-id" };
+  }
+
+  await showLoadingAnimation(lineUserId, 20);
+
+  try {
+    const content = await downloadLineContent(messageId);
+    const saved = await analyzeAndSaveMeal({
+      userId: canonicalUserId,
+      canonicalUserId,
+      source: "line",
+      inputType: "image",
+      text: "LINE image food analysis",
+      imageUrl: `line-message://${messageId}`,
+      imageBase64: content.base64,
+      mimeType: content.mimeType
+    });
+
+    await replyToLine(replyToken, formatMealReply(saved.mealLog));
+    return {
+      ok: true,
+      type: event.type,
+      status: "image-meal-analyzed-and-replied",
+      canonicalUserId,
+      runId: saved.runId,
+      mealLogId: saved.mealLogId,
+      mimeType: content.mimeType
+    };
+  } catch (error) {
+    await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์รูปอาหารฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
+    return {
+      ok: false,
+      type: event.type,
+      status: "image-meal-analysis-failed",
+      canonicalUserId,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+async function downloadLineContent(messageId: string): Promise<{ base64: string; mimeType: string }> {
+  const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
+    headers: {
+      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
+    }
+  });
+
+  if (!res.ok) {
+    throw new Error(`LINE content download failed: ${res.status} ${await res.text()}`);
+  }
+
+  const mimeType = res.headers.get("content-type")?.split(";")[0] || "image/jpeg";
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return {
+    base64: buffer.toString("base64"),
+    mimeType
+  };
+}
+
+async function showLoadingAnimation(chatId: string, seconds: number): Promise<void> {
+  try {
+    await fetch("https://api.line.me/v2/bot/chat/loading/start", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
+      },
+      body: JSON.stringify({
+        chatId,
+        loadingSeconds: Math.max(5, Math.min(60, seconds))
+      })
+    });
+  } catch {
+    // Loading animation is nice-to-have; reply flow must continue if LINE ignores it.
   }
 }
 
@@ -607,6 +708,45 @@ async function replyToLine(replyToken: string, text: string): Promise<void> {
 
   if (!res.ok) {
     throw new Error(`LINE reply failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+async function pushMessage(userId: string, text: string): Promise<void> {
+  const res = await fetch("https://api.line.me/v2/bot/message/push", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
+    },
+    body: JSON.stringify({
+      to: userId,
+      messages: [{ type: "text", text: text.slice(0, 4900) }]
+    })
+  });
+
+  if (!res.ok) {
+    throw new Error(`LINE push failed: ${res.status} ${await res.text()}`);
+  }
+}
+
+async function notifyAdminError(context: string, error: unknown): Promise<void> {
+  const message = [
+    "MyDietitian Firebase staging error",
+    context,
+    error instanceof Error ? error.message : String(error)
+  ].join("\n");
+
+  await db.collection("adminAuditLogs").add({
+    type: "line-webhook-staging-error",
+    context,
+    error: error instanceof Error ? error.message : String(error),
+    createdAt: Timestamp.now()
+  });
+
+  try {
+    await pushMessage(ADMIN_LINE_USER_ID.value(), message);
+  } catch {
+    // Avoid cascading failures if admin push itself is unavailable.
   }
 }
 

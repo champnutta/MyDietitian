@@ -35,6 +35,7 @@
 - Backend now resolves canonical users through `lineLinks` and `authLinks`, so LINE OA and the future native app can share the same Firestore data after account linking.
 - `lineWebhook` is staging only. It verifies signatures, deduplicates text message IDs, can analyze/reply to text food messages, and defers known legacy commands to GAS.
 - `lineWebhook` staging text commands now support help, profile/status, legacy dashboard link, daily summary from Firestore, manual weight logging, and undo latest Firestore meal log.
+- `lineWebhook` staging image flow now downloads LINE image content in memory, analyzes it with `aiAgents/mealAnalysis`, saves a Firestore meal log, replies with a summary, and starts best-effort LINE loading animation.
 - `lineWebhook` still needs a signed webhook test from a staging LINE OA before it can be marked verified.
 - Health endpoint verified:
   - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
