@@ -19,7 +19,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleFollowEvent` | Follow/onboarding | not started |
 | `checkUserStatus` | User registration state | partial schema only |
 | `checkSubscription` | Subscription gate | not started |
-| `handleTextMessage` | Main text command and chat flow | partial staging food text only |
+| `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo |
 | `handleImageMessage` | LINE image message flow | not started |
 | `getLineContent` | Download LINE image/file content | not started |
 | `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` only |
@@ -29,8 +29,8 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleFileMessage` | PDF/BIA/file routing | not started |
 | `handleBIAReport` | Body composition report analysis | not started |
 | `handleExerciseLog` | Exercise logging | not started |
-| `handleWeightLog` | Weight logging | not started |
-| `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | not started |
+| `handleWeightLog` | Weight logging | partial Firestore staging |
+| `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
 | `handleSubscriptionRequest` | Payment request flow | not started |
 | `handleSlipPayment` | Slip parsing and admin review | not started |
 | `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | not started |
@@ -44,7 +44,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `getDashboardData` | Dashboard history API | not started |
 | `processLogSheet` | Read main/archive log rows | import planned |
 | `getUserProfile` | Profile and target lookup | partial |
-| `getTodaySummary` | Today's nutrition summary | not started |
+| `getTodaySummary` | Today's nutrition summary | partial Firestore staging |
 | `updateUserStreak` | Streak tracking | not started |
 | `archiveOldLogs` | Move old rows into archive sheets | not needed after Firestore migration |
 | `saveSettingsFromWeb` | LIFF settings save | partial through `updateProfile` only |

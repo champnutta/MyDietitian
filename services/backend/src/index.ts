@@ -30,11 +30,45 @@ const DEFAULT_MEAL_AGENT: AiAgentConfig = {
   temperature: 0.2,
   enabled: true
 };
+const LEGACY_GAS_DASHBOARD_URL =
+  "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
 
 type SavedMealAnalysis = {
   runId: string;
   mealLogId: string;
   mealLog: Record<string, unknown>;
+};
+
+type UserProfile = {
+  name: string;
+  target: {
+    cal: number;
+    p: number;
+    c: number;
+    f: number;
+    fib: number;
+  };
+  expiresAt?: Timestamp | null;
+};
+
+type TodaySummary = {
+  consumed: {
+    cal: number;
+    p: number;
+    c: number;
+    f: number;
+    fib: number;
+  };
+  burned: number;
+  target: UserProfile["target"];
+  dynamicTarget: number;
+  remaining: {
+    cal: number;
+    p: number;
+    c: number;
+    f: number;
+    fib: number;
+  };
 };
 
 export const health = onRequest((request, response) => {
@@ -440,12 +474,16 @@ async function handleLineEvent(event: LineEvent) {
     return { ok: false, type: event.type, status: "empty-text" };
   }
 
+  const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+  const commandResult = await handleLineTextCommand(text, replyToken, canonicalUserId, lineUserId);
+  if (commandResult) {
+    return { ok: true, type: event.type, canonicalUserId, ...commandResult };
+  }
+
   if (isKnownLegacyCommand(text)) {
     await replyToLine(replyToken, "คำสั่งนี้ยังอยู่ในระบบ GAS production เดิมครับ Firebase staging ยังไม่พร้อมแทนที่คำสั่งนี้");
     return { ok: true, type: event.type, status: "legacy-command-deferred" };
   }
-
-  const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
 
   try {
     const saved = await analyzeAndSaveMeal({
@@ -490,23 +528,68 @@ async function markLineMessageIfNew(messageId: string): Promise<boolean> {
 
 function isKnownLegacyCommand(text: string): boolean {
   const lower = text.toLowerCase();
-  return lower === "undo" ||
-    lower.startsWith("code") ||
-    lower.startsWith("weight") ||
-    text === "ลบ" ||
-    text === "ยกเลิก" ||
+  return lower.startsWith("code") ||
     text.startsWith("ตั้งค่า") ||
     text.startsWith("โค้ด") ||
     text.startsWith("เติมโค้ด") ||
-    text.startsWith("หนัก") ||
     text.startsWith("ติดต่อ") ||
     text.startsWith("แอดมิน") ||
     text.includes("เติมวัน") ||
     text.includes("สมัคร") ||
-    text.includes("สรุป") ||
-    text.includes("ยอด") ||
     text.includes("กินไรดี") ||
     text.includes("แนะนำ");
+}
+
+async function handleLineTextCommand(
+  text: string,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown> | null> {
+  const lower = text.toLowerCase();
+
+  if (text.includes("คู่มือ") || text.includes("วิธีใช้") || lower.includes("help")) {
+    await replyToLine(replyToken, formatHelpReply());
+    return { status: "help-replied" };
+  }
+
+  if (text.includes("ข้อมูลส่วนตัว") || text.includes("เช็คสถานะ") || lower.includes("setting")) {
+    const profile = await getUserProfile(canonicalUserId);
+    await replyToLine(replyToken, formatProfileReply(profile));
+    return { status: "profile-replied" };
+  }
+
+  if (text.includes("กราฟ") || text.includes("ประวัติ") || lower.includes("report") || lower.includes("dashboard")) {
+    await replyToLine(replyToken, formatDashboardReply(lineUserId));
+    return { status: "dashboard-link-replied" };
+  }
+
+  if (text.includes("สรุป") || text.includes("ยอด")) {
+    const profile = await getUserProfile(canonicalUserId);
+    const summary = await getTodaySummary(canonicalUserId, profile);
+    await replyToLine(replyToken, formatDailySummaryReply(profile, summary));
+    return { status: "daily-summary-replied" };
+  }
+
+  if (text === "ลบ" || text === "ยกเลิก" || lower === "undo") {
+    const result = await deleteLastMealLog(canonicalUserId);
+    await replyToLine(replyToken, result.message);
+    return { status: result.deleted ? "last-meal-deleted" : "last-meal-not-found" };
+  }
+
+  if (text.startsWith("หนัก") || text.startsWith("น้ำหนัก") || lower.startsWith("weight")) {
+    const parsed = parseWeightCommand(text);
+    if (!parsed) {
+      await replyToLine(replyToken, "รูปแบบน้ำหนักยังไม่ถูกต้องครับ เช่น `หนัก 65 fat 20 muscle 28`");
+      return { status: "weight-log-invalid" };
+    }
+
+    await saveWeightLog(canonicalUserId, parsed);
+    await replyToLine(replyToken, formatWeightReply(parsed));
+    return { status: "weight-logged" };
+  }
+
+  return null;
 }
 
 async function replyToLine(replyToken: string, text: string): Promise<void> {
@@ -525,6 +608,225 @@ async function replyToLine(replyToken: string, text: string): Promise<void> {
   if (!res.ok) {
     throw new Error(`LINE reply failed: ${res.status} ${await res.text()}`);
   }
+}
+
+async function getUserProfile(userId: string): Promise<UserProfile> {
+  const [profileSnap, subscriptionSnap] = await Promise.all([
+    db.collection("profiles").doc(userId).get(),
+    db.collection("subscriptions").doc(userId).get()
+  ]);
+  const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
+  const subscription = subscriptionSnap.exists ? subscriptionSnap.data() ?? {} : {};
+  const target = normalizeTarget(profile);
+
+  return {
+    name: String(profile.displayName ?? profile.name ?? "Member"),
+    target: {
+      cal: target.cal || 2000,
+      p: target.p || 100,
+      c: target.c || 200,
+      f: target.f || 60,
+      fib: target.fib || 25
+    },
+    expiresAt: normalizeTimestamp(subscription.expiresAt ?? profile.expiresAt)
+  };
+}
+
+async function getTodaySummary(userId: string, profile: UserProfile): Promise<TodaySummary> {
+  const { startDate, endDate } = getBangkokDayRange(new Date());
+  const [mealSnap, exerciseSnap] = await Promise.all([
+    db.collection("mealLogs")
+      .where("userId", "==", userId)
+      .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+      .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+      .orderBy("loggedAt", "asc")
+      .get(),
+    db.collection("exerciseLogs")
+      .where("userId", "==", userId)
+      .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+      .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+      .orderBy("loggedAt", "asc")
+      .get()
+  ]);
+
+  const consumed = { cal: 0, p: 0, c: 0, f: 0, fib: 0 };
+  mealSnap.forEach((doc) => {
+    const nutrients = doc.data().nutrients ?? {};
+    consumed.cal += Number(nutrients.caloriesKcal ?? 0);
+    consumed.p += Number(nutrients.proteinG ?? 0);
+    consumed.c += Number(nutrients.carbsG ?? 0);
+    consumed.f += Number(nutrients.fatG ?? 0);
+    consumed.fib += Number(nutrients.fiberG ?? 0);
+  });
+
+  let burned = 0;
+  exerciseSnap.forEach((doc) => {
+    burned += Number(doc.data().caloriesBurned ?? 0);
+  });
+
+  const dynamicTarget = profile.target.cal + burned;
+  return {
+    consumed,
+    burned,
+    target: profile.target,
+    dynamicTarget,
+    remaining: {
+      cal: dynamicTarget - consumed.cal,
+      p: profile.target.p - consumed.p,
+      c: profile.target.c - consumed.c,
+      f: profile.target.f - consumed.f,
+      fib: profile.target.fib - consumed.fib
+    }
+  };
+}
+
+function parseWeightCommand(text: string): { weightKg: number; bodyFatPct: number | null; muscleMassKg: number | null } | null {
+  const weightMatch = text.match(/(?:หนัก|weight|น้ำหนัก)\s*(\d+(?:\.\d+)?)/i);
+  if (!weightMatch) return null;
+
+  const fatMatch = text.match(/(?:fat|ไขมัน|แฟต)\s*(\d+(?:\.\d+)?)/i);
+  const muscleMatch = text.match(/(?:muscle|กล้าม|มวลกล้าม)\s*(\d+(?:\.\d+)?)/i);
+  return {
+    weightKg: Number(weightMatch[1]),
+    bodyFatPct: fatMatch ? Number(fatMatch[1]) : null,
+    muscleMassKg: muscleMatch ? Number(muscleMatch[1]) : null
+  };
+}
+
+async function saveWeightLog(
+  userId: string,
+  weight: { weightKg: number; bodyFatPct: number | null; muscleMassKg: number | null }
+): Promise<void> {
+  const now = Timestamp.now();
+  await db.collection("weightLogs").add({
+    userId,
+    canonicalUserId: userId,
+    source: "line",
+    weightKg: weight.weightKg,
+    bodyFatPct: weight.bodyFatPct,
+    muscleMassKg: weight.muscleMassKg,
+    deviceName: "Manual Chat",
+    loggedAt: now,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  await db.collection("profiles").doc(userId).set(
+    {
+      userId,
+      canonicalUserId: userId,
+      weightKg: weight.weightKg,
+      updatedAt: now
+    },
+    { merge: true }
+  );
+}
+
+async function deleteLastMealLog(userId: string): Promise<{ deleted: boolean; message: string }> {
+  const snap = await db.collection("mealLogs")
+    .where("userId", "==", userId)
+    .orderBy("loggedAt", "desc")
+    .limit(1)
+    .get();
+
+  if (snap.empty) {
+    return { deleted: false, message: "ไม่พบรายการอาหารของคุณในประวัติครับ" };
+  }
+
+  const doc = snap.docs[0];
+  const data = doc.data();
+  await doc.ref.delete();
+  return {
+    deleted: true,
+    message: `ลบรายการล่าสุด: ${data.mealNameTh ?? data.mealNameEn ?? "รายการอาหาร"} เรียบร้อย`
+  };
+}
+
+function formatProfileReply(profile: UserProfile): string {
+  const expireText = profile.expiresAt ? formatBangkokDate(profile.expiresAt.toDate()) : "-";
+  return [
+    `ข้อมูลส่วนตัว (${profile.name})`,
+    `หมดอายุ: ${expireText}`,
+    `TDEE: ${Math.round(profile.target.cal)} kcal`,
+    `P:${Math.round(profile.target.p)} C:${Math.round(profile.target.c)} F:${Math.round(profile.target.f)} Fib:${Math.round(profile.target.fib)}`
+  ].join("\n");
+}
+
+function formatDailySummaryReply(profile: UserProfile, summary: TodaySummary): string {
+  return [
+    `สรุปยอดวันนี้ (${profile.name})`,
+    `เป้าหมาย: ${Math.round(summary.dynamicTarget)} kcal`,
+    `กินแล้ว: ${Math.round(summary.consumed.cal)} kcal`,
+    `(P:${Math.round(summary.consumed.p)} C:${Math.round(summary.consumed.c)} F:${Math.round(summary.consumed.f)} Fib:${summary.consumed.fib.toFixed(1)})`,
+    `คงเหลือ:`,
+    `Cal: ${Math.round(summary.remaining.cal)} kcal`,
+    `P:${Math.round(summary.remaining.p)}g | C:${Math.round(summary.remaining.c)}g`,
+    `F:${Math.round(summary.remaining.f)}g | Fib:${summary.remaining.fib.toFixed(1)}g`
+  ].join("\n");
+}
+
+function formatWeightReply(weight: { weightKg: number; bodyFatPct: number | null; muscleMassKg: number | null }): string {
+  const lines = [
+    "บันทึกข้อมูลเรียบร้อย",
+    `น้ำหนัก: ${weight.weightKg} kg`
+  ];
+  if (weight.bodyFatPct !== null) lines.push(`ไขมัน: ${weight.bodyFatPct}%`);
+  if (weight.muscleMassKg !== null) lines.push(`กล้ามเนื้อ: ${weight.muscleMassKg} kg`);
+  return lines.join("\n");
+}
+
+function formatDashboardReply(lineUserId: string): string {
+  const dashboardLink = `${LEGACY_GAS_DASHBOARD_URL}?uid=${encodeURIComponent(lineUserId)}`;
+  return [
+    "Dashboard",
+    "ระหว่าง Firebase staging ยังไม่ได้ migrate data ระบบจะเปิด dashboard เดิมก่อนครับ",
+    dashboardLink
+  ].join("\n");
+}
+
+function formatHelpReply(): string {
+  return [
+    "คู่มือใช้งานแบบย่อ",
+    "บันทึกอาหาร: พิมพ์ชื่ออาหาร หรือส่งรูปหลังเปิด image parity",
+    "สรุปวันนี้: พิมพ์ `สรุป` หรือ `ยอด`",
+    "จดน้ำหนัก: `หนัก 65 fat 20 muscle 28`",
+    "ลบรายการล่าสุด: `ลบ` หรือ `undo`",
+    "Dashboard: พิมพ์ `กราฟ` หรือ `dashboard`"
+  ].join("\n");
+}
+
+function getBangkokDayRange(date: Date): { startDate: Date; endDate: Date } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = Number(parts.find((part) => part.type === "year")?.value);
+  const month = Number(parts.find((part) => part.type === "month")?.value);
+  const day = Number(parts.find((part) => part.type === "day")?.value);
+  const startDate = new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0));
+  const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000 - 1);
+  return { startDate, endDate };
+}
+
+function formatBangkokDate(date: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric"
+  }).format(date);
+}
+
+function normalizeTimestamp(value: unknown): Timestamp | null {
+  if (value instanceof Timestamp) return value;
+  if (value instanceof Date) return Timestamp.fromDate(value);
+  if (typeof value === "string" || typeof value === "number") {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return Timestamp.fromDate(date);
+  }
+  return null;
 }
 
 function formatMealReply(mealLog: Record<string, unknown>): string {
