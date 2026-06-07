@@ -575,6 +575,20 @@ async function handleLineEvent(event: LineEvent) {
     return handleLineImageMessage(event, replyToken, canonicalUserId, lineUserId, readiness);
   }
 
+  if (event.message?.type === "file") {
+    const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyWithOnboarding(replyToken, lineUserId);
+      return { ok: true, type: event.type, canonicalUserId, status: "profile-required-before-file" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ ต้องต่ออายุก่อนส่งไฟล์ BIA/PDF");
+      return { ok: true, type: event.type, canonicalUserId, status: "subscription-required-before-file" };
+    }
+    return handleLineFileMessage(event, replyToken, canonicalUserId, lineUserId);
+  }
+
   if (event.message?.type !== "text") {
     await replyToLine(replyToken, "ระบบ Firebase staging ตอนนี้รองรับข้อความอาหารและรูปอาหารเท่านั้น ไฟล์/PDF/BIA จะยังใช้ระบบ GAS เดิมจนกว่า parity จะครบครับ");
     return { ok: true, type: event.type, status: "unsupported-message-replied" };
@@ -698,16 +712,28 @@ async function handleLineImageMessage(
     }
 
     if (classification.type === "bia") {
-      await replyToLine(replyToken, "ตรวจพบว่าเป็นรายงาน BIA/สุขภาพครับ Firebase staging ยังไม่รองรับ BIA เต็มรูปแบบ กรุณาใช้ระบบ GAS เดิมก่อนจนกว่า parity จะครบ");
-      await db.collection("lineUnsupportedImages").add({
+      if (!readiness.subscriptionActive) {
+        await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ ต้องต่ออายุก่อนส่งรายงาน BIA");
+        return { ok: true, type: event.type, status: "subscription-required-before-bia-image", canonicalUserId };
+      }
+
+      const result = await createBiaReportReview({
+        replyToken,
         canonicalUserId,
         lineUserId,
         messageId,
-        imageType: classification.type,
+        fileName: "LINE image BIA report",
         mimeType: content.mimeType,
-        createdAt: Timestamp.now()
+        source: "line-image",
+        imageType: classification.type
       });
-      return { ok: true, type: event.type, status: "bia-image-deferred", canonicalUserId };
+      return {
+        ok: true,
+        type: event.type,
+        status: "bia-report-review-created",
+        canonicalUserId,
+        biaReportId: result.biaReportId
+      };
     }
 
     if (classification.type === "other") {
@@ -752,6 +778,134 @@ async function handleLineImageMessage(
       error: error instanceof Error ? error.message : String(error)
     };
   }
+}
+
+async function handleLineFileMessage(
+  event: LineEvent,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown>> {
+  const messageId = event.message?.id;
+  const fileName = event.message?.fileName || "LINE file";
+  if (!messageId) {
+    await replyToLine(replyToken, "ไม่พบรหัสไฟล์จาก LINE ครับ กรุณาส่งไฟล์อีกครั้ง");
+    return { ok: false, type: event.type, status: "missing-file-message-id" };
+  }
+
+  await showLoadingAnimation(lineUserId, 10);
+
+  try {
+    const content = await downloadLineContent(messageId);
+    if (!isSupportedBiaFile(fileName, content.mimeType)) {
+      await replyToLine(replyToken, "ตอนนี้ Firebase staging รองรับไฟล์ BIA เป็น PDF หรือรูปภาพเท่านั้นครับ");
+      await db.collection("lineUnsupportedFiles").add({
+        canonicalUserId,
+        lineUserId,
+        messageId,
+        fileName,
+        mimeType: content.mimeType,
+        createdAt: Timestamp.now()
+      });
+      return { ok: true, type: event.type, status: "unsupported-file-replied", canonicalUserId };
+    }
+
+    const result = await createBiaReportReview({
+      replyToken,
+      canonicalUserId,
+      lineUserId,
+      messageId,
+      fileName,
+      mimeType: content.mimeType,
+      source: "line-file"
+    });
+    return {
+      ok: true,
+      type: event.type,
+      status: "bia-file-review-created",
+      canonicalUserId,
+      biaReportId: result.biaReportId
+    };
+  } catch (error) {
+    await replyToLine(replyToken, "ขออภัยครับ ระบบรับไฟล์ BIA/PDF ฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
+    return {
+      ok: false,
+      type: event.type,
+      status: "bia-file-review-failed",
+      canonicalUserId,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
+function isSupportedBiaFile(fileName: string, mimeType: string): boolean {
+  const lowerName = fileName.toLowerCase();
+  const lowerMime = mimeType.toLowerCase();
+  return lowerMime.includes("pdf") ||
+    lowerMime.startsWith("image/") ||
+    lowerName.endsWith(".pdf") ||
+    /\.(jpg|jpeg|png|webp)$/i.test(lowerName);
+}
+
+async function createBiaReportReview(input: {
+  replyToken: string;
+  canonicalUserId: string;
+  lineUserId: string;
+  messageId: string;
+  fileName: string;
+  mimeType: string;
+  source: "line-image" | "line-file";
+  imageType?: string;
+}): Promise<{ biaReportId: string }> {
+  const now = Timestamp.now();
+  const profile = await getUserProfile(input.canonicalUserId);
+  const reportRef = db.collection("biaReports").doc();
+  await reportRef.set({
+    biaReportId: reportRef.id,
+    canonicalUserId: input.canonicalUserId,
+    lineUserId: input.lineUserId,
+    displayName: profile.name,
+    status: "pending-analysis",
+    source: input.source,
+    lineMessageId: input.messageId,
+    fileName: input.fileName,
+    fileUrl: `line-message://${input.messageId}`,
+    mimeType: input.mimeType,
+    imageType: input.imageType ?? null,
+    createdAt: now,
+    updatedAt: now
+  });
+
+  await db.collection("adminAuditLogs").add({
+    type: "bia-report-submitted",
+    biaReportId: reportRef.id,
+    canonicalUserId: input.canonicalUserId,
+    lineUserId: input.lineUserId,
+    source: input.source,
+    fileName: input.fileName,
+    mimeType: input.mimeType,
+    createdAt: now
+  });
+
+  await replyToLine(input.replyToken, [
+    "ได้รับรายงาน BIA/สุขภาพแล้วครับ",
+    "Firebase staging บันทึกเข้าคิวตรวจเรียบร้อย ยังไม่ปรับเป้าหมายอัตโนมัติจนกว่า analysis + confirm flow จะครบ",
+    `รหัสรายการ: ${reportRef.id}`
+  ].join("\n"));
+
+  await pushMessage(ADMIN_LINE_USER_ID.value(), [
+    "มีรายงาน BIA/สุขภาพใหม่รอตรวจ",
+    `ลูกค้า: ${profile.name}`,
+    `LINE User ID: ${input.lineUserId}`,
+    `Canonical ID: ${input.canonicalUserId}`,
+    `ไฟล์: ${input.fileName}`,
+    `ชนิด: ${input.mimeType}`,
+    `BIA Report ID: ${reportRef.id}`,
+    "",
+    "สถานะ: pending-analysis"
+  ].join("\n"));
+
+  return { biaReportId: reportRef.id };
 }
 
 async function classifyLineImage(base64: string, mimeType: string) {

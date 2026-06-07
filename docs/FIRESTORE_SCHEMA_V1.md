@@ -115,6 +115,28 @@ Weight and body composition history.
 }
 ```
 
+### `biaReports/{biaReportId}`
+
+BIA/InBody/smart-scale/health report queue created from LINE image or file uploads.
+
+```json
+{
+  "biaReportId": "report-id",
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "displayName": "Member",
+  "status": "pending-analysis",
+  "source": "line-file",
+  "lineMessageId": "LINE message id",
+  "fileName": "inbody.pdf",
+  "fileUrl": "line-message://...",
+  "mimeType": "application/pdf",
+  "imageType": "bia",
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp"
+}
+```
+
 ### `subscriptions/{canonicalUserId}`
 
 Subscription and entitlement record managed by backend/admin flow.

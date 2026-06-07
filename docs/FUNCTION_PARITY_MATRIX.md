@@ -26,8 +26,8 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `saveToSheetAndGetSummary` | Save meal and return daily summary | partial Firestore write and reply only |
 | `replyToLine` / `pushMessage` | Reply and push messages | partial staging replies only |
 | `showLoadingAnimation` | LINE loading UX | partial best-effort image flow |
-| `handleFileMessage` | PDF/BIA/file routing | not started |
-| `handleBIAReport` | Body composition report analysis | not started |
+| `handleFileMessage` | PDF/BIA/file routing | partial Firestore staging queue |
+| `handleBIAReport` | Body composition report analysis | partial queue only, AI analysis pending |
 | `handleExerciseLog` | Exercise logging | partial Firestore staging with `exerciseAnalysis` |
 | `handleWeightLog` | Weight logging | partial Firestore staging |
 | `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |

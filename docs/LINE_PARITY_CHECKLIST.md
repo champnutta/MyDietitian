@@ -10,13 +10,13 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Handle new user onboarding. Partial: staging uses a LINE Flex onboarding card with legacy LIFF link and quick manual setup via `ตั้งค่า ชื่อ 2000 40-30-30`.
 - Check user subscription status. Partial: staging gates LINE food/image/exercise analysis when profile is incomplete or subscription is expired.
 - Route text commands. Partial: staging supports help, profile/status, dashboard link, daily summary, weight log, undo latest meal, quick setup, subscription, redeem code, contact admin, and exercise logs.
-- Route image messages. Partial: staging classifies LINE images as food/slip/BIA/other, supports food and slip routes, and defers BIA.
+- Route image messages. Partial: staging classifies LINE images as food/slip/BIA/other, supports food/slip routes, and queues BIA reports.
 - Download LINE image content. Partial: staging downloads image content in memory only.
 - Analyze food images. Partial: staging sends LINE images to the configured meal analysis agent.
 - Save meal logs. Done for staging text and image food messages.
 - Send LINE replies. Done for staging text/image food messages and unsupported-message notices.
 - Send loading animation where supported. Partial: staging starts best-effort LINE loading animation for image analysis.
-- Handle file uploads and BIA reports.
+- Handle file uploads and BIA reports. Partial: staging accepts BIA image/PDF files, creates `biaReports` pending-analysis records, and notifies admin; AI analysis and target-confirm flow are still pending.
 - Handle exercise logs. Partial: staging detects exercise text, estimates burn with `exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies 50% safety factor, and writes Firestore `exerciseLogs`.
 - Handle weight logs. Partial: staging manual LINE text weight logging writes to Firestore.
 - Handle undo/delete last meal. Partial: staging deletes latest Firestore meal log.
@@ -33,7 +33,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Event logging: done.
 - Text and image food analysis/reply: staging only.
 - Signed LINE webhook test: pending.
-- Known legacy command guard: menu-recommendation/payment-slip/BIA commands still show a staging notice. Quick setup, subscription request, redeem code, contact-admin, and admin approve/reject now have partial staging handlers.
+- Known legacy command guard: menu-recommendation and advanced BIA target-adjustment commands still show a staging notice. Quick setup, subscription request, redeem code, contact-admin, payment-slip queue, BIA queue, and admin approve/reject now have partial staging handlers.
 - Text command parity: help, profile/status, dashboard link, daily summary, manual weight log, and undo latest meal are implemented for Firestore staging data.
 - Onboarding/subscription gate parity: staging blocks food/image/exercise analysis until the LINE user has target macros and an active subscription/trial in Firestore.
 - Exercise parity: staging supports exercise guide and exercise text logs such as running/walking/weight training with measurable duration or distance.
