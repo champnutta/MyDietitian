@@ -107,7 +107,7 @@ export interface MealAnalysisResult {
 }
 
 export interface ImageClassificationResult {
-  type: "food" | "slip" | "bia" | "other";
+  type: "food" | "slip" | "bia" | "leftover" | "other";
   confidence?: number;
   slip_data?: {
     amount?: number;

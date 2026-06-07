@@ -20,7 +20,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `checkUserStatus` | User registration state | partial Firestore profile readiness |
 | `checkSubscription` | Subscription gate | partial Firestore staging gate for food/image/exercise |
 | `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo/correction/portion/setup/subscription/coach/menu |
-| `handleImageMessage` | LINE image message flow | partial Firestore staging with food/slip/BIA/other classification |
+| `handleImageMessage` | LINE image message flow | partial Firestore staging with food/slip/BIA/leftover/other classification |
 | `getLineContent` | Download LINE image/file content | partial image-only staging |
 | `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` staging |
 | `saveToSheetAndGetSummary` | Save meal and return daily summary | partial Firestore write and reply only |
@@ -33,6 +33,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleWeightLog` | Weight logging | partial Firestore staging |
 | `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
 | `handlePortionAdjustment` | Scale latest meal when user ate less | partial Firestore staging |
+| `handleLeftoverSubtraction` | Subtract visible leftovers from latest meal | partial Firestore staging |
 | AI router correction | Replace latest meal when user corrects text | partial Firestore staging |
 | `handleSubscriptionRequest` | Payment request flow | partial staging packages/QR response |
 | `handleSlipPayment` | Slip parsing and admin review | partial Firestore staging pending-review flow |

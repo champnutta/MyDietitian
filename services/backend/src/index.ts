@@ -6,6 +6,7 @@ import {
   callGeminiCoachConsultation,
   callGeminiExerciseAnalysis,
   callGeminiImageClassification,
+  callGeminiLeftoverAnalysis,
   callGeminiMealAnalysis,
   getAiAgentConfig
 } from "./ai-provider.js";
@@ -866,6 +867,30 @@ async function handleLineImageMessage(
         status: "bia-report-review-created",
         canonicalUserId,
         biaReportId: result.biaReportId
+      };
+    }
+
+    if (classification.type === "leftover") {
+      if (!readiness.subscriptionActive) {
+        await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ (ส่งสลิปได้ แต่ยังหักของเหลือไม่ได้)");
+        return { ok: true, type: event.type, status: "subscription-required-before-leftover-image", canonicalUserId };
+      }
+
+      const result = await subtractLatestMealLeftover({
+        canonicalUserId,
+        lineUserId,
+        messageId,
+        imageBase64: content.base64,
+        mimeType: content.mimeType
+      });
+      await replyToLine(replyToken, result.message);
+      return {
+        ok: true,
+        type: event.type,
+        status: result.subtracted ? "leftover-subtracted" : "leftover-subtraction-not-found",
+        canonicalUserId,
+        mealLogId: result.mealLogId,
+        aiRunId: result.aiRunId
       };
     }
 
@@ -2428,6 +2453,127 @@ async function adjustLatestMealPortion(
   };
 }
 
+async function subtractLatestMealLeftover(input: {
+  canonicalUserId: string;
+  lineUserId: string;
+  messageId: string;
+  imageBase64: string;
+  mimeType: string;
+}): Promise<{ subtracted: boolean; message: string; mealLogId?: string; aiRunId?: string }> {
+  const doc = await getLatestMealLog(input.canonicalUserId);
+  if (!doc) {
+    return { subtracted: false, message: "ไม่พบรายการอาหารล่าสุดให้หักของเหลือครับ" };
+  }
+
+  const data = doc.data();
+  const latestMealName = String(data.mealNameTh ?? data.mealNameEn ?? "รายการอาหารล่าสุด");
+  const agent = await getAiAgentConfig("mealAnalysis");
+  if (!agent.enabled) {
+    throw new Error("AI mealAnalysis agent is disabled");
+  }
+  if (agent.provider !== "gemini") {
+    throw new Error(`Unsupported mealAnalysis provider for leftover analysis: ${agent.provider}`);
+  }
+
+  const aiRunRef = db.collection("aiRuns").doc();
+  const now = Timestamp.now();
+  await aiRunRef.set({
+    runId: aiRunRef.id,
+    userId: input.canonicalUserId,
+    canonicalUserId: input.canonicalUserId,
+    lineUserId: input.lineUserId,
+    source: "line",
+    inputType: "leftover_image",
+    imageUrl: `line-message://${input.messageId}`,
+    status: "running",
+    createdAt: now,
+    agentId: agent.agentId,
+    provider: agent.provider,
+    promptVersion: agent.promptVersion,
+    model: agent.model
+  });
+
+  try {
+    const leftover = await callGeminiLeftoverAnalysis(
+      {
+        imageBase64: input.imageBase64,
+        mimeType: input.mimeType,
+        latestMealName
+      },
+      GEMINI_API_KEY.value(),
+      agent
+    );
+    const nutrients = data.nutrients ?? {};
+    const leftoverNutrients = {
+      caloriesKcal: Math.max(0, Math.round(Number(leftover.nutrients?.calories_kcal ?? 0))),
+      proteinG: Math.max(0, Math.round(Number(leftover.nutrients?.protein_g ?? 0))),
+      carbsG: Math.max(0, Math.round(Number(leftover.nutrients?.carbs_g ?? 0))),
+      fatG: Math.max(0, Math.round(Number(leftover.nutrients?.fat_g ?? 0))),
+      fiberG: Math.max(0, Number(Number(leftover.nutrients?.fiber_g ?? 0).toFixed(1))),
+      sugarG: Math.max(0, Number(Number(leftover.nutrients?.sugar_g ?? 0).toFixed(1)))
+    };
+    const updatedNutrients = {
+      caloriesKcal: Math.max(0, Math.round(Number(nutrients.caloriesKcal ?? 0) - leftoverNutrients.caloriesKcal)),
+      proteinG: Math.max(0, Math.round(Number(nutrients.proteinG ?? 0) - leftoverNutrients.proteinG)),
+      carbsG: Math.max(0, Math.round(Number(nutrients.carbsG ?? 0) - leftoverNutrients.carbsG)),
+      fatG: Math.max(0, Math.round(Number(nutrients.fatG ?? 0) - leftoverNutrients.fatG)),
+      fiberG: Math.max(0, Number((Number(nutrients.fiberG ?? 0) - leftoverNutrients.fiberG).toFixed(1))),
+      sugarG: Math.max(0, Number((Number(nutrients.sugarG ?? 0) - leftoverNutrients.sugarG).toFixed(1)))
+    };
+    const previousAdjustments = Array.isArray(data.adjustments) ? data.adjustments : [];
+    const savedAt = Timestamp.now();
+    const leftoverName = leftover.dish_name?.th ?? "ของเหลือ";
+
+    await doc.ref.set(
+      {
+        mealNameTh: `${latestMealName.replace(/\s*\([^)]*\)\s*$/, "")} (หัก: ${leftoverName})`,
+        nutrients: updatedNutrients,
+        adjustments: [
+          ...previousAdjustments,
+          {
+            type: "leftover-subtraction",
+            lineMessageId: input.messageId,
+            leftoverNameTh: leftoverName,
+            portionDescription: leftover.portion_description ?? "",
+            subtractedNutrients: leftoverNutrients,
+            previousNutrients: nutrients,
+            aiRunId: aiRunRef.id,
+            adjustedAt: savedAt
+          }
+        ],
+        updatedAt: savedAt
+      },
+      { merge: true }
+    );
+    await aiRunRef.set(
+      {
+        status: "completed",
+        mealLogId: doc.id,
+        completedAt: savedAt,
+        output: leftover
+      },
+      { merge: true }
+    );
+
+    return {
+      subtracted: true,
+      mealLogId: doc.id,
+      aiRunId: aiRunRef.id,
+      message: formatLeftoverSubtractionReply(latestMealName, leftoverName, leftoverNutrients, updatedNutrients)
+    };
+  } catch (error) {
+    await aiRunRef.set(
+      {
+        status: "failed",
+        failedAt: Timestamp.now(),
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { merge: true }
+    );
+    throw error;
+  }
+}
+
 async function replaceLatestMealWithCorrection(
   userId: string,
   correctedText: string,
@@ -2592,6 +2738,25 @@ function formatCoachConsultationReply(answer: string, mode: CoachConsultationReq
     title,
     "------------------",
     answer
+  ].join("\n");
+}
+
+function formatLeftoverSubtractionReply(
+  mealName: string,
+  leftoverName: string,
+  leftoverNutrients: Record<string, number>,
+  updatedNutrients: Record<string, number>
+): string {
+  return [
+    "หักลบของเหลือเรียบร้อยครับ",
+    `จากเมนู: ${mealName}`,
+    `หักออก: ${leftoverName}`,
+    `-${Math.round(leftoverNutrients.caloriesKcal ?? 0)} kcal`,
+    `(P:-${Math.round(leftoverNutrients.proteinG ?? 0)} C:-${Math.round(leftoverNutrients.carbsG ?? 0)} F:-${Math.round(leftoverNutrients.fatG ?? 0)} Fib:-${Number(leftoverNutrients.fiberG ?? 0).toFixed(1)})`,
+    "------------------",
+    "รายการล่าสุดหลังหัก:",
+    `${Math.round(updatedNutrients.caloriesKcal ?? 0)} kcal`,
+    `(P:${Math.round(updatedNutrients.proteinG ?? 0)} C:${Math.round(updatedNutrients.carbsG ?? 0)} F:${Math.round(updatedNutrients.fatG ?? 0)} Fib:${Number(updatedNutrients.fiberG ?? 0).toFixed(1)})`
   ].join("\n");
 }
 

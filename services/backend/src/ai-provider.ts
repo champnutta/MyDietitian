@@ -89,6 +89,50 @@ export async function callGeminiMealAnalysis(
   return parseJsonOutput(text);
 }
 
+export async function callGeminiLeftoverAnalysis(
+  input: {
+    imageBase64: string;
+    mimeType: string;
+    latestMealName: string;
+  },
+  apiKey: string,
+  agent: AiAgentConfig
+): Promise<MealAnalysisResult> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: buildLeftoverPrompt(input.latestMealName) },
+            { inline_data: { mime_type: input.mimeType || "image/jpeg", data: input.imageBase64 } }
+          ]
+        }],
+        generationConfig: {
+          temperature: Math.min(agent.temperature, 0.2),
+          response_mime_type: "application/json"
+        }
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini leftover analysis failed: ${res.status} ${text}`);
+  }
+
+  const json = await res.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no leftover analysis output");
+
+  return parseJsonOutput(text);
+}
+
 export async function callGeminiImageClassification(
   imageBase64: string,
   mimeType: string,
@@ -297,12 +341,44 @@ Rules:
 - Use numbers, not strings, for nutrients.`;
 }
 
+function buildLeftoverPrompt(latestMealName: string): string {
+  return `Act as an expert Thai nutrition coach.
+The user's latest logged meal is "${latestMealName}".
+Analyze this image as leftovers/residue from that latest meal.
+
+Return JSON only with this exact shape:
+{
+  "dish_name": { "th": "Thai name of visible leftover", "en": "English name of visible leftover" },
+  "portion_description": "Short Thai description of the leftover amount to subtract",
+  "nutrients": {
+    "calories_kcal": 0,
+    "protein_g": 0,
+    "carbs_g": 0,
+    "fat_g": 0,
+    "fiber_g": 0,
+    "sugar_g": 0
+  },
+  "health_rating": {
+    "score": 5,
+    "comment": "Thai note explaining this is the estimated leftover amount being subtracted"
+  }
+}
+
+Rules:
+- Estimate ONLY the visible uneaten food/waste/residue that should be subtracted from the latest meal.
+- Do not estimate the whole original meal.
+- If the image mainly shows empty plate, bones, wrappers, soup residue, sauce, rice left, or uneaten food scraps, estimate conservatively.
+- If no meaningful leftover nutrients are visible, return zeros.
+- Use Thai language for text fields.
+- Use numbers, not strings, for nutrients.`;
+}
+
 function buildImageClassificationPrompt(): string {
   return `Classify this LINE image for a Thai diet coach/payment bot.
 
 Return JSON only with this exact shape:
 {
-  "type": "food" | "slip" | "bia" | "other",
+  "type": "food" | "slip" | "bia" | "leftover" | "other",
   "confidence": 0.0,
   "slip_data": {
     "amount": 0,
@@ -317,6 +393,7 @@ Return JSON only with this exact shape:
 Rules:
 - "slip" means bank transfer slip, payment confirmation, QR payment receipt, or mobile banking transfer screenshot.
 - "bia" means InBody/body composition/smart scale/medical report/table of health metrics.
+- "leftover" means a mostly eaten meal, empty/near-empty plate, bones, sauce/soup residue, wrappers, or scraps intended to subtract from the latest food log.
 - "food" means food, drink, snack, menu, or nutrition label.
 - "other" means anything else.
 - If not a payment slip, omit slip_data or set fields empty.
@@ -395,7 +472,7 @@ Rules:
 }
 
 function normalizeImageType(type: unknown): ImageClassificationResult["type"] {
-  return type === "slip" || type === "bia" || type === "other" ? type : "food";
+  return type === "slip" || type === "bia" || type === "leftover" || type === "other" ? type : "food";
 }
 
 function buildExercisePrompt(request: AnalyzeExerciseRequest): string {

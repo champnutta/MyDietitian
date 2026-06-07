@@ -10,9 +10,9 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Handle new user onboarding. Partial: staging uses a LINE Flex onboarding card with legacy LIFF link and quick manual setup via `ตั้งค่า ชื่อ 2000 40-30-30`.
 - Check user subscription status. Partial: staging gates LINE food/image/exercise analysis when profile is incomplete or subscription is expired.
 - Route text commands. Partial: staging supports help, profile/status, dashboard link, daily summary, weight log, undo latest meal, latest-meal correction, portion adjustment, quick setup, subscription, redeem code, contact admin, exercise logs, coach consultation, and menu recommendations.
-- Route image messages. Partial: staging classifies LINE images as food/slip/BIA/other, supports food/slip routes, and queues BIA reports.
+- Route image messages. Partial: staging classifies LINE images as food/slip/BIA/leftover/other, supports food/slip/leftover routes, and queues BIA reports.
 - Download LINE image content. Partial: staging downloads image content in memory only.
-- Analyze food images. Partial: staging sends LINE images to the configured meal analysis agent.
+- Analyze food images and leftovers. Partial: staging sends LINE food images to the configured meal analysis agent and can subtract visible leftover nutrients from the latest Firestore meal log.
 - Save meal logs. Done for staging text and image food messages.
 - Send LINE replies. Done for staging text/image food messages and unsupported-message notices.
 - Send loading animation where supported. Partial: staging starts best-effort LINE loading animation for image analysis.
@@ -39,6 +39,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Exercise parity: staging supports exercise guide and exercise text logs such as running/walking/weight training with measurable duration or distance.
 - Coach/menu parity: staging routes menu/advice questions to `aiAgents/coachConsultation`, uses today's Firestore summary and recent meals, stores `coachConsultations`, and does not create meal logs for advice-only text. Signed LINE text test is still pending.
 - Image food parity: staging downloads LINE image content, analyzes it with `aiAgents/mealAnalysis`, saves a Firestore meal log, and replies with the meal summary. Signed LINE image test is still pending.
+- Leftover image parity: staging classifies leftover images, estimates visible leftover nutrients with `aiAgents/mealAnalysis`, stores a `leftover-subtraction` adjustment, and updates the latest Firestore meal log. Signed LINE leftover image test is still pending.
 - Contact/admin chat parity: staging forwards customer contact messages to admin, supports temporary admin chat mode, and logs chat messages in Firestore.
 - Subscription parity: staging can show packages/QR, redeem migrated codes from `redeemCodes`, classify slip images, create pending payment reviews, and let admin approve/reject subscriptions. Automatic bank verification is still pending.
 - Error reporting: staging logs failed LINE event processing and best-effort notifies the configured admin LINE user.
