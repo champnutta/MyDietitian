@@ -89,6 +89,29 @@ export interface ImageClassificationResult {
   };
 }
 
+export interface BiaAnalysisResult {
+  meta: {
+    date_str?: string;
+    device_name?: string;
+  };
+  metrics: {
+    weight_kg?: number;
+    muscle_kg?: number;
+    fat_pct?: number;
+    bmr?: number;
+    visceral_lvl?: number;
+  };
+  recommendation: {
+    suggested_tdee: number;
+    suggested_p: number;
+    suggested_c: number;
+    suggested_f: number;
+    goal_name?: string;
+    reason_th?: string;
+  };
+  workout_advice_th?: string;
+}
+
 export interface ExerciseAnalysisResult {
   activity_name: string;
   calories_burned: number;

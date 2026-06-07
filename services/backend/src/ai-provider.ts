@@ -2,6 +2,7 @@ import type {
   AiAgentConfig,
   AnalyzeExerciseRequest,
   AnalyzeMealRequest,
+  BiaAnalysisResult,
   ExerciseAnalysisResult,
   ImageClassificationResult,
   MealAnalysisResult
@@ -17,7 +18,8 @@ const DEFAULT_AGENT_BASE = {
 
 const DEFAULT_AGENT_PROMPT_VERSION: Record<string, string> = {
   mealAnalysis: "meal-v1",
-  exerciseAnalysis: "exercise-v1"
+  exerciseAnalysis: "exercise-v1",
+  biaAnalysis: "bia-v1"
 };
 
 export async function getAiAgentConfig(agentId: string): Promise<AiAgentConfig> {
@@ -130,6 +132,51 @@ export async function callGeminiImageClassification(
   };
 }
 
+export async function callGeminiBiaAnalysis(
+  input: {
+    base64: string;
+    mimeType: string;
+    displayName: string;
+    currentTargetCal: number;
+  },
+  apiKey: string,
+  agent: AiAgentConfig
+): Promise<BiaAnalysisResult> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: buildBiaPrompt(input.displayName, input.currentTargetCal) },
+            { inline_data: { mime_type: input.mimeType || "image/jpeg", data: input.base64 } }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          response_mime_type: "application/json"
+        }
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini BIA analysis failed: ${res.status} ${text}`);
+  }
+
+  const json = await res.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no BIA analysis output");
+
+  return parseJsonOutput(text);
+}
+
 export async function callGeminiExerciseAnalysis(
   request: AnalyzeExerciseRequest,
   apiKey: string,
@@ -238,6 +285,45 @@ Rules:
 - "other" means anything else.
 - If not a payment slip, omit slip_data or set fields empty.
 - Use numeric amount only when visible.`;
+}
+
+function buildBiaPrompt(displayName: string, currentTargetCal: number): string {
+  return `Act as an expert personal trainer and Thai nutrition coach.
+Analyze this BIA/InBody/smart-scale/health report for user "${displayName}".
+Current target TDEE is ${currentTargetCal} kcal.
+
+Tasks:
+1. Extract report date and device name if visible.
+2. Extract body metrics: weight, skeletal muscle/muscle mass, body fat percentage, BMR, visceral fat level.
+3. Recommend a conservative updated nutrition target based on the report.
+4. Give Thai-language reasoning and workout advice.
+
+Return JSON only with this exact shape:
+{
+  "meta": { "date_str": "DD/MM/YYYY or TODAY", "device_name": "string" },
+  "metrics": {
+    "weight_kg": 0,
+    "muscle_kg": 0,
+    "fat_pct": 0,
+    "bmr": 0,
+    "visceral_lvl": 0
+  },
+  "recommendation": {
+    "suggested_tdee": 0,
+    "suggested_p": 0,
+    "suggested_c": 0,
+    "suggested_f": 0,
+    "goal_name": "string",
+    "reason_th": "Thai explanation"
+  },
+  "workout_advice_th": "Thai workout advice"
+}
+
+Rules:
+- Use numbers, not strings, for metrics and macros.
+- If a value is not visible, use 0.
+- Recommendations must be conservative and safe.
+- Do not diagnose disease or make medical claims.`;
 }
 
 function normalizeImageType(type: unknown): ImageClassificationResult["type"] {

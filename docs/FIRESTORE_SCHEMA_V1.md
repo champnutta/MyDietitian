@@ -132,6 +132,26 @@ BIA/InBody/smart-scale/health report queue created from LINE image or file uploa
   "fileUrl": "line-message://...",
   "mimeType": "application/pdf",
   "imageType": "bia",
+  "analysis": {
+    "meta": { "date_str": "TODAY", "device_name": "InBody" },
+    "metrics": {
+      "weight_kg": 72.4,
+      "muscle_kg": 31.2,
+      "fat_pct": 19.3,
+      "bmr": 1600,
+      "visceral_lvl": 8
+    },
+    "recommendation": {
+      "suggested_tdee": 2100,
+      "suggested_p": 150,
+      "suggested_c": 220,
+      "suggested_f": 60,
+      "goal_name": "Recomposition",
+      "reason_th": "Thai explanation"
+    },
+    "workout_advice_th": "Thai advice"
+  },
+  "analyzedAt": "timestamp",
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
 }

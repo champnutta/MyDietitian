@@ -16,7 +16,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Save meal logs. Done for staging text and image food messages.
 - Send LINE replies. Done for staging text/image food messages and unsupported-message notices.
 - Send loading animation where supported. Partial: staging starts best-effort LINE loading animation for image analysis.
-- Handle file uploads and BIA reports. Partial: staging accepts BIA image/PDF files, creates `biaReports` pending-analysis records, and notifies admin; AI analysis and target-confirm flow are still pending.
+- Handle file uploads and BIA reports. Partial: staging accepts BIA image/PDF files, creates `biaReports`, runs `biaAnalysis`, saves weight metrics when available, and supports target-confirm commands; signed LINE file/image tests are still pending.
 - Handle exercise logs. Partial: staging detects exercise text, estimates burn with `exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies 50% safety factor, and writes Firestore `exerciseLogs`.
 - Handle weight logs. Partial: staging manual LINE text weight logging writes to Firestore.
 - Handle undo/delete last meal. Partial: staging deletes latest Firestore meal log.
@@ -33,7 +33,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Event logging: done.
 - Text and image food analysis/reply: staging only.
 - Signed LINE webhook test: pending.
-- Known legacy command guard: menu-recommendation and advanced BIA target-adjustment commands still show a staging notice. Quick setup, subscription request, redeem code, contact-admin, payment-slip queue, BIA queue, and admin approve/reject now have partial staging handlers.
+- Known legacy command guard: menu-recommendation still shows a staging notice. Quick setup, subscription request, redeem code, contact-admin, payment-slip queue, BIA analysis/confirm, and admin approve/reject now have partial staging handlers.
 - Text command parity: help, profile/status, dashboard link, daily summary, manual weight log, and undo latest meal are implemented for Firestore staging data.
 - Onboarding/subscription gate parity: staging blocks food/image/exercise analysis until the LINE user has target macros and an active subscription/trial in Firestore.
 - Exercise parity: staging supports exercise guide and exercise text logs such as running/walking/weight training with measurable duration or distance.

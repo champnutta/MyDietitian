@@ -2,6 +2,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { Timestamp, type Transaction } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
+  callGeminiBiaAnalysis,
   callGeminiExerciseAnalysis,
   callGeminiImageClassification,
   callGeminiMealAnalysis,
@@ -724,6 +725,7 @@ async function handleLineImageMessage(
         messageId,
         fileName: "LINE image BIA report",
         mimeType: content.mimeType,
+        base64: content.base64,
         source: "line-image",
         imageType: classification.type
       });
@@ -817,6 +819,7 @@ async function handleLineFileMessage(
       messageId,
       fileName,
       mimeType: content.mimeType,
+      base64: content.base64,
       source: "line-file"
     });
     return {
@@ -854,6 +857,7 @@ async function createBiaReportReview(input: {
   messageId: string;
   fileName: string;
   mimeType: string;
+  base64: string;
   source: "line-image" | "line-file";
   imageType?: string;
 }): Promise<{ biaReportId: string }> {
@@ -887,25 +891,114 @@ async function createBiaReportReview(input: {
     createdAt: now
   });
 
-  await replyToLine(input.replyToken, [
-    "ได้รับรายงาน BIA/สุขภาพแล้วครับ",
-    "Firebase staging บันทึกเข้าคิวตรวจเรียบร้อย ยังไม่ปรับเป้าหมายอัตโนมัติจนกว่า analysis + confirm flow จะครบ",
-    `รหัสรายการ: ${reportRef.id}`
-  ].join("\n"));
+  try {
+    const analysis = await analyzeBiaReport(input.base64, input.mimeType, profile);
+    const savedAt = Timestamp.now();
+    await reportRef.set({
+      status: "analysis-completed",
+      analysis,
+      analyzedAt: savedAt,
+      updatedAt: savedAt
+    }, { merge: true });
 
-  await pushMessage(ADMIN_LINE_USER_ID.value(), [
-    "มีรายงาน BIA/สุขภาพใหม่รอตรวจ",
-    `ลูกค้า: ${profile.name}`,
-    `LINE User ID: ${input.lineUserId}`,
-    `Canonical ID: ${input.canonicalUserId}`,
-    `ไฟล์: ${input.fileName}`,
-    `ชนิด: ${input.mimeType}`,
-    `BIA Report ID: ${reportRef.id}`,
-    "",
-    "สถานะ: pending-analysis"
-  ].join("\n"));
+    await saveWeightLogFromBia(input.canonicalUserId, analysis, savedAt);
+    await db.collection("profileEvents").add({
+      type: "bia-analysis",
+      biaReportId: reportRef.id,
+      canonicalUserId: input.canonicalUserId,
+      lineUserId: input.lineUserId,
+      analysis,
+      createdAt: savedAt
+    });
+
+    await replyToLine(input.replyToken, formatBiaAnalysisReply(reportRef.id, profile, analysis));
+    await pushMessage(ADMIN_LINE_USER_ID.value(), [
+      "วิเคราะห์ BIA/สุขภาพสำเร็จ",
+      `ลูกค้า: ${profile.name}`,
+      `LINE User ID: ${input.lineUserId}`,
+      `Canonical ID: ${input.canonicalUserId}`,
+      `BIA Report ID: ${reportRef.id}`,
+      `น้ำหนัก: ${analysis.metrics?.weight_kg ?? "-"} kg`,
+      `Fat: ${analysis.metrics?.fat_pct ?? "-"}% | Muscle: ${analysis.metrics?.muscle_kg ?? "-"} kg`,
+      `แนะนำ TDEE: ${analysis.recommendation?.suggested_tdee ?? "-"} kcal`,
+      "",
+      "รอ user ยืนยันก่อนปรับ profile target"
+    ].join("\n"));
+  } catch (error) {
+    const failedAt = Timestamp.now();
+    await reportRef.set({
+      status: "analysis-failed",
+      error: error instanceof Error ? error.message : String(error),
+      failedAt,
+      updatedAt: failedAt
+    }, { merge: true });
+
+    await replyToLine(input.replyToken, [
+      "ได้รับรายงาน BIA/สุขภาพแล้วครับ",
+      "แต่ระบบ staging ยังวิเคราะห์ไฟล์นี้ไม่สำเร็จ จึงบันทึกไว้ให้แอดมินตรวจต่อ",
+      `รหัสรายการ: ${reportRef.id}`
+    ].join("\n"));
+
+    await pushMessage(ADMIN_LINE_USER_ID.value(), [
+      "มีรายงาน BIA/สุขภาพรอตรวจแบบ manual",
+      `ลูกค้า: ${profile.name}`,
+      `LINE User ID: ${input.lineUserId}`,
+      `Canonical ID: ${input.canonicalUserId}`,
+      `ไฟล์: ${input.fileName}`,
+      `ชนิด: ${input.mimeType}`,
+      `BIA Report ID: ${reportRef.id}`,
+      `Error: ${error instanceof Error ? error.message : String(error)}`
+    ].join("\n"));
+  }
 
   return { biaReportId: reportRef.id };
+}
+
+async function analyzeBiaReport(base64: string, mimeType: string, profile: UserProfile) {
+  const agent = await getAiAgentConfig("biaAnalysis");
+  if (!agent.enabled) {
+    throw new Error("AI biaAnalysis agent is disabled");
+  }
+  if (agent.provider !== "gemini") {
+    throw new Error(`Unsupported BIA provider: ${agent.provider}`);
+  }
+
+  return callGeminiBiaAnalysis({
+    base64,
+    mimeType,
+    displayName: profile.name,
+    currentTargetCal: profile.target.cal
+  }, GEMINI_API_KEY.value(), agent);
+}
+
+async function saveWeightLogFromBia(
+  canonicalUserId: string,
+  analysis: Awaited<ReturnType<typeof analyzeBiaReport>>,
+  loggedAt: Timestamp
+): Promise<void> {
+  const metrics = analysis.metrics ?? {};
+  const weightKg = Number(metrics.weight_kg ?? 0);
+  if (!weightKg) return;
+
+  await db.collection("weightLogs").add({
+    userId: canonicalUserId,
+    canonicalUserId,
+    source: "line-bia",
+    weightKg,
+    bodyFatPct: Number(metrics.fat_pct ?? 0) || null,
+    muscleMassKg: Number(metrics.muscle_kg ?? 0) || null,
+    bmr: Number(metrics.bmr ?? 0) || null,
+    visceralFatLevel: Number(metrics.visceral_lvl ?? 0) || null,
+    deviceName: analysis.meta?.device_name || "BIA Report",
+    loggedAt,
+    createdAt: loggedAt,
+    updatedAt: loggedAt
+  });
+
+  await db.collection("profiles").doc(canonicalUserId).set({
+    weightKg,
+    updatedAt: loggedAt
+  }, { merge: true });
 }
 
 async function classifyLineImage(base64: string, mimeType: string) {
@@ -1076,6 +1169,22 @@ async function handleLineTextCommand(
 ): Promise<Record<string, unknown> | null> {
   const lower = text.toLowerCase();
 
+  if (text.startsWith("CONFIRM_UPDATE_TARGET")) {
+    const result = await handleConfirmUpdateTarget(text, replyToken, canonicalUserId, lineUserId);
+    return { status: "target-update-confirmed", ...result };
+  }
+
+  if (text === "ไม่ปรับเป้าหมาย") {
+    await replyToLine(replyToken, "รับทราบครับ ใช้เป้าหมายเดิมต่อไปครับ");
+    await db.collection("profileEvents").add({
+      type: "target-update-declined",
+      canonicalUserId,
+      lineUserId,
+      createdAt: Timestamp.now()
+    });
+    return { status: "target-update-declined" };
+  }
+
   if (isSubscriptionRequestCommand(text)) {
     const result = await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId);
     return { status: "subscription-request-replied", ...result };
@@ -1231,6 +1340,53 @@ function isRedeemCodeCommand(text: string): boolean {
 
 function isManualProfileSetupCommand(text: string): boolean {
   return text.startsWith("ตั้งค่า");
+}
+
+async function handleConfirmUpdateTarget(
+  text: string,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown>> {
+  const parts = text.split(/\s+/);
+  const calories = Number(parts[1]);
+  const macros = parts[2]?.split("-").map((part) => Number(part)) ?? [];
+  if (!Number.isFinite(calories) || calories < 800 || calories > 6000 || macros.length !== 3 || macros.some((value) => !Number.isFinite(value) || value <= 0)) {
+    await replyToLine(replyToken, "รูปแบบยืนยันเป้าหมายไม่ถูกต้องครับ เช่น `CONFIRM_UPDATE_TARGET 2200 150-200-60`");
+    return { updated: false, reason: "invalid-target-confirmation" };
+  }
+
+  const [proteinG, carbsG, fatG] = macros;
+  const now = Timestamp.now();
+  const target = {
+    calories: Math.round(calories),
+    proteinG: Math.round(proteinG),
+    carbsG: Math.round(carbsG),
+    fatG: Math.round(fatG),
+    fiberG: 25
+  };
+  await Promise.all([
+    db.collection("profiles").doc(canonicalUserId).set({
+      target,
+      updatedAt: now
+    }, { merge: true }),
+    db.collection("profileEvents").add({
+      type: "target-update-confirmed",
+      canonicalUserId,
+      lineUserId,
+      target,
+      source: "line-confirm-command",
+      createdAt: now
+    })
+  ]);
+
+  await replyToLine(replyToken, [
+    "ปรับเป้าหมายเรียบร้อยครับ",
+    `TDEE: ${target.calories} kcal`,
+    `P:${target.proteinG}g C:${target.carbsG}g F:${target.fatG}g`
+  ].join("\n"));
+
+  return { updated: true, target };
 }
 
 async function handleManualProfileSetup(
@@ -1970,6 +2126,43 @@ function formatExerciseReply(exerciseLog: Record<string, unknown>, summary: Toda
     `กินได้อีก: ${Math.round(summary.remaining.cal)} kcal`,
     String(exerciseLog.commentTh ?? "")
   ].join("\n");
+}
+
+function formatBiaAnalysisReply(
+  biaReportId: string,
+  profile: UserProfile,
+  analysis: Awaited<ReturnType<typeof analyzeBiaReport>>
+): string {
+  const metrics = analysis.metrics ?? {};
+  const rec = analysis.recommendation ?? {};
+  const suggestedTdee = Math.round(Number(rec.suggested_tdee ?? profile.target.cal));
+  const suggestedP = Math.round(Number(rec.suggested_p ?? profile.target.p));
+  const suggestedC = Math.round(Number(rec.suggested_c ?? profile.target.c));
+  const suggestedF = Math.round(Number(rec.suggested_f ?? profile.target.f));
+
+  return [
+    "วิเคราะห์รายงาน BIA/สุขภาพเรียบร้อย",
+    `รหัสรายการ: ${biaReportId}`,
+    "",
+    `น้ำหนัก: ${formatOptionalNumber(metrics.weight_kg)} kg`,
+    `Fat: ${formatOptionalNumber(metrics.fat_pct)}% | Muscle: ${formatOptionalNumber(metrics.muscle_kg)} kg`,
+    `BMR: ${formatOptionalNumber(metrics.bmr)} kcal | Visceral: ${formatOptionalNumber(metrics.visceral_lvl)}`,
+    "",
+    `คำแนะนำ: ${rec.goal_name ?? "ปรับเป้าหมายแบบ conservative"}`,
+    `TDEE เดิม: ${Math.round(profile.target.cal)} -> ใหม่: ${suggestedTdee} kcal`,
+    `P:${suggestedP}g C:${suggestedC}g F:${suggestedF}g`,
+    String(rec.reason_th ?? ""),
+    String(analysis.workout_advice_th ?? ""),
+    "",
+    "ถ้าต้องการใช้เป้าใหม่ ให้ส่งคำสั่งนี้:",
+    `CONFIRM_UPDATE_TARGET ${suggestedTdee} ${suggestedP}-${suggestedC}-${suggestedF}`,
+    "ถ้าไม่ปรับ ส่ง: ไม่ปรับเป้าหมาย"
+  ].filter((line) => line !== "").join("\n");
+}
+
+function formatOptionalNumber(value: unknown): string {
+  const number = Number(value ?? 0);
+  return number ? String(Math.round(number * 10) / 10) : "-";
 }
 
 async function replyWithOnboarding(replyToken: string, lineUserId: string, displayName = "Member"): Promise<void> {

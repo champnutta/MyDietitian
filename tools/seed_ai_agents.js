@@ -22,6 +22,14 @@ const AI_AGENT_CONFIGS = [
     promptVersion: "exercise-v1",
     temperature: 0.2,
     enabled: true
+  },
+  {
+    agentId: "biaAnalysis",
+    provider: "gemini",
+    model: "gemini-3-flash-preview",
+    promptVersion: "bia-v1",
+    temperature: 0.1,
+    enabled: true
   }
 ];
 
