@@ -3,6 +3,7 @@ import type {
   AnalyzeExerciseRequest,
   AnalyzeMealRequest,
   BiaAnalysisResult,
+  CoachConsultationRequest,
   ExerciseAnalysisResult,
   ImageClassificationResult,
   MealAnalysisResult
@@ -19,7 +20,8 @@ const DEFAULT_AGENT_BASE = {
 const DEFAULT_AGENT_PROMPT_VERSION: Record<string, string> = {
   mealAnalysis: "meal-v1",
   exerciseAnalysis: "exercise-v1",
-  biaAnalysis: "bia-v1"
+  biaAnalysis: "bia-v1",
+  coachConsultation: "coach-v1"
 };
 
 export async function getAiAgentConfig(agentId: string): Promise<AiAgentConfig> {
@@ -177,6 +179,40 @@ export async function callGeminiBiaAnalysis(
   return parseJsonOutput(text);
 }
 
+export async function callGeminiCoachConsultation(
+  request: CoachConsultationRequest,
+  apiKey: string,
+  agent: AiAgentConfig
+): Promise<string> {
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: buildCoachConsultationPrompt(request) }] }],
+        generationConfig: {
+          temperature: agent.temperature
+        }
+      })
+    }
+  );
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Gemini coach consultation failed: ${res.status} ${text}`);
+  }
+
+  const json = await res.json() as {
+    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  };
+
+  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error("Gemini returned no coach consultation output");
+
+  return text.trim();
+}
+
 export async function callGeminiExerciseAnalysis(
   request: AnalyzeExerciseRequest,
   apiKey: string,
@@ -324,6 +360,38 @@ Rules:
 - If a value is not visible, use 0.
 - Recommendations must be conservative and safe.
 - Do not diagnose disease or make medical claims.`;
+}
+
+function buildCoachConsultationPrompt(request: CoachConsultationRequest): string {
+  const modeInstruction = request.mode === "menu_recommendation"
+    ? "Recommend 3 practical Thai meal options that fit the user's remaining calories/macros today."
+    : "Answer the user's nutrition or exercise question as a practical Thai AI coach.";
+
+  return `Act as a Thai dietitian-style AI coach. ${modeInstruction}
+
+User question:
+"${request.text}"
+
+User profile:
+- Name: ${request.profileName}
+- Target: ${request.target.calories} kcal, protein ${request.target.proteinG} g, carbs ${request.target.carbsG} g, fat ${request.target.fatG} g, fiber ${request.target.fiberG} g
+
+Today's summary:
+- Consumed: ${request.today.consumedCalories} kcal, protein ${request.today.consumedProteinG} g, carbs ${request.today.consumedCarbsG} g, fat ${request.today.consumedFatG} g, fiber ${request.today.consumedFiberG} g
+- Exercise burned: ${request.today.burnedCalories} kcal
+- Dynamic calorie target after exercise: ${request.today.dynamicTargetCalories} kcal
+- Remaining: ${request.today.remainingCalories} kcal, protein ${request.today.remainingProteinG} g, carbs ${request.today.remainingCarbsG} g, fat ${request.today.remainingFatG} g, fiber ${request.today.remainingFiberG} g
+
+Recent meals:
+${request.recentMeals.length ? request.recentMeals.map((meal) => `- ${meal}`).join("\n") : "- No recent meals found"}
+
+Rules:
+- Reply in Thai only.
+- Be concise, warm, and actionable.
+- If recommending menus, include approximate calories and protein for each option.
+- Do not log food, change targets, or claim that any data was saved.
+- Avoid medical diagnosis. If the user asks about disease, medication, pregnancy, eating disorder, or severe symptoms, recommend professional care.
+- If today's remaining calories are low or negative, recommend lighter options or planning the next meal/day safely.`;
 }
 
 function normalizeImageType(type: unknown): ImageClassificationResult["type"] {

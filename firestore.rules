@@ -73,6 +73,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /coachConsultations/{consultationId} {
+      allow read: if canAccessUser(resource.data.userId);
+      allow write: if isAdmin();
+    }
+
     match /lineLinks/{lineUserId} {
       allow read, write: if isAdmin();
     }

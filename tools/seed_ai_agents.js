@@ -30,6 +30,14 @@ const AI_AGENT_CONFIGS = [
     promptVersion: "bia-v1",
     temperature: 0.1,
     enabled: true
+  },
+  {
+    agentId: "coachConsultation",
+    provider: "gemini",
+    model: "gemini-3-flash-preview",
+    promptVersion: "coach-v1",
+    temperature: 0.4,
+    enabled: true
   }
 ];
 

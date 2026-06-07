@@ -328,6 +328,46 @@ Admin-configurable AI agent settings. Backend reads this before calling the prov
 
 To switch models, update `model`. To switch providers later, create the new provider implementation and set `provider` to the supported provider name.
 
+### `coachConsultations/{consultationId}`
+
+Stores LINE AI coach/menu recommendation answers separately from food logs.
+
+```json
+{
+  "consultationId": "auto-id",
+  "userId": "canonical-user-id",
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "source": "line",
+  "mode": "consultation",
+  "question": "กินอะไรดี",
+  "answer": "Thai coach answer",
+  "summarySnapshot": {
+    "consumedCalories": 900,
+    "burnedCalories": 100,
+    "dynamicTargetCalories": 2100,
+    "remainingCalories": 1200
+  },
+  "targetSnapshot": {
+    "calories": 2000,
+    "proteinG": 120,
+    "carbsG": 200,
+    "fatG": 60,
+    "fiberG": 25
+  },
+  "recentMeals": ["meal name (400 kcal)"],
+  "ai": {
+    "runId": "aiRuns-id",
+    "agentId": "coachConsultation",
+    "provider": "gemini",
+    "model": "gemini-3-flash-preview",
+    "promptVersion": "coach-v1"
+  },
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp"
+}
+```
+
 ## Notes
 
 - `profiles` is split from `users` so app auth and health profile can evolve independently.

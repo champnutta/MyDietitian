@@ -48,6 +48,36 @@ export interface AnalyzeExerciseRequest {
   text: string;
 }
 
+export interface CoachConsultationRequest {
+  userId: string;
+  source: SourceChannel;
+  text: string;
+  profileName: string;
+  target: {
+    calories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    fiberG: number;
+  };
+  today: {
+    consumedCalories: number;
+    consumedProteinG: number;
+    consumedCarbsG: number;
+    consumedFatG: number;
+    consumedFiberG: number;
+    burnedCalories: number;
+    dynamicTargetCalories: number;
+    remainingCalories: number;
+    remainingProteinG: number;
+    remainingCarbsG: number;
+    remainingFatG: number;
+    remainingFiberG: number;
+  };
+  recentMeals: string[];
+  mode: "consultation" | "menu_recommendation";
+}
+
 export interface DashboardDataRequest {
   userId: string;
   canonicalUserId?: string;

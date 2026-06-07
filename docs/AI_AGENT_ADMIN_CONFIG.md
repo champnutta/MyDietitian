@@ -53,6 +53,21 @@ The backend reads AI agent settings from Firestore before calling the provider. 
 }
 ```
 
+`aiAgents/coachConsultation`
+
+```json
+{
+  "agentId": "coachConsultation",
+  "provider": "gemini",
+  "model": "gemini-3-flash-preview",
+  "promptVersion": "coach-v1",
+  "temperature": 0.4,
+  "enabled": true,
+  "updatedBy": "admin",
+  "updatedAt": "timestamp"
+}
+```
+
 Seed or update this config without touching user data:
 
 ```bash
@@ -83,7 +98,7 @@ Update only the `model` field, for example:
 }
 ```
 
-The backend records the model used on AI-created records such as `aiRuns`, `mealLogs.ai`, `exerciseLogs.ai`, and `biaReports.analysis`.
+The backend records the model used on AI-created records such as `aiRuns`, `mealLogs.ai`, `exerciseLogs.ai`, `coachConsultations.ai`, and `biaReports.analysis`.
 
 ## Changing provider
 
@@ -92,7 +107,7 @@ Provider switching is designed but not fully enabled yet. The backend currently 
 1. Add `ANTHROPIC_API_KEY` to Secret Manager.
 2. Add an Anthropic provider implementation.
 3. Keep returning the same `MealAnalysisResult` shape.
-4. Set the target agent provider, for example `aiAgents/mealAnalysis.provider` or `aiAgents/biaAnalysis.provider`, to `anthropic`.
+4. Set the target agent provider, for example `aiAgents/mealAnalysis.provider`, `aiAgents/coachConsultation.provider`, or `aiAgents/biaAnalysis.provider`, to `anthropic`.
 5. Run canary tests before switching all users.
 
 ## Admin UI plan

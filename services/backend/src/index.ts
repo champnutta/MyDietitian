@@ -3,6 +3,7 @@ import { Timestamp, type Transaction } from "firebase-admin/firestore";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   callGeminiBiaAnalysis,
+  callGeminiCoachConsultation,
   callGeminiExerciseAnalysis,
   callGeminiImageClassification,
   callGeminiMealAnalysis,
@@ -11,6 +12,7 @@ import {
 import type {
   AnalyzeExerciseRequest,
   AnalyzeMealRequest,
+  CoachConsultationRequest,
   DashboardDataRequest,
   LineWebhookEvent,
   UpdateProfileRequest
@@ -51,6 +53,13 @@ type SavedExerciseAnalysis = {
   runId: string;
   exerciseLogId: string;
   exerciseLog: Record<string, unknown>;
+};
+
+type SavedCoachConsultation = {
+  runId: string;
+  consultationId: string;
+  answer: string;
+  mode: CoachConsultationRequest["mode"];
 };
 
 type UserProfile = {
@@ -530,6 +539,128 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
     );
 
     return { runId: aiRunRef.id, exerciseLogId: exerciseLogRef.id, exerciseLog };
+  } catch (error) {
+    await aiRunRef.set(
+      {
+        status: "failed",
+        failedAt: Timestamp.now(),
+        error: error instanceof Error ? error.message : String(error)
+      },
+      { merge: true }
+    );
+    throw error;
+  }
+}
+
+async function analyzeAndSaveCoachConsultation(
+  input: {
+    userId: string;
+    lineUserId: string;
+    source: "line";
+    text: string;
+    mode: CoachConsultationRequest["mode"];
+  }
+): Promise<SavedCoachConsultation> {
+  const profile = await getUserProfile(input.userId);
+  const summary = await getTodaySummary(input.userId, profile);
+  const recentMeals = await getRecentMealNames(input.userId, 5);
+  const request: CoachConsultationRequest = {
+    userId: input.userId,
+    source: input.source,
+    text: input.text,
+    profileName: profile.name,
+    target: {
+      calories: profile.target.cal,
+      proteinG: profile.target.p,
+      carbsG: profile.target.c,
+      fatG: profile.target.f,
+      fiberG: profile.target.fib
+    },
+    today: {
+      consumedCalories: summary.consumed.cal,
+      consumedProteinG: summary.consumed.p,
+      consumedCarbsG: summary.consumed.c,
+      consumedFatG: summary.consumed.f,
+      consumedFiberG: summary.consumed.fib,
+      burnedCalories: summary.burned,
+      dynamicTargetCalories: summary.dynamicTarget,
+      remainingCalories: summary.remaining.cal,
+      remainingProteinG: summary.remaining.p,
+      remainingCarbsG: summary.remaining.c,
+      remainingFatG: summary.remaining.f,
+      remainingFiberG: summary.remaining.fib
+    },
+    recentMeals,
+    mode: input.mode
+  };
+
+  const now = Timestamp.now();
+  const aiRunRef = db.collection("aiRuns").doc();
+  const agent = await getAiAgentConfig("coachConsultation");
+  if (!agent.enabled) {
+    throw new Error("AI coachConsultation agent is disabled");
+  }
+  if (agent.provider !== "gemini") {
+    throw new Error(`Unsupported coachConsultation provider: ${agent.provider}`);
+  }
+
+  await aiRunRef.set({
+    runId: aiRunRef.id,
+    userId: input.userId,
+    canonicalUserId: input.userId,
+    lineUserId: input.lineUserId,
+    source: input.source,
+    inputType: input.mode,
+    text: input.text,
+    status: "running",
+    createdAt: now,
+    agentId: agent.agentId,
+    provider: agent.provider,
+    promptVersion: agent.promptVersion,
+    model: agent.model
+  });
+
+  try {
+    const answer = await callGeminiCoachConsultation(request, GEMINI_API_KEY.value(), agent);
+    const consultationRef = db.collection("coachConsultations").doc();
+    const savedAt = Timestamp.now();
+    await consultationRef.set({
+      consultationId: consultationRef.id,
+      userId: input.userId,
+      canonicalUserId: input.userId,
+      lineUserId: input.lineUserId,
+      source: input.source,
+      mode: input.mode,
+      question: input.text,
+      answer,
+      summarySnapshot: request.today,
+      targetSnapshot: request.target,
+      recentMeals,
+      ai: {
+        runId: aiRunRef.id,
+        agentId: agent.agentId,
+        provider: agent.provider,
+        model: agent.model,
+        promptVersion: agent.promptVersion
+      },
+      createdAt: savedAt,
+      updatedAt: savedAt
+    });
+    await aiRunRef.set(
+      {
+        status: "completed",
+        consultationId: consultationRef.id,
+        completedAt: savedAt,
+        output: { answer }
+      },
+      { merge: true }
+    );
+    return {
+      runId: aiRunRef.id,
+      consultationId: consultationRef.id,
+      answer,
+      mode: input.mode
+    };
   } catch (error) {
     await aiRunRef.set(
       {
@@ -1213,6 +1344,33 @@ async function handleLineTextCommand(
   if (text === "ออกกำลังกาย") {
     await replyToLine(replyToken, formatExerciseGuideReply());
     return { status: "exercise-guide-replied" };
+  }
+
+  if (looksLikeMenuRecommendationRequest(text) || looksLikeCoachConsultationRequest(text)) {
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyWithOnboarding(replyToken, lineUserId);
+      return { status: "profile-required-before-coach-consultation" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ");
+      return { status: "subscription-required-before-coach-consultation" };
+    }
+
+    const mode = looksLikeMenuRecommendationRequest(text) ? "menu_recommendation" : "consultation";
+    const saved = await analyzeAndSaveCoachConsultation({
+      userId: canonicalUserId,
+      lineUserId,
+      source: "line",
+      text,
+      mode
+    });
+    await replyToLine(replyToken, formatCoachConsultationReply(saved.answer, saved.mode));
+    return {
+      status: mode === "menu_recommendation" ? "menu-recommendation-replied" : "coach-consultation-replied",
+      runId: saved.runId,
+      consultationId: saved.consultationId
+    };
   }
 
   if (looksLikeExerciseLog(text)) {
@@ -2022,6 +2180,39 @@ function looksLikeExerciseLog(text: string): boolean {
   return hasExerciseKeyword && hasMeasure && !asksQuestion;
 }
 
+function looksLikeMenuRecommendationRequest(text: string): boolean {
+  const lower = text.toLowerCase();
+  return /กินไรดี|กินอะไรดี|เมนู|แนะนำเมนู|แนะนำอาหาร|หิว|อะไรดี/.test(text) ||
+    lower.includes("menu") ||
+    lower.includes("recommend food") ||
+    lower.includes("what should i eat");
+}
+
+function looksLikeCoachConsultationRequest(text: string): boolean {
+  const lower = text.toLowerCase();
+  if (looksLikeMenuRecommendationRequest(text)) return true;
+  return /ดีไหม|ควร|ไหม|มั้ย|ได้ไหม|ได้มั้ย|ถาม|ปรึกษา|แนะนำ|ช่วยแนะนำ|ลดน้ำหนัก|เพิ่มกล้าม|คุมอาหาร|\?/.test(text) ||
+    lower.includes("should i") ||
+    lower.includes("advice") ||
+    lower.includes("coach") ||
+    lower.includes("recommend");
+}
+
+async function getRecentMealNames(userId: string, limit: number): Promise<string[]> {
+  const snap = await db.collection("mealLogs")
+    .where("userId", "==", userId)
+    .orderBy("loggedAt", "desc")
+    .limit(limit)
+    .get();
+
+  return snap.docs.map((doc) => {
+    const data = doc.data();
+    const mealName = String(data.mealNameTh ?? data.text ?? "meal");
+    const calories = Math.round(Number(data.nutrients?.caloriesKcal ?? 0));
+    return calories > 0 ? `${mealName} (${calories} kcal)` : mealName;
+  });
+}
+
 async function saveWeightLog(
   userId: string,
   weight: { weightKg: number; bodyFatPct: number | null; muscleMassKg: number | null }
@@ -2125,6 +2316,15 @@ function formatExerciseReply(exerciseLog: Record<string, unknown>, summary: Toda
     `เป้าหมายใหม่: ${Math.round(summary.dynamicTarget)} kcal`,
     `กินได้อีก: ${Math.round(summary.remaining.cal)} kcal`,
     String(exerciseLog.commentTh ?? "")
+  ].join("\n");
+}
+
+function formatCoachConsultationReply(answer: string, mode: CoachConsultationRequest["mode"]): string {
+  const title = mode === "menu_recommendation" ? "คำแนะนำเมนูวันนี้" : "คำแนะนำจากโค้ช";
+  return [
+    title,
+    "------------------",
+    answer
   ].join("\n");
 }
 

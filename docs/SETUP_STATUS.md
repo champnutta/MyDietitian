@@ -33,6 +33,7 @@
 - `getDashboardData` was deployed and tested against existing Firestore test records only.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
+- `aiAgents/coachConsultation` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `coach-v1`, and temperature `0.4`.
 - Backend now resolves canonical users through `lineLinks` and `authLinks`, so LINE OA and the future native app can share the same Firestore data after account linking.
 - `lineWebhook` is staging only. It verifies signatures, deduplicates text message IDs, can analyze/reply to text food messages, and defers known legacy commands to GAS.
 - `lineWebhook` staging text commands now support help, profile/status, legacy dashboard link, daily summary from Firestore, manual weight logging, and undo latest Firestore meal log.
@@ -41,6 +42,7 @@
 - `lineWebhook` staging slip flow now classifies LINE images, lets payment slips pass even when subscription is expired, creates pending `paymentReviews`, notifies admin, and updates the pending review when admin approves/rejects.
 - `lineWebhook` staging BIA/file flow now accepts BIA images and PDF/image files, creates `biaReports`, analyzes them with `aiAgents/biaAnalysis`, writes weight metrics when available, and requires user confirmation before updating nutrition targets.
 - `lineWebhook` staging exercise flow now detects exercise text, analyzes burn with `aiAgents/exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies the legacy 50% safety factor, writes Firestore `exerciseLogs`, and updates daily summary/dashboard burn totals.
+- `lineWebhook` staging coach/menu flow now detects advice/menu questions, uses today's Firestore summary and recent meals, replies through `aiAgents/coachConsultation`, and stores `coachConsultations` without creating food logs.
 - `lineWebhook` staging contact-admin flow now forwards customer contact messages to admin LINE, stores `adminContactRequests`, and supports 30-minute admin chat sessions through `adminChatSessions`.
 - `lineWebhook` staging subscription flow now supports package/QR instructions for `สมัคร/เติมวัน`, redeeming migrated codes from `redeemCodes`, and admin approve/reject commands that update `subscriptions`, `users`, and `profiles`.
 - `lineWebhook` still needs a signed webhook test from a staging LINE OA before it can be marked verified.
