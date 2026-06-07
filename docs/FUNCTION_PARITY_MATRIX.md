@@ -6,7 +6,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 - GAS production: still authoritative.
 - Firebase backend: migration/staging only.
-- Firebase `lineWebhook`: verifies signature, logs events, and supports staging onboarding, manual profile setup, subscription gate, text/image food, exercise, coach/menu consultation, weight, contact-admin, subscription request, redeem-code, and admin approve/reject flows.
+- Firebase `lineWebhook`: verifies signature, logs events, and supports staging onboarding, manual profile setup, subscription gate, text/image food, latest-meal correction/portion adjustment, exercise, coach/menu consultation, weight, contact-admin, subscription request, redeem-code, and admin approve/reject flows.
 - Firestore: ready for migrated data.
 - Data migration: deferred until final production cutover.
 
@@ -19,7 +19,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleFollowEvent` | Follow/onboarding | partial Firestore staging |
 | `checkUserStatus` | User registration state | partial Firestore profile readiness |
 | `checkSubscription` | Subscription gate | partial Firestore staging gate for food/image/exercise |
-| `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo/setup/subscription/coach/menu |
+| `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo/correction/portion/setup/subscription/coach/menu |
 | `handleImageMessage` | LINE image message flow | partial Firestore staging with food/slip/BIA/other classification |
 | `getLineContent` | Download LINE image/file content | partial image-only staging |
 | `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` staging |
@@ -32,6 +32,8 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `handleConsultation` / `handleMenuRecommendation` | AI coach Q&A and menu advice | partial Firestore staging with `coachConsultation` |
 | `handleWeightLog` | Weight logging | partial Firestore staging |
 | `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
+| `handlePortionAdjustment` | Scale latest meal when user ate less | partial Firestore staging |
+| AI router correction | Replace latest meal when user corrects text | partial Firestore staging |
 | `handleSubscriptionRequest` | Payment request flow | partial staging packages/QR response |
 | `handleSlipPayment` | Slip parsing and admin review | partial Firestore staging pending-review flow |
 | `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | partial Firestore staging |

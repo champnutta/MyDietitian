@@ -1346,6 +1346,44 @@ async function handleLineTextCommand(
     return { status: "exercise-guide-replied" };
   }
 
+  const portionAdjustment = parsePortionAdjustment(text);
+  if (portionAdjustment) {
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyWithOnboarding(replyToken, lineUserId);
+      return { status: "profile-required-before-portion-adjustment" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ");
+      return { status: "subscription-required-before-portion-adjustment" };
+    }
+
+    const result = await adjustLatestMealPortion(canonicalUserId, portionAdjustment, text);
+    await replyToLine(replyToken, result.message);
+    return { status: result.adjusted ? "meal-portion-adjusted" : "meal-portion-adjustment-not-found" };
+  }
+
+  const correctionText = parseMealCorrectionText(text);
+  if (correctionText) {
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyWithOnboarding(replyToken, lineUserId);
+      return { status: "profile-required-before-meal-correction" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ");
+      return { status: "subscription-required-before-meal-correction" };
+    }
+
+    const result = await replaceLatestMealWithCorrection(canonicalUserId, correctionText, text);
+    await replyToLine(replyToken, result.message);
+    return {
+      status: result.corrected ? "meal-correction-applied" : "meal-correction-not-found",
+      runId: result.runId,
+      mealLogId: result.mealLogId
+    };
+  }
+
   if (looksLikeMenuRecommendationRequest(text) || looksLikeCoachConsultationRequest(text)) {
     const readiness = await getUserReadiness(canonicalUserId);
     if (!readiness.profileComplete) {
@@ -2211,6 +2249,167 @@ async function getRecentMealNames(userId: string, limit: number): Promise<string
     const calories = Math.round(Number(data.nutrients?.caloriesKcal ?? 0));
     return calories > 0 ? `${mealName} (${calories} kcal)` : mealName;
   });
+}
+
+function parsePortionAdjustment(text: string): { ratio: number; label: string } | null {
+  const lower = text.toLowerCase();
+  const hasAdjustmentVerb = /กิน|เหลือ|แค่|เอา|ปรับ|ลด|ate|left|only|half|quarter/.test(lower);
+  if (!hasAdjustmentVerb) return null;
+
+  if (/ครึ่ง|1\/2|50%|half/.test(lower)) {
+    return { ratio: 0.5, label: "50% (ครึ่งจาน)" };
+  }
+  if (/1\/3|30%|33%|third/.test(lower)) {
+    return { ratio: 0.33, label: "33% (1/3 จาน)" };
+  }
+  if (/1\/4|25%|นิดเดียว|quarter/.test(lower)) {
+    return { ratio: 0.25, label: "25% (1/4 จาน)" };
+  }
+  return null;
+}
+
+function parseMealCorrectionText(text: string): string | null {
+  const trimmed = text.trim();
+  const patterns = [
+    /(?:ไม่ใช่|ผิด|แก้เป็น|เปลี่ยนเป็น|จริงๆ|จริง ๆ)\s*(.+)$/i,
+    /(?:not|wrong|actually|change to|correct to|it is)\s+(.+)$/i
+  ];
+
+  const explicitReplace = trimmed.match(/(?:ไม่ใช่|ผิด).{0,30}?(?:เป็น|คือ)\s*(.+)$/i);
+  if (explicitReplace?.[1]) return sanitizeCorrectionFoodText(explicitReplace[1]);
+
+  for (const pattern of patterns) {
+    const match = trimmed.match(pattern);
+    if (match?.[1]) return sanitizeCorrectionFoodText(match[1]);
+  }
+
+  return null;
+}
+
+function sanitizeCorrectionFoodText(text: string): string | null {
+  const cleaned = text
+    .replace(/^[:：\-–—\s]+/, "")
+    .replace(/^(อาหาร|เมนู|จาน)\s*/, "")
+    .trim();
+  if (!cleaned || cleaned.length < 2) return null;
+  if (/^(ครับ|ค่ะ|คับ|จ้า|นะ)$/.test(cleaned)) return null;
+  return cleaned;
+}
+
+async function getLatestMealLog(userId: string) {
+  const snap = await db.collection("mealLogs")
+    .where("userId", "==", userId)
+    .orderBy("loggedAt", "desc")
+    .limit(1)
+    .get();
+  return snap.empty ? null : snap.docs[0];
+}
+
+async function adjustLatestMealPortion(
+  userId: string,
+  adjustment: { ratio: number; label: string },
+  commandText: string
+): Promise<{ adjusted: boolean; message: string }> {
+  const doc = await getLatestMealLog(userId);
+  if (!doc) {
+    return { adjusted: false, message: "ไม่พบรายการอาหารล่าสุดให้ปรับปริมาณครับ" };
+  }
+
+  const data = doc.data();
+  const nutrients = data.nutrients ?? {};
+  const scaledNutrients = {
+    caloriesKcal: Math.round(Number(nutrients.caloriesKcal ?? 0) * adjustment.ratio),
+    proteinG: Math.round(Number(nutrients.proteinG ?? 0) * adjustment.ratio),
+    carbsG: Math.round(Number(nutrients.carbsG ?? 0) * adjustment.ratio),
+    fatG: Math.round(Number(nutrients.fatG ?? 0) * adjustment.ratio),
+    fiberG: Number((Number(nutrients.fiberG ?? 0) * adjustment.ratio).toFixed(1)),
+    sugarG: Number((Number(nutrients.sugarG ?? 0) * adjustment.ratio).toFixed(1))
+  };
+  const originalName = String(data.mealNameTh ?? data.mealNameEn ?? "รายการอาหาร");
+  const previousAdjustments = Array.isArray(data.adjustments) ? data.adjustments : [];
+
+  await doc.ref.set(
+    {
+      mealNameTh: `${originalName.replace(/\s*\([^)]*\)\s*$/, "")} (${adjustment.label})`,
+      nutrients: scaledNutrients,
+      adjustments: [
+        ...previousAdjustments,
+        {
+          type: "portion-ratio",
+          ratio: adjustment.ratio,
+          label: adjustment.label,
+          commandText,
+          previousNutrients: nutrients,
+          adjustedAt: Timestamp.now()
+        }
+      ],
+      updatedAt: Timestamp.now()
+    },
+    { merge: true }
+  );
+
+  return {
+    adjusted: true,
+    message: [
+      "ปรับปริมาณรายการล่าสุดเรียบร้อยครับ",
+      `เมนู: ${originalName}`,
+      `กินจริง: ${adjustment.label}`,
+      `เหลือ: ${scaledNutrients.caloriesKcal} kcal`,
+      `(P:${scaledNutrients.proteinG} C:${scaledNutrients.carbsG} F:${scaledNutrients.fatG} Fib:${scaledNutrients.fiberG})`
+    ].join("\n")
+  };
+}
+
+async function replaceLatestMealWithCorrection(
+  userId: string,
+  correctedText: string,
+  originalCommandText: string
+): Promise<{ corrected: boolean; message: string; runId?: string; mealLogId?: string }> {
+  const latest = await getLatestMealLog(userId);
+  if (!latest) {
+    return { corrected: false, message: "ไม่พบรายการอาหารล่าสุดให้แก้ไขครับ" };
+  }
+
+  const previousData = latest.data();
+  const saved = await analyzeAndSaveMeal({
+    userId,
+    canonicalUserId: userId,
+    source: "line",
+    inputType: "text",
+    text: correctedText
+  });
+  const now = Timestamp.now();
+  await db.collection("mealLogs").doc(saved.mealLogId).set(
+    {
+      correction: {
+        type: "replace-latest",
+        originalMealLogId: latest.id,
+        originalMealNameTh: previousData.mealNameTh ?? null,
+        originalMealNameEn: previousData.mealNameEn ?? null,
+        originalCommandText,
+        correctedText,
+        correctedAt: now
+      },
+      updatedAt: now
+    },
+    { merge: true }
+  );
+  await latest.ref.delete();
+
+  const correctedMeal = saved.mealLog;
+  const nutrients = correctedMeal.nutrients as Record<string, unknown> | undefined;
+  return {
+    corrected: true,
+    runId: saved.runId,
+    mealLogId: saved.mealLogId,
+    message: [
+      "แก้ไขรายการล่าสุดเรียบร้อยครับ",
+      `จาก: ${previousData.mealNameTh ?? previousData.mealNameEn ?? "รายการเดิม"}`,
+      `เป็น: ${correctedMeal.mealNameTh ?? correctedText}`,
+      `พลังงานใหม่: ${Math.round(Number(nutrients?.caloriesKcal ?? 0))} kcal`,
+      `(P:${Math.round(Number(nutrients?.proteinG ?? 0))} C:${Math.round(Number(nutrients?.carbsG ?? 0))} F:${Math.round(Number(nutrients?.fatG ?? 0))})`
+    ].join("\n")
+  };
 }
 
 async function saveWeightLog(

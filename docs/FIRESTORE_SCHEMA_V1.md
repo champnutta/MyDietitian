@@ -88,6 +88,31 @@ Food analysis records created from text or image input.
     "model": "gemini-3-flash-preview",
     "promptVersion": "meal-v1"
   },
+  "adjustments": [
+    {
+      "type": "portion-ratio",
+      "ratio": 0.5,
+      "label": "50% (ครึ่งจาน)",
+      "commandText": "กินครึ่งเดียว",
+      "previousNutrients": {
+        "caloriesKcal": 620,
+        "proteinG": 32,
+        "carbsG": 70,
+        "fatG": 18,
+        "fiberG": 2.5,
+        "sugarG": 6
+      },
+      "adjustedAt": "timestamp"
+    }
+  ],
+  "correction": {
+    "type": "replace-latest",
+    "originalMealLogId": "previous-meal-log-id",
+    "originalMealNameTh": "ข้าวมันไก่",
+    "originalCommandText": "ไม่ใช่ข้าวมันไก่ เป็นข้าวหมูแดง",
+    "correctedText": "ข้าวหมูแดง",
+    "correctedAt": "timestamp"
+  },
   "loggedAt": "timestamp",
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
