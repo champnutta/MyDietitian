@@ -47,8 +47,8 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 | GAS function area | Purpose | Firebase status |
 | --- | --- | --- |
-| `getDashboardData` | Dashboard history API | not started |
-| `processLogSheet` | Read main/archive log rows | import planned |
+| `getDashboardData` | Dashboard history API | partial Firestore staging with aggregate series and detailed meal/exercise/weight history |
+| `processLogSheet` | Read main/archive log rows | replaced by Firestore range queries after migration |
 | `getUserProfile` | Profile and target lookup | partial |
 | `getTodaySummary` | Today's nutrition summary | partial Firestore staging |
 | `updateUserStreak` | Streak tracking | not started |

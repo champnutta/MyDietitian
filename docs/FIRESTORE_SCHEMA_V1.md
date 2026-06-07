@@ -167,6 +167,35 @@ Weight and body composition history.
 }
 ```
 
+## Dashboard API Response
+
+`getDashboardData` returns legacy-compatible chart arrays and detailed Firestore history in one response:
+
+```json
+{
+  "labels": ["01/06"],
+  "calories": [1800],
+  "macros": { "p": [120], "c": [180], "f": [60], "fib": [25] },
+  "bodyData": { "weight": [72.4], "fat": [19.3], "muscle": [31.2], "devices": ["Manual"] },
+  "tdeeLine": [2100],
+  "daily": [
+    {
+      "date": "2026-06-01",
+      "calories": 1800,
+      "burnedCalories": 100,
+      "dynamicTargetCalories": 2100,
+      "remainingCalories": 300
+    }
+  ],
+  "history": {
+    "meals": [{ "id": "mealLogId", "mealNameTh": "ข้าวมันไก่", "nutrients": {}, "adjustments": [] }],
+    "exercises": [{ "id": "exerciseLogId", "activityName": "เดิน", "caloriesBurned": 35 }],
+    "weights": [{ "id": "weightLogId", "weightKg": 72.4 }],
+    "adjustments": [{ "mealLogId": "mealLogId", "type": "portion-ratio" }]
+  }
+}
+```
+
 ### `biaReports/{biaReportId}`
 
 BIA/InBody/smart-scale/health report queue created from LINE image or file uploads.

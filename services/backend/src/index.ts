@@ -239,9 +239,35 @@ export const getDashboardData = onRequest(async (request, response) => {
     }
   }
 
+  const [mealItems, exerciseItems, weightItems] = await Promise.all([
+    listMealHistoryItems(canonicalUserId, startDate, endDate),
+    listExerciseHistoryItems(canonicalUserId, startDate, endDate),
+    listWeightHistoryItems(canonicalUserId, startDate, endDate)
+  ]);
+  const daily = labels.map((key) => ({
+    date: key,
+    calories: history[key].cal,
+    proteinG: history[key].p,
+    carbsG: history[key].c,
+    fatG: history[key].f,
+    fiberG: history[key].fib,
+    burnedCalories: history[key].burn,
+    dynamicTargetCalories: target.cal + history[key].burn,
+    remainingCalories: target.cal + history[key].burn - history[key].cal,
+    weightKg: history[key].weight,
+    bodyFatPct: history[key].fat,
+    muscleMassKg: history[key].muscle,
+    deviceName: history[key].device
+  }));
+
   response.json({
     ok: true,
     canonicalUserId,
+    range: {
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
+      timezone: "Asia/Bangkok"
+    },
     profile: {
       name: profile.displayName ?? "Member",
       target
@@ -256,6 +282,13 @@ export const getDashboardData = onRequest(async (request, response) => {
       avgCal: totalCal / activeDays,
       totalDays: activeDays,
       successDays
+    },
+    daily,
+    history: {
+      meals: mealItems,
+      exercises: exerciseItems,
+      weights: weightItems,
+      adjustments: mealItems.flatMap((meal) => meal.adjustments)
     }
   });
 });
@@ -2934,6 +2967,11 @@ function normalizeTimestamp(value: unknown): Timestamp | null {
   return null;
 }
 
+function timestampToIso(value: unknown): string | null {
+  const timestamp = normalizeTimestamp(value);
+  return timestamp ? timestamp.toDate().toISOString() : null;
+}
+
 function formatMealReply(mealLog: Record<string, unknown>): string {
   const nutrients = mealLog.nutrients as Record<string, number>;
   const rating = mealLog.healthRating as Record<string, string | number>;
@@ -3059,6 +3097,102 @@ async function fillWeightHistory(userId: string, startDate: Date, endDate: Date,
     history[key].fat = Number(data.bodyFatPct ?? 0) || null;
     history[key].muscle = Number(data.muscleMassKg ?? 0) || null;
     history[key].device = data.deviceName ?? "Legacy Sheet";
+  });
+}
+
+async function listMealHistoryItems(userId: string, startDate: Date, endDate: Date) {
+  const snap = await db.collection("mealLogs")
+    .where("userId", "==", userId)
+    .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+    .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+    .orderBy("loggedAt", "desc")
+    .get();
+
+  return snap.docs.map((doc) => {
+    const data = doc.data();
+    const nutrients = data.nutrients ?? {};
+    const loggedAt = normalizeTimestamp(data.loggedAt);
+    const adjustments = Array.isArray(data.adjustments) ? data.adjustments : [];
+    return {
+      id: doc.id,
+      date: loggedAt ? formatDayKey(loggedAt.toDate()) : null,
+      loggedAt: loggedAt ? loggedAt.toDate().toISOString() : null,
+      source: data.source ?? null,
+      inputType: data.inputType ?? null,
+      text: data.text ?? null,
+      imageUrl: data.imageUrl ?? null,
+      mealNameTh: data.mealNameTh ?? null,
+      mealNameEn: data.mealNameEn ?? null,
+      portionDescription: data.portionDescription ?? null,
+      nutrients: {
+        caloriesKcal: Number(nutrients.caloriesKcal ?? 0),
+        proteinG: Number(nutrients.proteinG ?? 0),
+        carbsG: Number(nutrients.carbsG ?? 0),
+        fatG: Number(nutrients.fatG ?? 0),
+        fiberG: Number(nutrients.fiberG ?? 0),
+        sugarG: Number(nutrients.sugarG ?? 0)
+      },
+      healthRating: data.healthRating ?? null,
+      correction: data.correction ?? null,
+      adjustments: adjustments.map((adjustment: Record<string, unknown>, index: number) => ({
+        ...adjustment,
+        mealLogId: doc.id,
+        adjustmentIndex: index,
+        adjustedAt: timestampToIso(adjustment.adjustedAt)
+      })),
+      ai: data.ai ?? null
+    };
+  });
+}
+
+async function listExerciseHistoryItems(userId: string, startDate: Date, endDate: Date) {
+  const snap = await db.collection("exerciseLogs")
+    .where("userId", "==", userId)
+    .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+    .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+    .orderBy("loggedAt", "desc")
+    .get();
+
+  return snap.docs.map((doc) => {
+    const data = doc.data();
+    const loggedAt = normalizeTimestamp(data.loggedAt);
+    return {
+      id: doc.id,
+      date: loggedAt ? formatDayKey(loggedAt.toDate()) : null,
+      loggedAt: loggedAt ? loggedAt.toDate().toISOString() : null,
+      source: data.source ?? null,
+      text: data.text ?? null,
+      activityName: data.activityName ?? null,
+      rawCaloriesBurned: Number(data.rawCaloriesBurned ?? 0),
+      caloriesBurned: Number(data.caloriesBurned ?? 0),
+      safetyFactor: Number(data.safetyFactor ?? 0),
+      commentTh: data.commentTh ?? null,
+      ai: data.ai ?? null
+    };
+  });
+}
+
+async function listWeightHistoryItems(userId: string, startDate: Date, endDate: Date) {
+  const snap = await db.collection("weightLogs")
+    .where("userId", "==", userId)
+    .where("loggedAt", ">=", Timestamp.fromDate(startDate))
+    .where("loggedAt", "<=", Timestamp.fromDate(endDate))
+    .orderBy("loggedAt", "desc")
+    .get();
+
+  return snap.docs.map((doc) => {
+    const data = doc.data();
+    const loggedAt = normalizeTimestamp(data.loggedAt);
+    return {
+      id: doc.id,
+      date: loggedAt ? formatDayKey(loggedAt.toDate()) : null,
+      loggedAt: loggedAt ? loggedAt.toDate().toISOString() : null,
+      source: data.source ?? null,
+      weightKg: Number(data.weightKg ?? 0) || null,
+      bodyFatPct: Number(data.bodyFatPct ?? 0) || null,
+      muscleMassKg: Number(data.muscleMassKg ?? 0) || null,
+      deviceName: data.deviceName ?? null
+    };
   });
 }
 

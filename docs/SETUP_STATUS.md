@@ -30,7 +30,7 @@
   - `analyzeExercise`
   - `getDashboardData`
   - `lineWebhook`
-- `getDashboardData` was deployed and tested against existing Firestore test records only.
+- `getDashboardData` was deployed and tested against existing Firestore test records only. It now returns legacy-compatible aggregate arrays plus detailed Firestore `history.meals`, `history.exercises`, `history.weights`, `history.adjustments`, and per-day `daily` rows for the future dashboard/native app.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
 - `aiAgents/coachConsultation` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `coach-v1`, and temperature `0.4`.
