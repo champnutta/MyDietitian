@@ -60,6 +60,8 @@ Health and target profile used by the AI coach.
 
 Food analysis records created from text or image input.
 
+Portion adjustment commands support common fractions and percentages such as `กินครึ่งเดียว`, `กิน 2/3`, `เหลือ 1/4`, `กินไป 70%`, and `only 40%`. Repeated adjustments are calculated from the first saved `previousNutrients` snapshot rather than compounding on already-adjusted nutrients.
+
 ```json
 {
   "userId": "firebase-auth-uid",

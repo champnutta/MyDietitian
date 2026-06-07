@@ -2253,19 +2253,86 @@ async function getRecentMealNames(userId: string, limit: number): Promise<string
 
 function parsePortionAdjustment(text: string): { ratio: number; label: string } | null {
   const lower = text.toLowerCase();
-  const hasAdjustmentVerb = /กิน|เหลือ|แค่|เอา|ปรับ|ลด|ate|left|only|half|quarter/.test(lower);
+  const hasAdjustmentVerb = /กิน|เหลือ|แค่|เอา|ปรับ|ลด|ทาน|ate|left|only|half|quarter|portion/.test(lower);
   if (!hasAdjustmentVerb) return null;
 
-  if (/ครึ่ง|1\/2|50%|half/.test(lower)) {
-    return { ratio: 0.5, label: "50% (ครึ่งจาน)" };
+  const explicitFraction = lower.match(/(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)/);
+  if (explicitFraction) {
+    const numerator = Number(explicitFraction[1]);
+    const denominator = Number(explicitFraction[2]);
+    const ratio = denominator > 0 ? numerator / denominator : 0;
+    return buildPortionAdjustment(ratio, `${explicitFraction[1]}/${explicitFraction[2]}`);
   }
-  if (/1\/3|30%|33%|third/.test(lower)) {
-    return { ratio: 0.33, label: "33% (1/3 จาน)" };
+
+  const explicitPercent = lower.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (explicitPercent) {
+    const ratio = Number(explicitPercent[1]) / 100;
+    return buildPortionAdjustment(ratio, `${explicitPercent[1]}%`);
   }
-  if (/1\/4|25%|นิดเดียว|quarter/.test(lower)) {
-    return { ratio: 0.25, label: "25% (1/4 จาน)" };
+
+  const thaiNumberFraction = parseThaiNumberFraction(lower);
+  if (thaiNumberFraction) {
+    return thaiNumberFraction;
+  }
+
+  if (/ครึ่ง|half/.test(lower)) {
+    return buildPortionAdjustment(0.5, "ครึ่งจาน");
+  }
+  if (/นิดเดียว|นิดหน่อย|a little|small portion/.test(lower)) {
+    return buildPortionAdjustment(0.25, "นิดเดียว");
+  }
+  if (/third/.test(lower)) {
+    return buildPortionAdjustment(1 / 3, "1/3");
+  }
+  if (/quarter/.test(lower)) {
+    return buildPortionAdjustment(0.25, "1/4");
   }
   return null;
+}
+
+function parseThaiNumberFraction(lowerText: string): { ratio: number; label: string } | null {
+  const thaiNumberWords: Record<string, number> = {
+    หนึ่ง: 1,
+    นึง: 1,
+    สอง: 2,
+    สาม: 3,
+    สี่: 4,
+    ห้า: 5,
+    หก: 6,
+    เจ็ด: 7,
+    แปด: 8,
+    เก้า: 9
+  };
+  const denominatorWords: Record<string, number> = {
+    ส่วนสอง: 2,
+    ส่วนสาม: 3,
+    ส่วนสี่: 4,
+    ส่วนห้า: 5,
+    ส่วนหก: 6,
+    ส่วนเจ็ด: 7,
+    ส่วนแปด: 8,
+    ส่วนเก้า: 9
+  };
+
+  for (const [denominatorWord, denominator] of Object.entries(denominatorWords)) {
+    const numeratorPattern = new RegExp(`(${Object.keys(thaiNumberWords).join("|")})\\s*${denominatorWord}`);
+    const match = lowerText.match(numeratorPattern);
+    if (match?.[1]) {
+      return buildPortionAdjustment(thaiNumberWords[match[1]] / denominator, `${match[1]}${denominatorWord}`);
+    }
+  }
+
+  return null;
+}
+
+function buildPortionAdjustment(ratio: number, rawLabel: string): { ratio: number; label: string } | null {
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio > 1) return null;
+  const normalizedRatio = Number(ratio.toFixed(4));
+  const percent = Math.round(normalizedRatio * 100);
+  return {
+    ratio: normalizedRatio,
+    label: `${percent}% (${rawLabel})`
+  };
 }
 
 function parseMealCorrectionText(text: string): string | null {
@@ -2317,16 +2384,17 @@ async function adjustLatestMealPortion(
 
   const data = doc.data();
   const nutrients = data.nutrients ?? {};
+  const previousAdjustments = Array.isArray(data.adjustments) ? data.adjustments : [];
+  const baseNutrients = previousAdjustments[0]?.previousNutrients ?? nutrients;
   const scaledNutrients = {
-    caloriesKcal: Math.round(Number(nutrients.caloriesKcal ?? 0) * adjustment.ratio),
-    proteinG: Math.round(Number(nutrients.proteinG ?? 0) * adjustment.ratio),
-    carbsG: Math.round(Number(nutrients.carbsG ?? 0) * adjustment.ratio),
-    fatG: Math.round(Number(nutrients.fatG ?? 0) * adjustment.ratio),
-    fiberG: Number((Number(nutrients.fiberG ?? 0) * adjustment.ratio).toFixed(1)),
-    sugarG: Number((Number(nutrients.sugarG ?? 0) * adjustment.ratio).toFixed(1))
+    caloriesKcal: Math.round(Number(baseNutrients.caloriesKcal ?? 0) * adjustment.ratio),
+    proteinG: Math.round(Number(baseNutrients.proteinG ?? 0) * adjustment.ratio),
+    carbsG: Math.round(Number(baseNutrients.carbsG ?? 0) * adjustment.ratio),
+    fatG: Math.round(Number(baseNutrients.fatG ?? 0) * adjustment.ratio),
+    fiberG: Number((Number(baseNutrients.fiberG ?? 0) * adjustment.ratio).toFixed(1)),
+    sugarG: Number((Number(baseNutrients.sugarG ?? 0) * adjustment.ratio).toFixed(1))
   };
   const originalName = String(data.mealNameTh ?? data.mealNameEn ?? "รายการอาหาร");
-  const previousAdjustments = Array.isArray(data.adjustments) ? data.adjustments : [];
 
   await doc.ref.set(
     {
@@ -2339,7 +2407,7 @@ async function adjustLatestMealPortion(
           ratio: adjustment.ratio,
           label: adjustment.label,
           commandText,
-          previousNutrients: nutrients,
+          previousNutrients: baseNutrients,
           adjustedAt: Timestamp.now()
         }
       ],

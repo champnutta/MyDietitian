@@ -19,7 +19,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Handle file uploads and BIA reports. Partial: staging accepts BIA image/PDF files, creates `biaReports`, runs `biaAnalysis`, saves weight metrics when available, and supports target-confirm commands; signed LINE file/image tests are still pending.
 - Handle exercise logs. Partial: staging detects exercise text, estimates burn with `exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies 50% safety factor, and writes Firestore `exerciseLogs`.
 - Handle weight logs. Partial: staging manual LINE text weight logging writes to Firestore.
-- Handle undo/delete/correct latest meal. Partial: staging deletes latest Firestore meal log, replaces latest meal for correction text, and scales latest meal nutrients for portion adjustment.
+- Handle undo/delete/correct latest meal. Partial: staging deletes latest Firestore meal log, replaces latest meal for correction text, and scales latest meal nutrients for portion adjustment including fractions/percentages such as `กิน 2/3`, `เหลือ 1/4`, and `กินไป 70%`.
 - Handle subscription request flow. Partial: staging replies with the legacy packages and QR URL, and writes `subscriptionRequests`.
 - Handle slip/payment review. Partial: staging detects slip images, creates pending `paymentReviews`, notifies admin, and lets admin approve/reject through existing commands.
 - Handle admin approve/reject. Partial: staging supports admin `อนุมัติ {LINE_USER_ID|canonicalId} {days}` / `approve ...` and `ปฏิเสธ ...` / `reject ...`, writes `paymentReviews` and `subscriptionEvents`, and updates Firestore subscription expiry.
