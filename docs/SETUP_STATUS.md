@@ -26,11 +26,13 @@
 - Functions deployed successfully in `asia-southeast1`:
   - `health`
   - `updateProfile`
+  - `saveSettingsFromWeb`
   - `analyzeMeal`
   - `analyzeExercise`
   - `getDashboardData`
   - `lineWebhook`
 - `getDashboardData` was deployed and tested against existing Firestore test records only. It now returns legacy-compatible aggregate arrays plus detailed Firestore `history.meals`, `history.exercises`, `history.weights`, `history.adjustments`, and per-day `daily` rows for the future dashboard/native app.
+- `saveSettingsFromWeb` staging endpoint now accepts LIFF-style auto/custom settings, calculates TDEE/macros, saves `profiles`, `users`, optional `weightLogs`, `profileEvents`, links LINE/Auth IDs when provided, and grants a 3-day trial if no subscription expiry exists.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
 - `aiAgents/coachConsultation` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `coach-v1`, and temperature `0.4`.

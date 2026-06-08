@@ -53,7 +53,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 | `getTodaySummary` | Today's nutrition summary | partial Firestore staging |
 | `updateUserStreak` | Streak tracking | partial Firestore staging via `profiles.streak` after meal logs |
 | `archiveOldLogs` | Move old rows into archive sheets | not needed after Firestore migration |
-| `saveSettingsFromWeb` | LIFF settings save | partial through `updateProfile`; LINE quick setup added for staging |
+| `saveSettingsFromWeb` | LIFF settings save | partial Firestore staging endpoint with auto/custom target calculation and weight log |
 
 ## Cutover Rule
 

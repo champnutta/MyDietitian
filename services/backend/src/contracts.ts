@@ -30,6 +30,33 @@ export interface UpdateProfileRequest {
   };
 }
 
+export interface SaveSettingsFromWebRequest {
+  userId: string;
+  canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
+  displayName?: string;
+  config: {
+    mode: "auto" | "custom";
+    gender?: "male" | "female" | "other" | "ชาย" | "หญิง";
+    age?: number;
+    height?: number;
+    heightCm?: number;
+    weight?: number;
+    weightKg?: number;
+    activity?: number;
+    activityFactor?: number;
+    goal?: number;
+    goalType?: "fat_loss" | "recomp" | "maintain" | "muscle_gain";
+    dietStyle?: "balanced" | "keto" | "lowcarb" | "highprotein" | "ai_auto";
+    tdee?: number;
+    p?: number;
+    c?: number;
+    f?: number;
+    fiberG?: number;
+  };
+}
+
 export interface AnalyzeMealRequest {
   userId: string;
   canonicalUserId?: string;

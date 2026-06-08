@@ -16,6 +16,7 @@ import type {
   CoachConsultationRequest,
   DashboardDataRequest,
   LineWebhookEvent,
+  SaveSettingsFromWebRequest,
   UpdateProfileRequest
 } from "./contracts.js";
 import { resolveCanonicalUserId, resolveLineCanonicalUserId } from "./identity-service.js";
@@ -185,6 +186,219 @@ export const updateProfile = onRequest(async (request, response) => {
 
   response.json({ ok: true, userId: canonicalUserId, canonicalUserId });
 });
+
+export const saveSettingsFromWeb = onRequest(async (request, response) => {
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  const body = request.body as SaveSettingsFromWebRequest;
+  if (!body?.userId || !body?.config) {
+    response.status(400).json({ ok: false, error: "missing-user-or-config" });
+    return;
+  }
+
+  try {
+    const canonicalUserId = body.canonicalUserId ??
+      (body.lineUserId || body.userId.startsWith("U") ? await resolveLineCanonicalUserId(body.lineUserId ?? body.userId) : body.userId);
+    const lineUserId = body.lineUserId ?? (body.userId.startsWith("U") ? body.userId : undefined);
+    const target = buildTargetFromSettingsConfig(body.config);
+    const now = Timestamp.now();
+    const existingExpiry = await getSubscriptionExpiry(canonicalUserId);
+    const expiresAt = existingExpiry ?? subscriptionExpiryAfterDays(3, null);
+    const profilePayload = {
+      userId: canonicalUserId,
+      canonicalUserId,
+      lineUserId: lineUserId ?? null,
+      firebaseAuthUid: body.firebaseAuthUid ?? null,
+      displayName: body.displayName ?? undefined,
+      gender: normalizeSettingsGender(body.config.gender),
+      age: Number(body.config.age ?? 0) || null,
+      heightCm: Number(body.config.heightCm ?? body.config.height ?? 0) || null,
+      weightKg: Number(body.config.weightKg ?? body.config.weight ?? 0) || null,
+      activityFactor: Number(body.config.activityFactor ?? body.config.activity ?? 0) || null,
+      goalType: body.config.goalType ?? inferGoalType(Number(body.config.goal ?? 0)),
+      target,
+      settingsSource: "web-form",
+      updatedAt: now,
+      createdAt: now
+    };
+
+    const writes: Array<Promise<unknown>> = [
+      db.collection("profiles").doc(canonicalUserId).set(profilePayload, { merge: true }),
+      db.collection("users").doc(canonicalUserId).set({
+        userId: canonicalUserId,
+        canonicalUserId,
+        status: "active",
+        source: {
+          line: Boolean(lineUserId),
+          app: Boolean(body.firebaseAuthUid)
+        },
+        updatedAt: now,
+        createdAt: now
+      }, { merge: true }),
+      db.collection("subscriptions").doc(canonicalUserId).set({
+        userId: canonicalUserId,
+        canonicalUserId,
+        status: expiresAt.toMillis() >= Date.now() ? "active" : "expired",
+        expiresAt,
+        trialGranted: existingExpiry ? false : true,
+        updatedAt: now,
+        createdAt: now
+      }, { merge: true }),
+      db.collection("profileEvents").add({
+        type: "web-settings-save",
+        canonicalUserId,
+        lineUserId: lineUserId ?? null,
+        firebaseAuthUid: body.firebaseAuthUid ?? null,
+        config: sanitizeSettingsConfigForLog(body.config),
+        target,
+        trialGranted: !existingExpiry,
+        createdAt: now
+      })
+    ];
+
+    if (lineUserId) {
+      writes.push(db.collection("lineLinks").doc(lineUserId).set({
+        lineUserId,
+        canonicalUserId,
+        status: "linked",
+        updatedAt: now
+      }, { merge: true }));
+    }
+    if (body.firebaseAuthUid) {
+      writes.push(db.collection("authLinks").doc(body.firebaseAuthUid).set({
+        firebaseAuthUid: body.firebaseAuthUid,
+        canonicalUserId,
+        status: "linked",
+        updatedAt: now
+      }, { merge: true }));
+    }
+    const weightKg = Number(body.config.weightKg ?? body.config.weight ?? 0);
+    if (weightKg > 0) {
+      writes.push(db.collection("weightLogs").add({
+        userId: canonicalUserId,
+        canonicalUserId,
+        source: "web-form",
+        weightKg,
+        bodyFatPct: null,
+        muscleMassKg: null,
+        deviceName: "LIFF Form",
+        loggedAt: now,
+        createdAt: now,
+        updatedAt: now
+      }));
+    }
+
+    await Promise.all(writes);
+
+    response.json({
+      ok: true,
+      canonicalUserId,
+      target,
+      trialGranted: !existingExpiry,
+      expiresAt: expiresAt.toDate().toISOString()
+    });
+  } catch (error) {
+    response.status(500).json({
+      ok: false,
+      error: "save-settings-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["config"]) {
+  let finalTdee = 0;
+  let proteinPct = 30;
+  let carbsPct = 40;
+  let fatPct = 30;
+
+  if (config.mode === "auto") {
+    const weightKg = Number(config.weightKg ?? config.weight ?? 0);
+    const heightCm = Number(config.heightCm ?? config.height ?? 0);
+    const age = Number(config.age ?? 0);
+    const activityFactor = Number(config.activityFactor ?? config.activity ?? 1.2);
+    if (weightKg <= 0 || heightCm <= 0 || age <= 0) {
+      throw new Error("auto settings require weight, height, and age");
+    }
+
+    let bmr = (10 * weightKg) + (6.25 * heightCm) - (5 * age);
+    bmr += normalizeSettingsGender(config.gender) === "male" ? 5 : -161;
+    finalTdee = Math.max(1200, Math.round((bmr * activityFactor) + Number(config.goal ?? 0)));
+    ({ proteinPct, carbsPct, fatPct } = macroPercentagesForDietStyle(config.dietStyle));
+  } else {
+    finalTdee = Math.round(Number(config.tdee ?? 0));
+    proteinPct = Number(config.p ?? 0);
+    carbsPct = Number(config.c ?? 0);
+    fatPct = Number(config.f ?? 0);
+  }
+
+  if (!Number.isFinite(finalTdee) || finalTdee < 800 || finalTdee > 6000) {
+    throw new Error("invalid TDEE");
+  }
+  if ([proteinPct, carbsPct, fatPct].some((value) => !Number.isFinite(value) || value <= 0)) {
+    throw new Error("invalid macro percentages");
+  }
+
+  return {
+    calories: Math.round(finalTdee),
+    proteinPct: Math.round(proteinPct),
+    carbsPct: Math.round(carbsPct),
+    fatPct: Math.round(fatPct),
+    proteinG: Math.round((finalTdee * proteinPct / 100) / 4),
+    carbsG: Math.round((finalTdee * carbsPct / 100) / 4),
+    fatG: Math.round((finalTdee * fatPct / 100) / 9),
+    fiberG: Math.round(Number(config.fiberG ?? 25))
+  };
+}
+
+function macroPercentagesForDietStyle(dietStyle: SaveSettingsFromWebRequest["config"]["dietStyle"]) {
+  switch (dietStyle) {
+    case "keto":
+      return { proteinPct: 25, carbsPct: 5, fatPct: 70 };
+    case "lowcarb":
+      return { proteinPct: 40, carbsPct: 20, fatPct: 40 };
+    case "highprotein":
+      return { proteinPct: 40, carbsPct: 30, fatPct: 30 };
+    case "ai_auto":
+    case "balanced":
+    default:
+      return { proteinPct: 30, carbsPct: 40, fatPct: 30 };
+  }
+}
+
+function normalizeSettingsGender(gender: SaveSettingsFromWebRequest["config"]["gender"]): "male" | "female" | "other" {
+  if (gender === "male" || gender === "ชาย") return "male";
+  if (gender === "female" || gender === "หญิง") return "female";
+  return "other";
+}
+
+function inferGoalType(goalKcal: number): UpdateProfileRequest["goalType"] {
+  if (goalKcal <= -350) return "fat_loss";
+  if (goalKcal < 0) return "recomp";
+  if (goalKcal >= 250) return "muscle_gain";
+  return "maintain";
+}
+
+function sanitizeSettingsConfigForLog(config: SaveSettingsFromWebRequest["config"]) {
+  return {
+    mode: config.mode,
+    gender: normalizeSettingsGender(config.gender),
+    age: Number(config.age ?? 0) || null,
+    heightCm: Number(config.heightCm ?? config.height ?? 0) || null,
+    weightKg: Number(config.weightKg ?? config.weight ?? 0) || null,
+    activityFactor: Number(config.activityFactor ?? config.activity ?? 0) || null,
+    goal: Number(config.goal ?? 0) || 0,
+    goalType: config.goalType ?? inferGoalType(Number(config.goal ?? 0)),
+    dietStyle: config.dietStyle ?? null,
+    tdee: Number(config.tdee ?? 0) || null,
+    p: Number(config.p ?? 0) || null,
+    c: Number(config.c ?? 0) || null,
+    f: Number(config.f ?? 0) || null
+  };
+}
 
 export const getDashboardData = onRequest(async (request, response) => {
   if (request.method !== "POST") {

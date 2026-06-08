@@ -201,6 +201,46 @@ Weight and body composition history.
 }
 ```
 
+## LIFF Settings API
+
+`saveSettingsFromWeb` accepts the legacy LIFF form shape and writes Firestore profile/subscription/weight data.
+The staging endpoint returns a success response but does not push a LINE message, so the LIFF UI should show the confirmation itself until authenticated LIFF/API auth is added.
+
+Auto mode:
+
+```json
+{
+  "userId": "Uxxxxxxxx",
+  "lineUserId": "Uxxxxxxxx",
+  "displayName": "Champ",
+  "config": {
+    "mode": "auto",
+    "gender": "male",
+    "age": 30,
+    "height": 170,
+    "weight": 72,
+    "activity": 1.55,
+    "goal": -300,
+    "dietStyle": "highprotein"
+  }
+}
+```
+
+Custom mode:
+
+```json
+{
+  "userId": "canonical-user-id",
+  "config": {
+    "mode": "custom",
+    "tdee": 2000,
+    "p": 40,
+    "c": 30,
+    "f": 30
+  }
+}
+```
+
 ### `biaReports/{biaReportId}`
 
 BIA/InBody/smart-scale/health report queue created from LINE image or file uploads.
