@@ -205,6 +205,13 @@ Weight and body composition history.
 
 `saveSettingsFromWeb` accepts the legacy LIFF form shape and writes Firestore profile/subscription/weight data.
 The staging endpoint returns a success response but does not push a LINE message, so the LIFF UI should show the confirmation itself until authenticated LIFF/API auth is added.
+The endpoint now rejects unsafe public IDs and out-of-range settings values, but it is still not production-authenticated. Before production cutover, the LIFF/native clients should send a verified LINE ID token or Firebase Auth ID token instead of trusting `userId` from the request body.
+
+Validation guardrails:
+
+- `userId`, `canonicalUserId`, `lineUserId`, and `firebaseAuthUid` must use safe ASCII ID characters and be 2-128 characters.
+- Auto mode requires weight 25-300 kg, height 100-230 cm, age 10-100, activity 1.0-2.5, and goal -1000 to 1000 kcal.
+- Custom mode requires TDEE 800-6000 kcal, macro percentages 1-80 each, macro total close to 100, and fiber 0-100 g.
 
 Auto mode:
 

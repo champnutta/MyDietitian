@@ -111,6 +111,13 @@ type UserReadiness = {
   expiresAt: Timestamp | null;
 };
 
+class SettingsValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SettingsValidationError";
+  }
+}
+
 export const health = onRequest((request, response) => {
   response.json({
     ok: true,
@@ -129,6 +136,11 @@ export const updateProfile = onRequest(async (request, response) => {
   const body = request.body as { userId?: string; profile?: UpdateProfileRequest };
   if (!body?.userId || !body?.profile) {
     response.status(400).json({ ok: false, error: "missing-user-or-profile" });
+    return;
+  }
+  const profileIdentityError = validateProfileIdentity(body.userId, body.profile);
+  if (profileIdentityError) {
+    response.status(400).json({ ok: false, error: "invalid-profile-identity", message: profileIdentityError });
     return;
   }
 
@@ -200,6 +212,7 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
   }
 
   try {
+    validateSettingsRequest(body);
     const canonicalUserId = body.canonicalUserId ??
       (body.lineUserId || body.userId.startsWith("U") ? await resolveLineCanonicalUserId(body.lineUserId ?? body.userId) : body.userId);
     const lineUserId = body.lineUserId ?? (body.userId.startsWith("U") ? body.userId : undefined);
@@ -301,13 +314,40 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
       expiresAt: expiresAt.toDate().toISOString()
     });
   } catch (error) {
-    response.status(500).json({
+    const isValidationError = error instanceof SettingsValidationError;
+    response.status(isValidationError ? 400 : 500).json({
       ok: false,
-      error: "save-settings-failed",
+      error: isValidationError ? "invalid-settings" : "save-settings-failed",
       message: error instanceof Error ? error.message : String(error)
     });
   }
 });
+
+function validateProfileIdentity(userId: string, profile: UpdateProfileRequest): string | null {
+  if (!isSafePublicId(userId)) return "invalid userId";
+  if (profile.canonicalUserId && !isSafePublicId(profile.canonicalUserId)) return "invalid canonicalUserId";
+  if (profile.lineUserId && !isSafePublicId(profile.lineUserId)) return "invalid lineUserId";
+  if (profile.firebaseAuthUid && !isSafePublicId(profile.firebaseAuthUid)) return "invalid firebaseAuthUid";
+  return null;
+}
+
+function validateSettingsRequest(body: SaveSettingsFromWebRequest) {
+  if (!isSafePublicId(body.userId)) throw new SettingsValidationError("invalid userId");
+  if (body.canonicalUserId && !isSafePublicId(body.canonicalUserId)) {
+    throw new SettingsValidationError("invalid canonicalUserId");
+  }
+  if (body.lineUserId && !isSafePublicId(body.lineUserId)) throw new SettingsValidationError("invalid lineUserId");
+  if (body.firebaseAuthUid && !isSafePublicId(body.firebaseAuthUid)) {
+    throw new SettingsValidationError("invalid firebaseAuthUid");
+  }
+  if (body.config.mode !== "auto" && body.config.mode !== "custom") {
+    throw new SettingsValidationError("invalid settings mode");
+  }
+}
+
+function isSafePublicId(value: string) {
+  return /^[A-Za-z0-9_.:@-]{2,128}$/.test(value);
+}
 
 function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["config"]) {
   let finalTdee = 0;
@@ -320,9 +360,11 @@ function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["confi
     const heightCm = Number(config.heightCm ?? config.height ?? 0);
     const age = Number(config.age ?? 0);
     const activityFactor = Number(config.activityFactor ?? config.activity ?? 1.2);
-    if (weightKg <= 0 || heightCm <= 0 || age <= 0) {
-      throw new Error("auto settings require weight, height, and age");
-    }
+    assertNumberInRange("weightKg", weightKg, 25, 300);
+    assertNumberInRange("heightCm", heightCm, 100, 230);
+    assertNumberInRange("age", age, 10, 100);
+    assertNumberInRange("activityFactor", activityFactor, 1, 2.5);
+    assertNumberInRange("goal", Number(config.goal ?? 0), -1000, 1000);
 
     let bmr = (10 * weightKg) + (6.25 * heightCm) - (5 * age);
     bmr += normalizeSettingsGender(config.gender) === "male" ? 5 : -161;
@@ -336,11 +378,17 @@ function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["confi
   }
 
   if (!Number.isFinite(finalTdee) || finalTdee < 800 || finalTdee > 6000) {
-    throw new Error("invalid TDEE");
+    throw new SettingsValidationError("invalid TDEE");
   }
-  if ([proteinPct, carbsPct, fatPct].some((value) => !Number.isFinite(value) || value <= 0)) {
-    throw new Error("invalid macro percentages");
+  for (const [name, value] of Object.entries({ proteinPct, carbsPct, fatPct })) {
+    assertNumberInRange(name, value, 1, 80);
   }
+  const macroTotal = proteinPct + carbsPct + fatPct;
+  if (macroTotal < 90 || macroTotal > 110) {
+    throw new SettingsValidationError("macro percentages should add up close to 100");
+  }
+  const fiberG = Number(config.fiberG ?? 25);
+  assertNumberInRange("fiberG", fiberG, 0, 100);
 
   return {
     calories: Math.round(finalTdee),
@@ -350,8 +398,14 @@ function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["confi
     proteinG: Math.round((finalTdee * proteinPct / 100) / 4),
     carbsG: Math.round((finalTdee * carbsPct / 100) / 4),
     fatG: Math.round((finalTdee * fatPct / 100) / 9),
-    fiberG: Math.round(Number(config.fiberG ?? 25))
+    fiberG: Math.round(fiberG)
   };
+}
+
+function assertNumberInRange(name: string, value: number, min: number, max: number) {
+  if (!Number.isFinite(value) || value < min || value > max) {
+    throw new SettingsValidationError(`${name} must be between ${min} and ${max}`);
+  }
 }
 
 function macroPercentagesForDietStyle(dietStyle: SaveSettingsFromWebRequest["config"]["dietStyle"]) {

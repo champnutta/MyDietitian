@@ -32,7 +32,7 @@
   - `getDashboardData`
   - `lineWebhook`
 - `getDashboardData` was deployed and tested against existing Firestore test records only. It now returns legacy-compatible aggregate arrays plus detailed Firestore `history.meals`, `history.exercises`, `history.weights`, `history.adjustments`, and per-day `daily` rows for the future dashboard/native app.
-- `saveSettingsFromWeb` staging endpoint now accepts LIFF-style auto/custom settings, calculates TDEE/macros, saves `profiles`, `users`, optional `weightLogs`, `profileEvents`, links LINE/Auth IDs when provided, and grants a 3-day trial if no subscription expiry exists.
+- `saveSettingsFromWeb` staging endpoint now accepts LIFF-style auto/custom settings, validates safe IDs and sensible nutrition ranges, calculates TDEE/macros, saves `profiles`, `users`, optional `weightLogs`, `profileEvents`, links LINE/Auth IDs when provided, and grants a 3-day trial if no subscription expiry exists.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
 - `aiAgents/coachConsultation` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `coach-v1`, and temperature `0.4`.
@@ -50,6 +50,7 @@
 - `lineWebhook` staging coach/menu flow now detects advice/menu questions, uses today's Firestore summary and recent meals, replies through `aiAgents/coachConsultation`, and stores `coachConsultations` without creating food logs.
 - `lineWebhook` staging contact-admin flow now forwards customer contact messages to admin LINE, stores `adminContactRequests`, and supports 30-minute admin chat sessions through `adminChatSessions`.
 - `lineWebhook` staging subscription flow now supports package/QR instructions for `สมัคร/เติมวัน`, redeeming migrated codes from `redeemCodes`, and admin approve/reject commands that update `subscriptions`, `users`, and `profiles`.
+- `saveSettingsFromWeb` and `updateProfile` have staging validation guardrails, but still need verified LIFF/Firebase Auth token ownership before production cutover.
 - `lineWebhook` still needs a signed webhook test from a staging LINE OA before it can be marked verified.
 - Health endpoint verified:
   - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
