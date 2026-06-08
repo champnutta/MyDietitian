@@ -9,6 +9,31 @@ Production LINE OA must stay on GAS while this plan is tested on a staging LINE 
 - Firestore is in project `mydietitian`.
 - Do not run final Google Sheet migration for this test.
 
+## Signed Webhook Test Tool
+
+Use the local script to send signed LINE-style webhook events to Firebase staging without changing the production LINE OA webhook.
+
+PowerShell example:
+
+```powershell
+$env:LINE_CHANNEL_SECRET="your-staging-channel-secret"
+npm run test:line-webhook -- --scenario follow --user U_STAGING_TEST_USER
+npm run test:line-webhook -- --scenario setup --user U_STAGING_TEST_USER --text "ตั้งค่า Test 2000 40-30-30"
+npm run test:line-webhook -- --scenario food --user U_STAGING_TEST_USER --text "ไข่ต้ม 2 ฟอง"
+```
+
+Dry run without sending:
+
+```powershell
+npm run test:line-webhook -- --scenario food --dry-run
+```
+
+Supported scenarios:
+
+`follow`, `setup`, `food`, `exercise`, `menu`, `portion`, `correction`, `dashboard`, `summary`, `weight`, `subscribe`, `contact`, `text`.
+
+Image/file flows still require a real LINE message because Firebase must download media from LINE using a real `messageId`.
+
 ## Test Cases
 
 ### 1. New user follow
@@ -68,7 +93,6 @@ Expected:
 
 ## Still Pending After This Plan
 
-- Slip image classification and payment review.
-- BIA/PDF/file handling.
+- Signed image tests for food, leftover, slip, BIA, and files.
 - Production data migration and dashboard verification.
 - Production webhook cutover and rollback rehearsal.
