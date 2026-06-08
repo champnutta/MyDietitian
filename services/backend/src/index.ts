@@ -36,6 +36,7 @@ import {
   LINE_CHANNEL_ACCESS_TOKEN,
   LINE_CHANNEL_SECRET
 } from "./runtime.js";
+import { ProfileAuthError, verifyProfileOwnership, writeProfileAuthAudit } from "./profile-auth.js";
 const LEGACY_GAS_DASHBOARD_URL =
   "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
 const PAYMENT_QR_IMAGE = "https://img2.pic.in.th/1613478.jpg";
@@ -144,59 +145,86 @@ export const updateProfile = onRequest(async (request, response) => {
     return;
   }
 
-  const canonicalUserId = body.profile.canonicalUserId ?? body.userId;
-  const now = Timestamp.now();
-  await db.collection("profiles").doc(canonicalUserId).set(
-    {
-      userId: canonicalUserId,
-      canonicalUserId,
-      ...body.profile,
-      updatedAt: now,
-      createdAt: now
-    },
-    { merge: true }
-  );
-
-  await db.collection("users").doc(canonicalUserId).set(
-    {
-      userId: canonicalUserId,
-      canonicalUserId,
-      updatedAt: now,
-      createdAt: now,
-      status: "active",
-      source: {
-        app: Boolean(body.profile.firebaseAuthUid),
-        line: Boolean(body.profile.lineUserId)
-      }
-    },
-    { merge: true }
-  );
-
-  if (body.profile.lineUserId) {
-    await db.collection("lineLinks").doc(body.profile.lineUserId).set(
+  try {
+    const owner = await verifyProfileOwnership(request, {
+      userId: body.userId,
+      canonicalUserId: body.profile.canonicalUserId,
+      lineUserId: body.profile.lineUserId,
+      firebaseAuthUid: body.profile.firebaseAuthUid
+    });
+    const canonicalUserId = owner.canonicalUserId ?? body.profile.canonicalUserId ?? body.userId;
+    const lineUserId = owner.lineUserId ?? body.profile.lineUserId;
+    const firebaseAuthUid = owner.firebaseAuthUid ?? body.profile.firebaseAuthUid;
+    const now = Timestamp.now();
+    await db.collection("profiles").doc(canonicalUserId).set(
       {
-        lineUserId: body.profile.lineUserId,
+        userId: canonicalUserId,
         canonicalUserId,
-        status: "linked",
-        updatedAt: now
+        ...body.profile,
+        lineUserId: lineUserId ?? null,
+        firebaseAuthUid: firebaseAuthUid ?? null,
+        authVerified: owner.verified,
+        authProvider: owner.provider,
+        updatedAt: now,
+        createdAt: now
       },
       { merge: true }
     );
-  }
 
-  if (body.profile.firebaseAuthUid) {
-    await db.collection("authLinks").doc(body.profile.firebaseAuthUid).set(
+    await db.collection("users").doc(canonicalUserId).set(
       {
-        firebaseAuthUid: body.profile.firebaseAuthUid,
+        userId: canonicalUserId,
         canonicalUserId,
-        status: "linked",
-        updatedAt: now
+        updatedAt: now,
+        createdAt: now,
+        status: "active",
+        source: {
+          app: Boolean(firebaseAuthUid),
+          line: Boolean(lineUserId)
+        },
+        auth: {
+          verified: owner.verified,
+          provider: owner.provider
+        }
       },
       { merge: true }
     );
-  }
 
-  response.json({ ok: true, userId: canonicalUserId, canonicalUserId });
+    if (lineUserId) {
+      await db.collection("lineLinks").doc(lineUserId).set(
+        {
+          lineUserId,
+          canonicalUserId,
+          status: "linked",
+          updatedAt: now
+        },
+        { merge: true }
+      );
+    }
+
+    if (firebaseAuthUid) {
+      await db.collection("authLinks").doc(firebaseAuthUid).set(
+        {
+          firebaseAuthUid,
+          canonicalUserId,
+          status: "linked",
+          updatedAt: now
+        },
+        { merge: true }
+      );
+    }
+
+    await writeProfileAuthAudit("updateProfile", canonicalUserId, owner);
+
+    response.json({ ok: true, userId: canonicalUserId, canonicalUserId, authVerified: owner.verified });
+  } catch (error) {
+    const isAuthError = error instanceof ProfileAuthError;
+    response.status(isAuthError ? 401 : 500).json({
+      ok: false,
+      error: isAuthError ? "profile-auth-failed" : "update-profile-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
 });
 
 export const saveSettingsFromWeb = onRequest(async (request, response) => {
@@ -213,9 +241,16 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
 
   try {
     validateSettingsRequest(body);
-    const canonicalUserId = body.canonicalUserId ??
+    const owner = await verifyProfileOwnership(request, {
+      userId: body.userId,
+      canonicalUserId: body.canonicalUserId,
+      lineUserId: body.lineUserId,
+      firebaseAuthUid: body.firebaseAuthUid
+    });
+    const canonicalUserId = owner.canonicalUserId ?? body.canonicalUserId ??
       (body.lineUserId || body.userId.startsWith("U") ? await resolveLineCanonicalUserId(body.lineUserId ?? body.userId) : body.userId);
-    const lineUserId = body.lineUserId ?? (body.userId.startsWith("U") ? body.userId : undefined);
+    const lineUserId = owner.lineUserId ?? body.lineUserId ?? (body.userId.startsWith("U") ? body.userId : undefined);
+    const firebaseAuthUid = owner.firebaseAuthUid ?? body.firebaseAuthUid;
     const target = buildTargetFromSettingsConfig(body.config);
     const now = Timestamp.now();
     const existingExpiry = await getSubscriptionExpiry(canonicalUserId);
@@ -224,7 +259,7 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
       userId: canonicalUserId,
       canonicalUserId,
       lineUserId: lineUserId ?? null,
-      firebaseAuthUid: body.firebaseAuthUid ?? null,
+      firebaseAuthUid: firebaseAuthUid ?? null,
       displayName: body.displayName ?? undefined,
       gender: normalizeSettingsGender(body.config.gender),
       age: Number(body.config.age ?? 0) || null,
@@ -234,6 +269,8 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
       goalType: body.config.goalType ?? inferGoalType(Number(body.config.goal ?? 0)),
       target,
       settingsSource: "web-form",
+      authVerified: owner.verified,
+      authProvider: owner.provider,
       updatedAt: now,
       createdAt: now
     };
@@ -246,7 +283,11 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
         status: "active",
         source: {
           line: Boolean(lineUserId),
-          app: Boolean(body.firebaseAuthUid)
+          app: Boolean(firebaseAuthUid)
+        },
+        auth: {
+          verified: owner.verified,
+          provider: owner.provider
         },
         updatedAt: now,
         createdAt: now
@@ -264,9 +305,11 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
         type: "web-settings-save",
         canonicalUserId,
         lineUserId: lineUserId ?? null,
-        firebaseAuthUid: body.firebaseAuthUid ?? null,
+        firebaseAuthUid: firebaseAuthUid ?? null,
         config: sanitizeSettingsConfigForLog(body.config),
         target,
+        authVerified: owner.verified,
+        authProvider: owner.provider,
         trialGranted: !existingExpiry,
         createdAt: now
       })
@@ -280,9 +323,9 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
         updatedAt: now
       }, { merge: true }));
     }
-    if (body.firebaseAuthUid) {
-      writes.push(db.collection("authLinks").doc(body.firebaseAuthUid).set({
-        firebaseAuthUid: body.firebaseAuthUid,
+    if (firebaseAuthUid) {
+      writes.push(db.collection("authLinks").doc(firebaseAuthUid).set({
+        firebaseAuthUid,
         canonicalUserId,
         status: "linked",
         updatedAt: now
@@ -305,19 +348,22 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
     }
 
     await Promise.all(writes);
+    await writeProfileAuthAudit("saveSettingsFromWeb", canonicalUserId, owner);
 
     response.json({
       ok: true,
       canonicalUserId,
       target,
+      authVerified: owner.verified,
       trialGranted: !existingExpiry,
       expiresAt: expiresAt.toDate().toISOString()
     });
   } catch (error) {
     const isValidationError = error instanceof SettingsValidationError;
-    response.status(isValidationError ? 400 : 500).json({
+    const isAuthError = error instanceof ProfileAuthError;
+    response.status(isValidationError ? 400 : isAuthError ? 401 : 500).json({
       ok: false,
-      error: isValidationError ? "invalid-settings" : "save-settings-failed",
+      error: isValidationError ? "invalid-settings" : isAuthError ? "profile-auth-failed" : "save-settings-failed",
       message: error instanceof Error ? error.message : String(error)
     });
   }

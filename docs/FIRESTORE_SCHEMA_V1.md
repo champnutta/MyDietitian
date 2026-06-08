@@ -19,6 +19,10 @@ Top-level account document shared by LINE OA and native app users.
   "source": {
     "app": true,
     "line": true
+  },
+  "auth": {
+    "verified": true,
+    "provider": "firebase"
   }
 }
 ```
@@ -34,6 +38,8 @@ Health and target profile used by the AI coach.
   "displayName": "Champ",
   "lineUserId": "Uxxxxxxxx",
   "firebaseAuthUid": "firebase-auth-uid",
+  "authVerified": true,
+  "authProvider": "line",
   "gender": "male",
   "age": 30,
   "heightCm": 170,
@@ -213,6 +219,14 @@ Validation guardrails:
 - Auto mode requires weight 25-300 kg, height 100-230 cm, age 10-100, activity 1.0-2.5, and goal -1000 to 1000 kcal.
 - Custom mode requires TDEE 800-6000 kcal, macro percentages 1-80 each, macro total close to 100, and fiber 0-100 g.
 
+Identity verification:
+
+- Firebase/native clients can send `Authorization: Bearer <Firebase ID token>`.
+- LIFF clients can send `X-Line-Id-Token: <LINE ID token>`. This requires `LINE_CHANNEL_ID` to be configured in the function environment.
+- The current default `PROFILE_AUTH_MODE=optional` verifies tokens when provided but still allows the legacy staging LIFF body-only flow.
+- Set `PROFILE_AUTH_MODE=required` only after the new LIFF/native clients reliably send verified tokens. In required mode, profile/settings writes without a valid token return `401 profile-auth-failed`.
+- Verified writes store `authVerified`, `authProvider`, and a `profileAuthEvents` audit record.
+
 Auto mode:
 
 ```json
@@ -328,6 +342,22 @@ Append-only profile setup/update events, including LINE quick setup during stagi
     "fatG": 67,
     "fiberG": 25
   },
+  "createdAt": "timestamp"
+}
+```
+
+### `profileAuthEvents/{eventId}`
+
+Append-only audit trail for verified profile/settings writes.
+
+```json
+{
+  "functionName": "saveSettingsFromWeb",
+  "canonicalUserId": "canonical-user-id",
+  "provider": "firebase",
+  "subject": "firebase-auth-uid",
+  "firebaseAuthUid": "firebase-auth-uid",
+  "lineUserId": null,
   "createdAt": "timestamp"
 }
 ```
