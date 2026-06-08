@@ -51,6 +51,11 @@ Health and target profile used by the AI coach.
     "status": "trial",
     "expiresAt": "timestamp"
   },
+  "streak": {
+    "count": 3,
+    "lastMealLogDayKey": "2026-06-08",
+    "updatedAt": "timestamp"
+  },
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
 }

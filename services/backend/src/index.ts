@@ -270,9 +270,10 @@ export const getDashboardData = onRequest(async (request, response) => {
     },
     profile: {
       name: profile.displayName ?? "Member",
-      target
+      target,
+      streak: normalizeStreak(profile)
     },
-    current: { weight: currentWeight },
+    current: { weight: currentWeight, streak: normalizeStreak(profile) },
     labels,
     calories,
     bodyData: { weight: weights, fat: fats, muscle: muscles, devices },
@@ -481,7 +482,13 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
       updatedAt: savedAt
     };
 
-    await mealLogRef.set(mealLog);
+    const streak = await updateMealStreak(request.canonicalUserId ?? request.userId, savedAt);
+    const mealLogWithStreak = {
+      ...mealLog,
+      streak
+    };
+
+    await mealLogRef.set(mealLogWithStreak);
     await aiRunRef.set(
       {
         status: "completed",
@@ -492,7 +499,7 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
       { merge: true }
     );
 
-    return { runId: aiRunRef.id, mealLogId: mealLogRef.id, mealLog };
+    return { runId: aiRunRef.id, mealLogId: mealLogRef.id, mealLog: mealLogWithStreak };
   } catch (error) {
     await aiRunRef.set(
       {
@@ -504,6 +511,63 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
     );
     throw error;
   }
+}
+
+async function updateMealStreak(
+  canonicalUserId: string,
+  loggedAt: Timestamp
+): Promise<{ count: number; lastMealLogDayKey: string; status: "started" | "continued" | "same-day" | "reset" }> {
+  const profileRef = db.collection("profiles").doc(canonicalUserId);
+  const dayKey = formatBangkokIsoDayKey(loggedAt.toDate());
+
+  return db.runTransaction(async (transaction) => {
+    const profileSnap = await transaction.get(profileRef);
+    const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
+    const previousStreak = (profile.streak ?? {}) as Record<string, unknown>;
+    const previousDayKey = String(previousStreak.lastMealLogDayKey ?? "");
+    const previousCount = Math.max(0, Number(previousStreak.count ?? 0));
+
+    let nextCount = 1;
+    let status: "started" | "continued" | "same-day" | "reset" = "started";
+    if (previousDayKey === dayKey) {
+      nextCount = previousCount || 1;
+      status = "same-day";
+    } else if (previousDayKey === getPreviousDayKey(dayKey)) {
+      nextCount = previousCount + 1;
+      status = "continued";
+    } else if (previousDayKey) {
+      nextCount = 1;
+      status = "reset";
+    }
+
+    const now = Timestamp.now();
+    const streak = {
+      count: nextCount,
+      lastMealLogDayKey: dayKey,
+      updatedAt: now
+    };
+    transaction.set(
+      profileRef,
+      {
+        userId: canonicalUserId,
+        canonicalUserId,
+        streak,
+        updatedAt: now
+      },
+      { merge: true }
+    );
+    transaction.create(db.collection("profileEvents").doc(), {
+      type: "meal-streak-updated",
+      canonicalUserId,
+      previousDayKey: previousDayKey || null,
+      previousCount,
+      status,
+      streak,
+      createdAt: now
+    });
+
+    return { count: nextCount, lastMealLogDayKey: dayKey, status };
+  });
 }
 
 async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<SavedExerciseAnalysis> {
@@ -2957,6 +3021,19 @@ function formatBangkokDate(date: Date): string {
   }).format(date);
 }
 
+function formatBangkokIsoDayKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
 function normalizeTimestamp(value: unknown): Timestamp | null {
   if (value instanceof Timestamp) return value;
   if (value instanceof Date) return Timestamp.fromDate(value);
@@ -2972,16 +3049,37 @@ function timestampToIso(value: unknown): string | null {
   return timestamp ? timestamp.toDate().toISOString() : null;
 }
 
+function getPreviousDayKey(dayKey: string): string {
+  const [year, month, day] = dayKey.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day, -7, 0, 0, 0));
+  date.setUTCDate(date.getUTCDate() - 1);
+  return formatBangkokIsoDayKey(date);
+}
+
+function normalizeStreak(source: Record<string, unknown>) {
+  const streak = (source.streak ?? {}) as Record<string, unknown>;
+  return {
+    count: Math.max(0, Number(streak.count ?? 0)),
+    lastMealLogDayKey: typeof streak.lastMealLogDayKey === "string" ? streak.lastMealLogDayKey : null,
+    updatedAt: timestampToIso(streak.updatedAt)
+  };
+}
+
 function formatMealReply(mealLog: Record<string, unknown>): string {
   const nutrients = mealLog.nutrients as Record<string, number>;
   const rating = mealLog.healthRating as Record<string, string | number>;
+  const streak = normalizeStreak(mealLog);
+  const streakText = streak.count > 1
+    ? `Streak: บันทึกอาหารต่อเนื่อง ${streak.count} วัน`
+    : "Streak: เริ่มบันทึกวันแรก";
 
   return [
     `บันทึกอาหารแล้ว: ${mealLog.mealNameTh}`,
     `พลังงานประมาณ ${Math.round(nutrients.caloriesKcal ?? 0)} kcal`,
     `P ${Math.round(nutrients.proteinG ?? 0)}g | C ${Math.round(nutrients.carbsG ?? 0)}g | F ${Math.round(nutrients.fatG ?? 0)}g | Fiber ${Math.round(nutrients.fiberG ?? 0)}g`,
     `คะแนน: ${rating.score}/10`,
-    String(rating.commentTh ?? "")
+    String(rating.commentTh ?? ""),
+    streakText
   ].join("\n");
 }
 
