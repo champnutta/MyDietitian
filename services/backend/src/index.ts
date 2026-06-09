@@ -37,10 +37,11 @@ import {
   LINE_CHANNEL_SECRET
 } from "./runtime.js";
 import { ProfileAuthError, verifyProfileOwnership, writeProfileAuthAudit } from "./profile-auth.js";
-const LEGACY_GAS_DASHBOARD_URL =
-  "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
-const PAYMENT_QR_IMAGE = "https://img2.pic.in.th/1613478.jpg";
-const LIFF_SETTINGS_URL = "https://liff.line.me/2009365288-Ux31tFWT?page=form";
+const DEFAULT_APP_RUNTIME_CONFIG: AppRuntimeConfig = {
+  legacyGasDashboardUrl: "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec",
+  liffSettingsUrl: "https://liff.line.me/2009365288-Ux31tFWT?page=form",
+  paymentQrImage: "https://img2.pic.in.th/1613478.jpg"
+};
 const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   { planId: "30d", labelTh: "30 วัน", days: 30, priceThb: 59, active: true, visible: true, sortOrder: 10 },
   { planId: "90d", labelTh: "90 วัน", days: 90, priceThb: 150, active: true, visible: true, sortOrder: 20 }
@@ -127,6 +128,12 @@ type SubscriptionState = {
   lifetime: boolean;
   expiresAt: Timestamp | null;
   status: string;
+};
+
+type AppRuntimeConfig = {
+  legacyGasDashboardUrl: string;
+  liffSettingsUrl: string;
+  paymentQrImage: string;
 };
 
 type AdminSubscriptionCommand =
@@ -1911,7 +1918,7 @@ async function handleLineTextCommand(
   }
 
   if (text.includes("กราฟ") || text.includes("ประวัติ") || lower.includes("report") || lower.includes("dashboard")) {
-    await replyToLine(replyToken, formatDashboardReply(lineUserId));
+    await replyToLine(replyToken, await formatDashboardReply(lineUserId));
     return { status: "dashboard-link-replied" };
   }
 
@@ -2178,6 +2185,7 @@ async function handleSubscriptionRequest(
   warningText = ""
 ): Promise<Record<string, unknown>> {
   const profile = await getUserProfile(canonicalUserId);
+  const appConfig = await getAppRuntimeConfig();
   const plans = await getVisibleSubscriptionPlans();
   const packageLines = plans.map(formatSubscriptionPlanLine);
   const expireText = formatSubscriptionStatus(profile.expiresAt ?? null, Boolean(profile.lifetime));
@@ -2190,7 +2198,7 @@ async function handleSubscriptionRequest(
     ...packageLines,
     "",
     "โอนเงินแล้วส่งสลิปเข้าระบบเดิมก่อนนะครับ ระหว่างนี้ Firebase staging จะยังไม่รับสลิปจริงจนกว่า parity ครบ",
-    `QR: ${PAYMENT_QR_IMAGE}`,
+    `QR: ${appConfig.paymentQrImage}`,
     "",
     `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`,
     `Admin free/lifetime: approve ${lineUserId} lifetime`
@@ -2202,7 +2210,7 @@ async function handleSubscriptionRequest(
     displayName: profile.name,
     status: "payment-instructions-sent",
     packages: plans,
-    paymentQrImage: PAYMENT_QR_IMAGE,
+    paymentQrImage: appConfig.paymentQrImage,
     createdAt: Timestamp.now()
   });
   await replyToLine(replyToken, message);
@@ -2538,6 +2546,28 @@ function subscriptionExpiryAfterDays(days: number, currentExpiry: Timestamp | nu
   const nowMs = Date.now();
   const baseMs = currentExpiry && currentExpiry.toMillis() > nowMs ? currentExpiry.toMillis() : nowMs;
   return Timestamp.fromMillis(baseMs + days * 24 * 60 * 60 * 1000);
+}
+
+async function getAppRuntimeConfig(): Promise<AppRuntimeConfig> {
+  const snap = await db.collection("appConfig").doc("runtime").get();
+  if (!snap.exists) return DEFAULT_APP_RUNTIME_CONFIG;
+  const data = snap.data() ?? {};
+  return {
+    legacyGasDashboardUrl: safeUrl(data.legacyGasDashboardUrl, DEFAULT_APP_RUNTIME_CONFIG.legacyGasDashboardUrl),
+    liffSettingsUrl: safeUrl(data.liffSettingsUrl, DEFAULT_APP_RUNTIME_CONFIG.liffSettingsUrl),
+    paymentQrImage: safeUrl(data.paymentQrImage, DEFAULT_APP_RUNTIME_CONFIG.paymentQrImage)
+  };
+}
+
+function safeUrl(value: unknown, fallback: string) {
+  const url = String(value ?? "").trim();
+  if (!url) return fallback;
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === "https:" ? url : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 async function getVisibleSubscriptionPlans(): Promise<SubscriptionPlan[]> {
@@ -3373,11 +3403,12 @@ function formatOptionalNumber(value: unknown): string {
 }
 
 async function replyWithOnboarding(replyToken: string, lineUserId: string, displayName = "Member"): Promise<void> {
-  await replyToLineMessages(replyToken, buildOnboardingMessages(lineUserId, displayName));
+  await replyToLineMessages(replyToken, await buildOnboardingMessages(lineUserId, displayName));
 }
 
-function buildOnboardingMessages(lineUserId: string, displayName = "Member"): LineMessage[] {
-  const liffUrl = `${LIFF_SETTINGS_URL}&uid=${encodeURIComponent(lineUserId)}`;
+async function buildOnboardingMessages(lineUserId: string, displayName = "Member"): Promise<LineMessage[]> {
+  const appConfig = await getAppRuntimeConfig();
+  const liffUrl = `${appConfig.liffSettingsUrl}&uid=${encodeURIComponent(lineUserId)}`;
   return [{
     type: "flex",
     altText: "ตั้งค่าโปรไฟล์ MyDietitian",
@@ -3455,8 +3486,9 @@ function buildOnboardingMessages(lineUserId: string, displayName = "Member"): Li
   }];
 }
 
-function formatDashboardReply(lineUserId: string): string {
-  const dashboardLink = `${LEGACY_GAS_DASHBOARD_URL}?uid=${encodeURIComponent(lineUserId)}`;
+async function formatDashboardReply(lineUserId: string): Promise<string> {
+  const appConfig = await getAppRuntimeConfig();
+  const dashboardLink = `${appConfig.legacyGasDashboardUrl}?uid=${encodeURIComponent(lineUserId)}`;
   return [
     "Dashboard",
     "ระหว่าง Firebase staging ยังไม่ได้ migrate data ระบบจะเปิด dashboard เดิมก่อนครับ",

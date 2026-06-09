@@ -4,6 +4,29 @@ This is the first-pass schema for migrating the current GAS + Google Sheets syst
 
 ## Collections
 
+### `appConfig/runtime`
+
+Admin-managed runtime config used by Firebase Functions. The backend keeps safe defaults if this document is missing.
+
+```json
+{
+  "legacyGasDashboardUrl": "https://script.google.com/macros/s/...",
+  "liffSettingsUrl": "https://liff.line.me/...",
+  "paymentQrImage": "https://...",
+  "profileAuthMode": "optional",
+  "productionLineWebhookReady": false,
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp"
+}
+```
+
+Current uses:
+
+- `paymentQrImage` appears in subscription/payment instructions.
+- `liffSettingsUrl` is used in LINE onboarding buttons.
+- `legacyGasDashboardUrl` is the temporary dashboard bridge until the Firestore dashboard replaces GAS.
+- URL values must be HTTPS; invalid values fall back to the safe defaults.
+
 ### `users/{canonicalUserId}`
 
 Top-level account document shared by LINE OA and native app users.

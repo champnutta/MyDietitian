@@ -32,6 +32,7 @@
   - `getDashboardData`
   - `lineWebhook`
 - `getDashboardData` was deployed and tested against existing Firestore test records only. It now returns legacy-compatible aggregate arrays plus detailed Firestore `history.meals`, `history.exercises`, `history.weights`, `history.adjustments`, and per-day `daily` rows for the future dashboard/native app.
+- `appConfig/runtime` can now override the staging payment QR image, LIFF settings URL, and legacy GAS dashboard bridge without redeploying Functions. Missing or invalid config falls back to safe defaults.
 - `saveSettingsFromWeb` staging endpoint now accepts LIFF-style auto/custom settings, validates safe IDs and sensible nutrition ranges, verifies Firebase/LINE identity tokens when provided, calculates TDEE/macros, saves `profiles`, `users`, optional `weightLogs`, `profileEvents`, links LINE/Auth IDs when provided, and grants a 3-day trial if no subscription expiry exists.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
