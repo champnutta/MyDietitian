@@ -37,6 +37,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    match /subscriptionPlans/{planId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     match /mealLogs/{mealLogId} {
       allow create: if signedIn() &&
         canAccessUser(request.resource.data.userId);

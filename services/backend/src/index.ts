@@ -41,9 +41,9 @@ const LEGACY_GAS_DASHBOARD_URL =
   "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
 const PAYMENT_QR_IMAGE = "https://img2.pic.in.th/1613478.jpg";
 const LIFF_SETTINGS_URL = "https://liff.line.me/2009365288-Ux31tFWT?page=form";
-const SUBSCRIPTION_PACKAGES = [
-  { days: 30, priceThb: 59 },
-  { days: 90, priceThb: 150 }
+const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  { planId: "30d", labelTh: "30 วัน", days: 30, priceThb: 59, active: true, visible: true, sortOrder: 10 },
+  { planId: "90d", labelTh: "90 วัน", days: 90, priceThb: 150, active: true, visible: true, sortOrder: 20 }
 ] as const;
 
 type SavedMealAnalysis = {
@@ -75,6 +75,7 @@ type UserProfile = {
     fib: number;
   };
   expiresAt?: Timestamp | null;
+  lifetime?: boolean;
 };
 
 type TodaySummary = {
@@ -102,8 +103,34 @@ type SubscriptionTarget = {
   lineUserId: string | null;
 };
 
+type SubscriptionPlan = {
+  planId: string;
+  labelTh: string;
+  days: number | null;
+  priceThb: number | null;
+  active: boolean;
+  visible: boolean;
+  sortOrder: number;
+  promoTag?: string | null;
+};
+
+type SubscriptionGrant = {
+  planId: string | null;
+  labelTh: string;
+  days: number | null;
+  priceThb: number | null;
+  lifetime: boolean;
+};
+
+type SubscriptionState = {
+  active: boolean;
+  lifetime: boolean;
+  expiresAt: Timestamp | null;
+  status: string;
+};
+
 type AdminSubscriptionCommand =
-  | { action: "approve"; target: string; days: number }
+  | { action: "approve"; target: string; grantInput: string | null }
   | { action: "reject"; target: string; reason: string | null };
 
 type UserReadiness = {
@@ -253,8 +280,8 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
     const firebaseAuthUid = owner.firebaseAuthUid ?? body.firebaseAuthUid;
     const target = buildTargetFromSettingsConfig(body.config);
     const now = Timestamp.now();
-    const existingExpiry = await getSubscriptionExpiry(canonicalUserId);
-    const expiresAt = existingExpiry ?? subscriptionExpiryAfterDays(3, null);
+    const subscriptionState = await getSubscriptionState(canonicalUserId);
+    const expiresAt = subscriptionState.expiresAt ?? (subscriptionState.lifetime ? null : subscriptionExpiryAfterDays(3, null));
     const profilePayload = {
       userId: canonicalUserId,
       canonicalUserId,
@@ -295,9 +322,11 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
       db.collection("subscriptions").doc(canonicalUserId).set({
         userId: canonicalUserId,
         canonicalUserId,
-        status: expiresAt.toMillis() >= Date.now() ? "active" : "expired",
+        status: subscriptionState.lifetime || (expiresAt && expiresAt.toMillis() >= Date.now()) ? "active" : "expired",
+        entitlementType: subscriptionState.lifetime ? "lifetime" : "trial",
+        lifetime: subscriptionState.lifetime,
         expiresAt,
-        trialGranted: existingExpiry ? false : true,
+        trialGranted: subscriptionState.expiresAt || subscriptionState.lifetime ? false : true,
         updatedAt: now,
         createdAt: now
       }, { merge: true }),
@@ -310,7 +339,7 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
         target,
         authVerified: owner.verified,
         authProvider: owner.provider,
-        trialGranted: !existingExpiry,
+        trialGranted: !subscriptionState.expiresAt && !subscriptionState.lifetime,
         createdAt: now
       })
     ];
@@ -355,8 +384,9 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
       canonicalUserId,
       target,
       authVerified: owner.verified,
-      trialGranted: !existingExpiry,
-      expiresAt: expiresAt.toDate().toISOString()
+      trialGranted: !subscriptionState.expiresAt && !subscriptionState.lifetime,
+      lifetime: subscriptionState.lifetime,
+      expiresAt: expiresAt ? expiresAt.toDate().toISOString() : null
     });
   } catch (error) {
     const isValidationError = error instanceof SettingsValidationError;
@@ -2039,8 +2069,8 @@ async function handleManualProfileSetup(
   }
 
   const now = Timestamp.now();
-  const existingExpiry = await getSubscriptionExpiry(canonicalUserId);
-  const expiresAt = existingExpiry ?? subscriptionExpiryAfterDays(3, null);
+  const subscriptionState = await getSubscriptionState(canonicalUserId);
+  const expiresAt = subscriptionState.expiresAt ?? (subscriptionState.lifetime ? null : subscriptionExpiryAfterDays(3, null));
   await Promise.all([
     db.collection("profiles").doc(canonicalUserId).set({
       userId: canonicalUserId,
@@ -2062,9 +2092,11 @@ async function handleManualProfileSetup(
     db.collection("subscriptions").doc(canonicalUserId).set({
       userId: canonicalUserId,
       canonicalUserId,
-      status: expiresAt.toMillis() >= Date.now() ? "active" : "expired",
+      status: subscriptionState.lifetime || (expiresAt && expiresAt.toMillis() >= Date.now()) ? "active" : "expired",
+      entitlementType: subscriptionState.lifetime ? "lifetime" : "trial",
+      lifetime: subscriptionState.lifetime,
       expiresAt,
-      trialGranted: existingExpiry ? false : true,
+      trialGranted: subscriptionState.expiresAt || subscriptionState.lifetime ? false : true,
       updatedAt: now,
       createdAt: now
     }, { merge: true }),
@@ -2083,10 +2115,17 @@ async function handleManualProfileSetup(
     `คุณ: ${parsed.displayName}`,
     `TDEE: ${parsed.target.calories} kcal`,
     `P:${parsed.target.proteinG}g C:${parsed.target.carbsG}g F:${parsed.target.fatG}g`,
-    existingExpiry ? `หมดอายุ: ${formatBangkokDate(expiresAt.toDate())}` : `เริ่มทดลองใช้ฟรีถึง: ${formatBangkokDate(expiresAt.toDate())}`
+    subscriptionState.expiresAt || subscriptionState.lifetime
+      ? `หมดอายุ: ${formatSubscriptionStatus(expiresAt, subscriptionState.lifetime)}`
+      : `เริ่มทดลองใช้ฟรีถึง: ${formatSubscriptionStatus(expiresAt)}`
   ].join("\n"));
 
-  return { updated: true, trialGranted: !existingExpiry, expiresAt: expiresAt.toDate().toISOString() };
+  return {
+    updated: true,
+    trialGranted: !subscriptionState.expiresAt && !subscriptionState.lifetime,
+    lifetime: subscriptionState.lifetime,
+    expiresAt: expiresAt ? expiresAt.toDate().toISOString() : null
+  };
 }
 
 async function parseManualProfileSetup(
@@ -2139,8 +2178,9 @@ async function handleSubscriptionRequest(
   warningText = ""
 ): Promise<Record<string, unknown>> {
   const profile = await getUserProfile(canonicalUserId);
-  const packageLines = SUBSCRIPTION_PACKAGES.map((plan) => `- ${plan.days} วัน = ${plan.priceThb} บาท`);
-  const expireText = profile.expiresAt ? formatBangkokDate(profile.expiresAt.toDate()) : "-";
+  const plans = await getVisibleSubscriptionPlans();
+  const packageLines = plans.map(formatSubscriptionPlanLine);
+  const expireText = formatSubscriptionStatus(profile.expiresAt ?? null, Boolean(profile.lifetime));
   const message = [
     warningText,
     `สมาชิก: ${profile.name}`,
@@ -2152,7 +2192,8 @@ async function handleSubscriptionRequest(
     "โอนเงินแล้วส่งสลิปเข้าระบบเดิมก่อนนะครับ ระหว่างนี้ Firebase staging จะยังไม่รับสลิปจริงจนกว่า parity ครบ",
     `QR: ${PAYMENT_QR_IMAGE}`,
     "",
-    `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`
+    `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`,
+    `Admin free/lifetime: approve ${lineUserId} lifetime`
   ].filter((line) => line !== "").join("\n");
 
   await db.collection("subscriptionRequests").add({
@@ -2160,12 +2201,12 @@ async function handleSubscriptionRequest(
     lineUserId,
     displayName: profile.name,
     status: "payment-instructions-sent",
-    packages: SUBSCRIPTION_PACKAGES,
+    packages: plans,
     paymentQrImage: PAYMENT_QR_IMAGE,
     createdAt: Timestamp.now()
   });
   await replyToLine(replyToken, message);
-  return { requested: true, packages: SUBSCRIPTION_PACKAGES.length };
+  return { requested: true, packages: plans.length };
 }
 
 async function handleRedeemCode(
@@ -2181,37 +2222,43 @@ async function handleRedeemCode(
   }
 
   const codeRef = db.collection("redeemCodes").doc(code);
-  let result: { ok: boolean; days: number; expiresAt: Timestamp | null; reason?: string } = {
+  let result: { ok: boolean; days: number | null; lifetime: boolean; expiresAt: Timestamp | null; reason?: string } = {
     ok: false,
     days: 0,
+    lifetime: false,
     expiresAt: null
   };
 
   await db.runTransaction(async (transaction) => {
     const codeSnap = await transaction.get(codeRef);
     if (!codeSnap.exists) {
-      result = { ok: false, days: 0, expiresAt: null, reason: "not-found" };
+      result = { ok: false, days: 0, lifetime: false, expiresAt: null, reason: "not-found" };
       return;
     }
 
     const codeData = codeSnap.data() ?? {};
     const status = String(codeData.status ?? "").toLowerCase();
-    const days = Number(codeData.days ?? codeData.Days ?? 0);
-    if (!days || days <= 0) {
-      result = { ok: false, days: 0, expiresAt: null, reason: "invalid-days" };
+    const lifetime = Boolean(codeData.lifetime || codeData.entitlementType === "lifetime");
+    const days = lifetime ? null : Number(codeData.days ?? codeData.Days ?? 0);
+    if (!lifetime && (!days || days <= 0)) {
+      result = { ok: false, days: 0, lifetime: false, expiresAt: null, reason: "invalid-days" };
       return;
     }
     if (status && status !== "available") {
-      result = { ok: false, days, expiresAt: null, reason: "already-used" };
+      result = { ok: false, days, lifetime, expiresAt: null, reason: "already-used" };
       return;
     }
 
-    const newExpiry = subscriptionExpiryAfterDays(days, await getSubscriptionExpiryInTransaction(transaction, canonicalUserId));
+    const existingSubscription = await getSubscriptionStateInTransaction(transaction, canonicalUserId);
+    const effectiveLifetime = lifetime || existingSubscription.lifetime;
+    const newExpiry = effectiveLifetime ? null : subscriptionExpiryAfterDays(days ?? 0, existingSubscription.expiresAt);
     const now = Timestamp.now();
     transaction.set(db.collection("subscriptions").doc(canonicalUserId), {
       userId: canonicalUserId,
       canonicalUserId,
       status: "active",
+      entitlementType: effectiveLifetime ? "lifetime" : "duration",
+      lifetime: effectiveLifetime,
       expiresAt: newExpiry,
       lastRedeemedCode: code,
       updatedAt: now
@@ -2219,10 +2266,12 @@ async function handleRedeemCode(
     transaction.set(db.collection("users").doc(canonicalUserId), {
       subscriptionStatus: "active",
       subscriptionExpiresAt: newExpiry,
+      subscriptionLifetime: effectiveLifetime,
       updatedAt: now
     }, { merge: true });
     transaction.set(db.collection("profiles").doc(canonicalUserId), {
       expiresAt: newExpiry,
+      lifetime: effectiveLifetime,
       updatedAt: now
     }, { merge: true });
     transaction.update(codeRef, {
@@ -2238,10 +2287,11 @@ async function handleRedeemCode(
       lineUserId,
       code,
       days,
+      lifetime: effectiveLifetime,
       expiresAt: newExpiry,
       createdAt: now
     });
-    result = { ok: true, days, expiresAt: newExpiry };
+    result = { ok: true, days, lifetime: effectiveLifetime, expiresAt: newExpiry };
   });
 
   if (!result.ok) {
@@ -2249,17 +2299,23 @@ async function handleRedeemCode(
     return { redeemed: false, reason: result.reason ?? "unknown" };
   }
 
-  await replyToLine(replyToken, `เติมวันสำเร็จ (+${result.days} วัน)\nหมดอายุ: ${formatBangkokDate(result.expiresAt!.toDate())}`);
-  return { redeemed: true, days: result.days, expiresAt: result.expiresAt!.toDate().toISOString() };
+  const redeemedLabel = result.lifetime ? "lifetime" : `+${result.days} วัน`;
+  await replyToLine(replyToken, `เติมวันสำเร็จ (${redeemedLabel})\nหมดอายุ: ${formatSubscriptionStatus(result.expiresAt, result.lifetime)}`);
+  return {
+    redeemed: true,
+    days: result.days,
+    lifetime: result.lifetime,
+    expiresAt: result.expiresAt ? result.expiresAt.toDate().toISOString() : null
+  };
 }
 
 function parseAdminSubscriptionCommand(text: string): AdminSubscriptionCommand | null {
-  const approve = text.match(/^(?:approve|อนุมัติ)\s+(\S+)(?:\s+(\d+))?/i);
+  const approve = text.match(/^(?:approve|อนุมัติ)\s+(\S+)(?:\s+(\S+))?/i);
   if (approve) {
     return {
       action: "approve",
       target: approve[1],
-      days: Number(approve[2] ?? SUBSCRIPTION_PACKAGES[0].days)
+      grantInput: approve[2]?.trim() || null
     };
   }
 
@@ -2321,13 +2377,13 @@ async function handleAdminSubscriptionCommand(
     return { ok: true, canonicalUserId: target.canonicalUserId, action: "reject" };
   }
 
-  if (!Number.isFinite(command.days) || command.days <= 0 || command.days > 3660) {
-    await replyToLine(replyToken, "จำนวนวันไม่ถูกต้องครับ เช่น `อนุมัติ Uxxxxxxxx 30`");
-    return { ok: false, reason: "invalid-days", days: command.days };
+  const grant = await resolveSubscriptionGrant(command.grantInput);
+  if (!grant) {
+    await replyToLine(replyToken, "แพ็กเกจ/จำนวนวันไม่ถูกต้องครับ เช่น `อนุมัติ Uxxxxxxxx 30`, `approve Uxxxxxxxx 90d`, หรือ `approve Uxxxxxxxx lifetime`");
+    return { ok: false, reason: "invalid-subscription-grant", grantInput: command.grantInput };
   }
-
   const currentExpiry = await getSubscriptionExpiry(target.canonicalUserId);
-  const expiresAt = subscriptionExpiryAfterDays(command.days, currentExpiry);
+  const expiresAt = grant.lifetime ? null : subscriptionExpiryAfterDays(grant.days ?? 0, currentExpiry);
   const now = Timestamp.now();
   const pendingReview = await getLatestPendingPaymentReview(target.canonicalUserId);
   await Promise.all([
@@ -2335,8 +2391,13 @@ async function handleAdminSubscriptionCommand(
       userId: target.canonicalUserId,
       canonicalUserId: target.canonicalUserId,
       status: "active",
+      entitlementType: grant.lifetime ? "lifetime" : "duration",
+      lifetime: grant.lifetime,
       expiresAt,
-      lastApprovedDays: command.days,
+      lastApprovedDays: grant.days,
+      lastApprovedPlanId: grant.planId,
+      lastApprovedPlanLabel: grant.labelTh,
+      lastApprovedPriceThb: grant.priceThb,
       lastApprovedBy: adminLineUserId,
       lastApprovedAt: now,
       updatedAt: now
@@ -2344,16 +2405,21 @@ async function handleAdminSubscriptionCommand(
     db.collection("users").doc(target.canonicalUserId).set({
       subscriptionStatus: "active",
       subscriptionExpiresAt: expiresAt,
+      subscriptionLifetime: grant.lifetime,
       updatedAt: now
     }, { merge: true }),
     db.collection("profiles").doc(target.canonicalUserId).set({
       expiresAt,
+      lifetime: grant.lifetime,
       updatedAt: now
     }, { merge: true }),
     pendingReview
       ? pendingReview.ref.set({
         status: "approved",
-        days: command.days,
+        days: grant.days,
+        planId: grant.planId,
+        planLabel: grant.labelTh,
+        lifetime: grant.lifetime,
         expiresAt,
         reviewedBy: adminLineUserId,
         reviewedAt: now,
@@ -2363,7 +2429,10 @@ async function handleAdminSubscriptionCommand(
         canonicalUserId: target.canonicalUserId,
         lineUserId: target.lineUserId,
         status: "approved",
-        days: command.days,
+        days: grant.days,
+        planId: grant.planId,
+        planLabel: grant.labelTh,
+        lifetime: grant.lifetime,
         expiresAt,
         reviewedBy: adminLineUserId,
         reviewedAt: now,
@@ -2373,7 +2442,11 @@ async function handleAdminSubscriptionCommand(
       type: "admin-approve",
       canonicalUserId: target.canonicalUserId,
       lineUserId: target.lineUserId,
-      days: command.days,
+      days: grant.days,
+      planId: grant.planId,
+      planLabel: grant.labelTh,
+      priceThb: grant.priceThb,
+      lifetime: grant.lifetime,
       expiresAt,
       adminLineUserId,
       createdAt: now
@@ -2381,16 +2454,18 @@ async function handleAdminSubscriptionCommand(
   ]);
 
   if (target.lineUserId) {
-    await pushMessage(target.lineUserId, `ชำระเงินสำเร็จ ระบบต่ออายุให้ ${command.days} วัน\nหมดอายุ: ${formatBangkokDate(expiresAt.toDate())}`);
+    await pushMessage(target.lineUserId, `ชำระเงินสำเร็จ ระบบเปิดสิทธิ์ ${grant.labelTh}\nหมดอายุ: ${formatSubscriptionStatus(expiresAt, grant.lifetime)}`);
   }
-  await replyToLine(replyToken, `อนุมัติ ${target.canonicalUserId} +${command.days} วัน\nหมดอายุ: ${formatBangkokDate(expiresAt.toDate())}`);
+  await replyToLine(replyToken, `อนุมัติ ${target.canonicalUserId} ${grant.labelTh}\nหมดอายุ: ${formatSubscriptionStatus(expiresAt, grant.lifetime)}`);
   return {
     ok: true,
     canonicalUserId: target.canonicalUserId,
     lineUserId: target.lineUserId,
     action: "approve",
-    days: command.days,
-    expiresAt: expiresAt.toDate().toISOString()
+    days: grant.days,
+    planId: grant.planId,
+    lifetime: grant.lifetime,
+    expiresAt: expiresAt ? expiresAt.toDate().toISOString() : null
   };
 }
 
@@ -2436,18 +2511,108 @@ async function getSubscriptionExpiry(canonicalUserId: string): Promise<Timestamp
   return snap.exists ? normalizeTimestamp(snap.data()?.expiresAt) : null;
 }
 
-async function getSubscriptionExpiryInTransaction(
+async function getSubscriptionState(canonicalUserId: string): Promise<SubscriptionState> {
+  const snap = await db.collection("subscriptions").doc(canonicalUserId).get();
+  const data = snap.exists ? snap.data() ?? {} : {};
+  const status = String(data.status ?? "").toLowerCase();
+  const lifetime = Boolean(data.lifetime || data.entitlementType === "lifetime");
+  const expiresAt = normalizeTimestamp(data.expiresAt);
+  const active = status === "active" && (lifetime || Boolean(expiresAt && expiresAt.toMillis() >= Date.now()));
+  return { active, lifetime, expiresAt, status };
+}
+
+async function getSubscriptionStateInTransaction(
   transaction: Transaction,
   canonicalUserId: string
-): Promise<Timestamp | null> {
+): Promise<SubscriptionState> {
   const snap = await transaction.get(db.collection("subscriptions").doc(canonicalUserId));
-  return snap.exists ? normalizeTimestamp(snap.data()?.expiresAt) : null;
+  const data = snap.exists ? snap.data() ?? {} : {};
+  const status = String(data.status ?? "").toLowerCase();
+  const lifetime = Boolean(data.lifetime || data.entitlementType === "lifetime");
+  const expiresAt = normalizeTimestamp(data.expiresAt);
+  const active = status === "active" && (lifetime || Boolean(expiresAt && expiresAt.toMillis() >= Date.now()));
+  return { active, lifetime, expiresAt, status };
 }
 
 function subscriptionExpiryAfterDays(days: number, currentExpiry: Timestamp | null): Timestamp {
   const nowMs = Date.now();
   const baseMs = currentExpiry && currentExpiry.toMillis() > nowMs ? currentExpiry.toMillis() : nowMs;
   return Timestamp.fromMillis(baseMs + days * 24 * 60 * 60 * 1000);
+}
+
+async function getVisibleSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+  const snap = await db.collection("subscriptionPlans")
+    .orderBy("sortOrder", "asc")
+    .get();
+  if (snap.empty) return [...DEFAULT_SUBSCRIPTION_PLANS];
+  return snap.docs.map((doc) => normalizeSubscriptionPlan(doc.id, doc.data())).filter((plan) => plan.active && plan.visible);
+}
+
+async function resolveSubscriptionGrant(input: string | null): Promise<SubscriptionGrant | null> {
+  const token = (input ?? DEFAULT_SUBSCRIPTION_PLANS[0].planId).trim().toLowerCase();
+  if (isLifetimeSubscriptionToken(token)) {
+    return { planId: "lifetime", labelTh: "lifetime", days: null, priceThb: null, lifetime: true };
+  }
+
+  if (/^\d+$/.test(token)) {
+    const days = Number(token);
+    if (!Number.isFinite(days) || days <= 0 || days > 3660) return null;
+    return { planId: null, labelTh: `${days} วัน`, days, priceThb: null, lifetime: false };
+  }
+
+  const planSnap = await db.collection("subscriptionPlans").doc(token).get();
+  if (!planSnap.exists) {
+    const fallbackPlan = DEFAULT_SUBSCRIPTION_PLANS.find((plan) => plan.planId.toLowerCase() === token);
+    return fallbackPlan ? subscriptionGrantFromPlan(fallbackPlan) : null;
+  }
+
+  const plan = normalizeSubscriptionPlan(planSnap.id, planSnap.data() ?? {});
+  if (!plan.active) return null;
+  return subscriptionGrantFromPlan(plan);
+}
+
+function normalizeSubscriptionPlan(planId: string, data: Record<string, unknown>): SubscriptionPlan {
+  const days = data.days === null || data.entitlementType === "lifetime" || data.lifetime === true
+    ? null
+    : Number(data.days ?? 0);
+  return {
+    planId,
+    labelTh: String(data.labelTh ?? data.label ?? planId),
+    days: days && Number.isFinite(days) ? days : null,
+    priceThb: data.priceThb === null || data.priceThb === undefined ? null : Number(data.priceThb),
+    active: data.active !== false,
+    visible: data.visible !== false,
+    sortOrder: Number(data.sortOrder ?? 999),
+    promoTag: data.promoTag === undefined ? null : String(data.promoTag)
+  };
+}
+
+function subscriptionGrantFromPlan(plan: SubscriptionPlan): SubscriptionGrant | null {
+  const lifetime = plan.days === null;
+  if (!lifetime && (!plan.days || plan.days <= 0 || plan.days > 3660)) return null;
+  return {
+    planId: plan.planId,
+    labelTh: plan.labelTh,
+    days: plan.days,
+    priceThb: plan.priceThb,
+    lifetime
+  };
+}
+
+function isLifetimeSubscriptionToken(token: string) {
+  return ["lifetime", "infinite", "forever", "free", "vip"].includes(token);
+}
+
+function formatSubscriptionPlanLine(plan: SubscriptionPlan) {
+  const duration = plan.days === null ? "lifetime" : `${plan.days} วัน`;
+  const price = plan.priceThb === null ? "free" : `${plan.priceThb} บาท`;
+  const promo = plan.promoTag ? ` (${plan.promoTag})` : "";
+  return `- ${plan.labelTh || duration}${promo} = ${price}`;
+}
+
+function formatSubscriptionStatus(expiresAt: Timestamp | null, lifetime = false) {
+  if (lifetime) return "ไม่มีวันหมดอายุ";
+  return expiresAt ? formatBangkokDate(expiresAt.toDate()) : "-";
 }
 
 async function notifyAdminError(context: string, error: unknown): Promise<void> {
@@ -2547,27 +2712,25 @@ async function getActiveAdminChat(adminLineUserId: string): Promise<{ targetLine
 }
 
 async function getUserReadiness(userId: string): Promise<UserReadiness> {
-  const [profileSnap, subscriptionSnap] = await Promise.all([
+  const [profileSnap, subscriptionState] = await Promise.all([
     db.collection("profiles").doc(userId).get(),
-    db.collection("subscriptions").doc(userId).get()
+    getSubscriptionState(userId)
   ]);
   const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
   const target = normalizeTarget(profile);
-  const expiresAt = subscriptionSnap.exists ? normalizeTimestamp(subscriptionSnap.data()?.expiresAt) : normalizeTimestamp(profile.expiresAt);
   return {
     profileComplete: Boolean(profileSnap.exists && target.cal > 0 && target.p > 0 && target.c > 0 && target.f > 0),
-    subscriptionActive: Boolean(expiresAt && expiresAt.toMillis() >= Date.now()),
-    expiresAt
+    subscriptionActive: subscriptionState.active,
+    expiresAt: subscriptionState.expiresAt
   };
 }
 
 async function getUserProfile(userId: string): Promise<UserProfile> {
-  const [profileSnap, subscriptionSnap] = await Promise.all([
+  const [profileSnap, subscriptionState] = await Promise.all([
     db.collection("profiles").doc(userId).get(),
-    db.collection("subscriptions").doc(userId).get()
+    getSubscriptionState(userId)
   ]);
   const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
-  const subscription = subscriptionSnap.exists ? subscriptionSnap.data() ?? {} : {};
   const target = normalizeTarget(profile);
 
   return {
@@ -2579,7 +2742,8 @@ async function getUserProfile(userId: string): Promise<UserProfile> {
       f: target.f || 60,
       fib: target.fib || 25
     },
-    expiresAt: normalizeTimestamp(subscription.expiresAt ?? profile.expiresAt)
+    expiresAt: subscriptionState.expiresAt ?? normalizeTimestamp(profile.expiresAt),
+    lifetime: subscriptionState.lifetime || Boolean(profile.lifetime)
   };
 }
 
@@ -3087,7 +3251,7 @@ async function deleteLastMealLog(userId: string): Promise<{ deleted: boolean; me
 }
 
 function formatProfileReply(profile: UserProfile): string {
-  const expireText = profile.expiresAt ? formatBangkokDate(profile.expiresAt.toDate()) : "-";
+  const expireText = formatSubscriptionStatus(profile.expiresAt ?? null, Boolean(profile.lifetime));
   return [
     `ข้อมูลส่วนตัว (${profile.name})`,
     `หมดอายุ: ${expireText}`,

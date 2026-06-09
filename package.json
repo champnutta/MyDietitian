@@ -11,6 +11,7 @@
     "dev:backend": "npm --workspace @mydietitian/backend run serve",
     "lint": "npm --workspace @mydietitian/backend run lint",
     "migrate:sheets:dry-run": "node tools/migrate_sheet_to_firestore.js",
+    "seed:subscription-plans": "node tools/seed_subscription_plans.js",
     "test:line-webhook": "node tools/signed_line_webhook_test.js"
   },
   "devDependencies": {

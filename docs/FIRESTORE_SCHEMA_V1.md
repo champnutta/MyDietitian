@@ -313,14 +313,70 @@ Subscription and entitlement record managed by backend/admin flow.
   "userId": "canonical-user-id",
   "canonicalUserId": "canonical-user-id",
   "status": "active",
+  "entitlementType": "duration",
+  "lifetime": false,
   "expiresAt": "timestamp",
   "lastApprovedDays": 30,
+  "lastApprovedPlanId": "30d",
+  "lastApprovedPlanLabel": "30 วัน",
+  "lastApprovedPriceThb": 59,
   "lastApprovedBy": "admin-line-user-id",
   "lastApprovedAt": "timestamp",
   "lastRedeemedCode": "ABC123",
   "updatedAt": "timestamp"
 }
 ```
+
+Lifetime/free users:
+
+```json
+{
+  "status": "active",
+  "entitlementType": "lifetime",
+  "lifetime": true,
+  "expiresAt": null
+}
+```
+
+Use lifetime entitlement for close friends/family/internal VIP users instead of setting an expiry date years in the future.
+
+### `subscriptionPlans/{planId}`
+
+Admin-managed packages and promotions. The backend falls back to `30d` and `90d` if this collection is empty.
+
+```json
+{
+  "planId": "promo-14d",
+  "labelTh": "โปรทดลอง 14 วัน",
+  "days": 14,
+  "priceThb": 29,
+  "active": true,
+  "visible": true,
+  "sortOrder": 5,
+  "promoTag": "launch"
+}
+```
+
+Internal lifetime plan example:
+
+```json
+{
+  "planId": "lifetime",
+  "labelTh": "Lifetime / VIP",
+  "days": null,
+  "priceThb": null,
+  "entitlementType": "lifetime",
+  "active": true,
+  "visible": false,
+  "internalOnly": true
+}
+```
+
+Admin commands:
+
+- `approve Uxxxxxxxx 30` grants a custom 30-day duration.
+- `approve Uxxxxxxxx 90d` grants the `subscriptionPlans/90d` plan.
+- `approve Uxxxxxxxx lifetime` grants a non-expiring entitlement.
 
 ### `profileEvents/{eventId}`
 
@@ -419,6 +475,10 @@ Append-only subscription audit trail for admin actions and code redemption.
   "canonicalUserId": "canonical-user-id",
   "lineUserId": "Uxxxxxxxx",
   "days": 30,
+  "planId": "30d",
+  "planLabel": "30 วัน",
+  "priceThb": 59,
+  "lifetime": false,
   "expiresAt": "timestamp",
   "createdAt": "timestamp"
 }
@@ -432,11 +492,14 @@ Migrated subscription codes from the legacy `Codes` sheet.
 {
   "code": "ABC123",
   "days": 30,
+  "lifetime": false,
   "status": "available",
   "usedBy": null,
   "usedDate": null
 }
 ```
+
+Lifetime redeem codes can set `lifetime: true`, `entitlementType: "lifetime"`, `days: null`.
 
 ### `feedback/{feedbackId}`
 

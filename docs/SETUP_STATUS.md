@@ -49,7 +49,7 @@
 - `lineWebhook` staging exercise flow now detects exercise text, analyzes burn with `aiAgents/exerciseAnalysis`, falls back to a conservative rule-based estimate if the AI call fails, applies the legacy 50% safety factor, writes Firestore `exerciseLogs`, and updates daily summary/dashboard burn totals.
 - `lineWebhook` staging coach/menu flow now detects advice/menu questions, uses today's Firestore summary and recent meals, replies through `aiAgents/coachConsultation`, and stores `coachConsultations` without creating food logs.
 - `lineWebhook` staging contact-admin flow now forwards customer contact messages to admin LINE, stores `adminContactRequests`, and supports 30-minute admin chat sessions through `adminChatSessions`.
-- `lineWebhook` staging subscription flow now supports package/QR instructions for `สมัคร/เติมวัน`, redeeming migrated codes from `redeemCodes`, and admin approve/reject commands that update `subscriptions`, `users`, and `profiles`.
+- `lineWebhook` staging subscription flow now supports package/QR instructions for `สมัคร/เติมวัน`, configurable `subscriptionPlans` with fallback 30/90-day packages, redeeming migrated/lifetime codes from `redeemCodes`, admin approve/reject commands by days or plan ID, and lifetime/free entitlements for VIP/family/internal users.
 - `saveSettingsFromWeb` and `updateProfile` have staging validation guardrails plus optional verified identity ownership. Keep `PROFILE_AUTH_MODE=optional` during legacy LIFF testing; switch to `PROFILE_AUTH_MODE=required` only after the new LIFF/native clients send Firebase ID tokens or LINE ID tokens successfully.
 - `lineWebhook` still needs a signed webhook test from a staging LINE OA before it can be marked verified.
 - Health endpoint verified:
