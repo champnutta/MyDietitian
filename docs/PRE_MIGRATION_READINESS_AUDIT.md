@@ -22,6 +22,7 @@ The audit checks:
 - Firestore `appConfig/runtime`.
 - Firestore `aiAgents/*`.
 - Firestore `subscriptionPlans/*`.
+- Google Sheet migration dry-run mapping for users, profiles, subscriptions, LINE links, meals, exercises, weights, redeem codes, and data-quality warnings.
 - Migration write lock still refuses `--commit` without `--confirmFinalMigration`.
 
 Passing this audit does not mean production cutover is complete. It only proves the pre-migration technical surfaces are reachable and guarded. Real LINE OA media/file/slip/BIA UAT and dashboard data verification are still required before the final migration window.

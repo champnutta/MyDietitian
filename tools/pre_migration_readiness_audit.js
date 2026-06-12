@@ -39,6 +39,7 @@ async function main() {
   await checkFirestoreConfig();
   await checkAiAgents();
   await checkSubscriptionPlans();
+  checkMigrationDryRunMapping();
   checkMigrationWriteLock();
 
   printSummary();
@@ -183,6 +184,41 @@ function checkMigrationWriteLock() {
   const output = `${result.stdout || ""}\n${result.stderr || ""}`;
   const locked = result.status !== 0 && output.includes("Refusing to write");
   record("migration write lock", locked ? "pass" : "fail", locked ? "write requires --confirmFinalMigration" : `status=${result.status}`);
+}
+
+function checkMigrationDryRunMapping() {
+  const result = spawnSync(process.execPath, ["tools/migrate_sheet_to_firestore.js", "--sampleLimit", "1"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0) {
+    record("migration dry-run mapping", "fail", `status=${result.status}; ${result.stderr || result.stdout}`);
+    return;
+  }
+
+  const json = parseFirstJsonObject(result.stdout || "");
+  const counts = json?.countByCollection || {};
+  const requiredCollections = ["users", "profiles", "subscriptions", "lineLinks", "mealLogs", "weightLogs", "redeemCodes"];
+  const missing = requiredCollections.filter((collection) => !counts[collection]);
+  const hasExerciseField = Object.prototype.hasOwnProperty.call(counts, "exerciseLogs");
+  const readinessOk = json?.migrationReadiness?.dataQuality?.okToPreviewImport === true;
+  const ok = missing.length === 0 && hasExerciseField && readinessOk;
+
+  record(
+    "migration dry-run mapping",
+    ok ? "pass" : "fail",
+    ok
+      ? `planned=${json.total}; users=${counts.users}; meals=${counts.mealLogs}; exercise=${counts.exerciseLogs || 0}`
+      : `missing=${missing.join(",")}; hasExercise=${hasExerciseField}; readinessOk=${readinessOk}`
+  );
+}
+
+function parseFirstJsonObject(text) {
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  return parseMaybeJson(text.slice(start, end + 1));
 }
 
 function initializeFirebase(projectId, serviceAccountPath) {

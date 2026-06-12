@@ -47,6 +47,7 @@ Code, Days, Status, Used_By, Used_Date
 ## Migration safety
 
 - Start with dry-run only.
+- Use the dry-run readiness report to inspect tab fetch errors, missing headers, duplicate users, invalid dates, invalid numbers, macro percent issues, and source-vs-target document counts.
 - Keep write mode locked until final production migration.
 - Count rows by tab before writing.
 - Generate deterministic Firestore document IDs from source tab + row number.
@@ -73,6 +74,24 @@ npm run migrate:sheets:dry-run -- --commit --confirmFinalMigration
 
 Do not use this command until the production migration window is approved.
 
+## Dry-run readiness report
+
+Run this any time before the final migration window. It reads the Google Sheet and plans deterministic Firestore documents, but does not write anything.
+
+```powershell
+npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json"
+```
+
+The output includes:
+
+- `tabStats`: row counts, detected headers, and missing expected headers per tab.
+- `sourceSummary`: source row counts split by users, active logs, archived logs, exercise-like rows, meal-like rows, weights, and codes.
+- `countByCollection`: planned Firestore writes by collection.
+- `dataQuality.okToPreviewImport`: `true` only when no high-severity issue is detected.
+- `dataQuality.warnings`: sampled warnings such as missing `UserID`, invalid dates, invalid numbers, bad macro totals, duplicate users, or tab fetch errors.
+
+Use `--sampleLimit 20` if you want more example rows in the warning output.
+
 ## Verification checklist
 
 - Imported user count matches `Users` non-empty row count.
@@ -80,3 +99,4 @@ Do not use this command until the production migration window is approved.
 - Imported weight count matches `Weight_Log` non-empty row count.
 - Dashboard totals match GAS dashboard for sampled users and date ranges.
 - Subscription expiry matches existing user profile output.
+- After the final write migration, run the hosted Firestore dashboard for sampled users before changing LINE dashboard links.

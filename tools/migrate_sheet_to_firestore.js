@@ -9,6 +9,7 @@ const projectId = args.project || "mydietitian";
 const sheetId = args.sheetId || DEFAULT_SHEET_ID;
 const commit = Boolean(args.commit);
 const finalMigrationConfirmed = Boolean(args.confirmFinalMigration);
+const sampleLimit = positiveInteger(args.sampleLimit, 5);
 
 main().catch((error) => {
   console.error(error);
@@ -25,12 +26,13 @@ async function main() {
     );
   }
 
-  initializeFirebase(projectId, args.serviceAccount);
+  if (commit) initializeFirebase(projectId, args.serviceAccount);
 
   const workbook = await fetchWorkbook(sheetId);
   const planned = planMigration(workbook);
+  const report = buildReadinessReport(workbook, planned, sampleLimit);
 
-  printSummary(planned);
+  printSummary(planned, report);
 
   if (commit) {
     await writePlannedDocuments(planned);
@@ -100,12 +102,19 @@ async function fetchWorkbook(sheetId) {
   const archiveNames = ["Logs_Archive_2026", "Logs_Archive_2025", "Logs_Archive_2024"];
   const tabs = [...new Set([...sheetNames, ...archiveNames])];
   const workbook = {};
+  const meta = {
+    sheetId,
+    fetchedAt: new Date().toISOString(),
+    requestedTabs: tabs,
+    fetchErrors: []
+  };
 
   for (const tab of tabs) {
     try {
       workbook[tab] = await fetchSheetRows(sheetId, tab);
     } catch (error) {
       workbook[tab] = [];
+      meta.fetchErrors.push({ tab, message: error.message || String(error) });
     }
   }
 
@@ -114,6 +123,11 @@ async function fetchWorkbook(sheetId) {
       workbook[sheet.name] = sheet.rows;
     }
   }
+
+  Object.defineProperty(workbook, "__meta", {
+    value: meta,
+    enumerable: false
+  });
 
   return workbook;
 }
@@ -126,7 +140,7 @@ async function fetchSheetRows(sheetId, sheetName) {
   }
   const text = await response.text();
   const json = parseGoogleVizJson(text);
-  return parseRows(json.table);
+  return normalizeSheetRows(sheetName, parseRows(json.table));
 }
 
 function parseGoogleVizJson(text) {
@@ -144,6 +158,73 @@ function parseRows(table) {
     });
     return record;
   });
+}
+
+function normalizeSheetRows(sheetName, rows) {
+  const mapping = columnMappingForSheet(sheetName);
+  if (!mapping) return rows;
+
+  return rows
+    .filter((row) => !isHeaderLikeRow(sheetName, row))
+    .map((row) => {
+      const normalized = { ...row };
+      for (const [target, source] of Object.entries(mapping)) {
+        if (normalized[target] == null || normalized[target] === "") {
+          normalized[target] = row[source] ?? "";
+        }
+      }
+      return normalized;
+    });
+}
+
+function columnMappingForSheet(sheetName) {
+  if (sheetName === "Users") {
+    return {
+      UserID: "Column_1",
+      Name: "Column_2",
+      TDEE: "Column_3",
+      "P_%": "Column_4",
+      "C_%": "Column_5",
+      "F_%": "Column_6",
+      Expire_Date: "Column_7",
+      Last_Update: "Column_8",
+      Streak: "Column_9"
+    };
+  }
+
+  if (sheetName === "Log" || sheetName.startsWith("Logs_Archive")) {
+    return {
+      Date: "Column_1",
+      UserID: "Column_2",
+      Dish_TH: "Column_3",
+      Dish_EN_or_Type: "Column_4",
+      Portion: "Column_5",
+      Calories: "Column_6",
+      Protein: "Column_7",
+      Carbs: "Column_8",
+      Fat: "Column_9",
+      Fiber: "Column_10",
+      Sugar: "Column_11",
+      Score: "Column_12",
+      Comment: "Column_13"
+    };
+  }
+
+  return null;
+}
+
+function isHeaderLikeRow(sheetName, row) {
+  if (sheetName === "Users") {
+    return stringValue(row.Column_1).toLowerCase() === "userid" &&
+      stringValue(row.Column_2).toLowerCase() === "name";
+  }
+
+  if (sheetName === "Log" || sheetName.startsWith("Logs_Archive")) {
+    return stringValue(row.Column_2).toLowerCase() === "userid" &&
+      stringValue(row.Column_3).toLowerCase() === "dish_th";
+  }
+
+  return false;
 }
 
 function planMigration(workbook) {
@@ -311,12 +392,186 @@ function legacyMeta(sheetName, row) {
   };
 }
 
-function printSummary(docs) {
+function buildReadinessReport(workbook, docs, limit) {
+  const tabStats = {};
+  const warnings = [];
+
+  for (const [tab, rows] of Object.entries(workbook)) {
+    const requiredHeaders = requiredHeadersForTab(tab);
+    const headers = rows[0] ? Object.keys(rows[0]).filter((key) => key !== "__rowNumber") : [];
+    const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
+    const nonEmptyRows = rows.filter((row) => rowHasAnyValue(row)).length;
+
+    tabStats[tab] = {
+      rows: rows.length,
+      nonEmptyRows,
+      headers,
+      missingHeaders
+    };
+
+    if (requiredHeaders.length && rows.length > 0 && missingHeaders.length) {
+      warnings.push({
+        severity: "high",
+        type: "missing_headers",
+        tab,
+        message: `Missing expected headers: ${missingHeaders.join(", ")}`
+      });
+    }
+
+  }
+
+  const countByCollection = countDocumentsByCollection(docs);
+  const userIds = (workbook.Users || []).map((row) => stringValue(row.UserID)).filter(Boolean);
+  const duplicateUsers = findDuplicates(userIds).slice(0, limit);
+
+  if (!tabStats.Users?.nonEmptyRows) {
+    warnings.push({ severity: "high", type: "missing_users", tab: "Users", message: "Users tab has no readable rows." });
+  }
+
+  if (duplicateUsers.length) {
+    warnings.push({
+      severity: "medium",
+      type: "duplicate_users",
+      tab: "Users",
+      message: `Duplicate UserID values detected: ${duplicateUsers.join(", ")}`
+    });
+  }
+
+  const anomalySamples = collectAnomalySamples(workbook, limit);
+  warnings.push(...anomalySamples.warnings);
+
+  const fetchErrors = workbook.__meta?.fetchErrors || [];
+  for (const error of fetchErrors) {
+    warnings.push({
+      severity: ["Log", "Users", "Codes", "Weight_Log"].includes(error.tab) ? "high" : "medium",
+      type: "tab_fetch_error",
+      tab: error.tab,
+      message: error.message
+    });
+  }
+
+  const severityCounts = warnings.reduce((acc, warning) => {
+    acc[warning.severity] = (acc[warning.severity] || 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    sheetId: workbook.__meta?.sheetId || sheetId,
+    fetchedAt: workbook.__meta?.fetchedAt || new Date().toISOString(),
+    dryRun: !commit,
+    tabStats,
+    sourceSummary: summarizeSourceRows(workbook),
+    countByCollection,
+    totalPlannedDocuments: docs.length,
+    dataQuality: {
+      okToPreviewImport: !warnings.some((warning) => warning.severity === "high"),
+      severityCounts,
+      warnings
+    }
+  };
+}
+
+function collectAnomalySamples(workbook, limit) {
+  const warnings = [];
+
+  for (const row of workbook.Users || []) {
+    const where = rowRef("Users", row);
+    const tdee = numberValue(row.TDEE);
+    const macroTotal = numberValue(row["P_%"]) + numberValue(row["C_%"]) + numberValue(row["F_%"]);
+    if (!stringValue(row.UserID)) pushWarning(warnings, "high", "missing_user_id", where, "User row has no UserID.", limit);
+    if (tdee <= 0) pushWarning(warnings, "medium", "invalid_tdee", where, `TDEE is ${row.TDEE || "blank"}.`, limit);
+    if (macroTotal && Math.abs(macroTotal - 100) > 1) pushWarning(warnings, "medium", "macro_sum", where, `Macro percent total is ${macroTotal}.`, limit);
+    if (row.Expire_Date && !dateOrNull(row.Expire_Date)) pushWarning(warnings, "medium", "invalid_expiry", where, `Expire_Date is ${row.Expire_Date}.`, limit);
+  }
+
+  for (const [tab, rows] of Object.entries(workbook)) {
+    if (tab !== "Log" && !tab.startsWith("Logs_Archive")) continue;
+    for (const row of rows) {
+      const where = rowRef(tab, row);
+      if (!rowHasAnyValue(row)) continue;
+      if (!stringValue(row.UserID)) pushWarning(warnings, "high", "missing_user_id", where, "Log row has no UserID.", limit);
+      if (row.Date && !dateOrNull(row.Date)) pushWarning(warnings, "medium", "invalid_log_date", where, `Date is ${row.Date}.`, limit);
+      for (const field of ["Calories", "Protein", "Carbs", "Fat", "Fiber", "Sugar"]) {
+        if (row[field] !== "" && Number.isNaN(Number(row[field]))) {
+          pushWarning(warnings, "medium", "invalid_number", where, `${field} is ${row[field]}.`, limit);
+        }
+      }
+    }
+  }
+
+  for (const row of workbook.Weight_Log || []) {
+    const where = rowRef("Weight_Log", row);
+    if (!rowHasAnyValue(row)) continue;
+    if (!stringValue(row.UserID)) pushWarning(warnings, "high", "missing_user_id", where, "Weight row has no UserID.", limit);
+    if (row.Date && !dateOrNull(row.Date)) pushWarning(warnings, "medium", "invalid_weight_date", where, `Date is ${row.Date}.`, limit);
+    if (row.Weight_kg !== "" && Number(row.Weight_kg) <= 0) pushWarning(warnings, "medium", "invalid_weight", where, `Weight_kg is ${row.Weight_kg}.`, limit);
+  }
+
+  for (const row of workbook.Codes || []) {
+    const where = rowRef("Codes", row);
+    if (!rowHasAnyValue(row)) continue;
+    if (!stringValue(row.Code)) pushWarning(warnings, "medium", "missing_code", where, "Code row has no Code.", limit);
+    if (row.Days !== "" && Number(row.Days) <= 0) pushWarning(warnings, "medium", "invalid_code_days", where, `Days is ${row.Days}.`, limit);
+  }
+
+  return { warnings };
+}
+
+function pushWarning(warnings, severity, type, where, message, limit) {
+  const existing = warnings.filter((warning) => warning.type === type && warning.tab === where.tab);
+  if (existing.length >= limit) return;
+  warnings.push({ severity, type, tab: where.tab, rowNumber: where.rowNumber, message });
+}
+
+function summarizeSourceRows(workbook) {
+  const summary = {
+    users: countNonEmpty(workbook.Users || []),
+    activeLogRows: countNonEmpty(workbook.Log || []),
+    archiveLogRows: 0,
+    exerciseLikeRows: 0,
+    mealLikeRows: 0,
+    weightRows: countNonEmpty(workbook.Weight_Log || []),
+    codeRows: countNonEmpty(workbook.Codes || [])
+  };
+
+  for (const [tab, rows] of Object.entries(workbook)) {
+    if (tab.startsWith("Logs_Archive")) summary.archiveLogRows += countNonEmpty(rows);
+    if (tab !== "Log" && !tab.startsWith("Logs_Archive")) continue;
+    for (const row of rows) {
+      if (!rowHasAnyValue(row)) continue;
+      const type = stringValue(row.Dish_EN_or_Type || row.Column_4);
+      if (type === "Exercise" || type === "Burn") summary.exerciseLikeRows += 1;
+      else summary.mealLikeRows += 1;
+    }
+  }
+
+  return summary;
+}
+
+function requiredHeadersForTab(tab) {
+  if (tab === "Users") return ["UserID", "Name", "TDEE", "P_%", "C_%", "F_%", "Expire_Date"];
+  if (tab === "Log" || tab.startsWith("Logs_Archive")) {
+    return ["Date", "UserID", "Dish_TH", "Dish_EN_or_Type", "Portion", "Calories", "Protein", "Carbs", "Fat"];
+  }
+  if (tab === "Weight_Log") return ["Date", "UserID", "Weight_kg"];
+  if (tab === "Codes") return ["Code", "Days", "Status"];
+  return [];
+}
+
+function countDocumentsByCollection(docs) {
   const counts = {};
   for (const item of docs) {
     counts[item.collection] = (counts[item.collection] || 0) + 1;
   }
-  console.log(JSON.stringify({ countByCollection: counts, total: docs.length }, null, 2));
+  return counts;
+}
+
+function printSummary(docs, report) {
+  console.log(JSON.stringify({
+    countByCollection: countDocumentsByCollection(docs),
+    total: docs.length,
+    migrationReadiness: report
+  }, null, 2));
 }
 
 async function writePlannedDocuments(docs) {
@@ -368,4 +623,31 @@ function dateOrNull(value) {
 function isFutureDate(value) {
   const date = dateOrNull(value);
   return date ? date.getTime() > Date.now() : false;
+}
+
+function positiveInteger(value, fallback) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : fallback;
+}
+
+function countNonEmpty(rows) {
+  return rows.filter((row) => rowHasAnyValue(row)).length;
+}
+
+function rowHasAnyValue(row) {
+  return Object.entries(row).some(([key, value]) => key !== "__rowNumber" && stringValue(value));
+}
+
+function rowRef(tab, row) {
+  return { tab, rowNumber: row.__rowNumber || null };
+}
+
+function findDuplicates(values) {
+  const seen = new Set();
+  const dupes = new Set();
+  for (const value of values) {
+    if (seen.has(value)) dupes.add(value);
+    seen.add(value);
+  }
+  return [...dupes];
 }

@@ -39,6 +39,7 @@ Image/file flows still require a real LINE message because Firebase must downloa
 ### 1. New user follow
 
 Expected:
+
 - Firebase creates or updates `lineLinks/{lineUserId}`.
 - Firebase creates or updates `users/{canonicalUserId}` with `status: needs_profile`.
 - Firebase creates or updates `profiles/{canonicalUserId}` with `lineUserId` and display name.
@@ -53,6 +54,7 @@ Message example:
 ```
 
 Expected:
+
 - No `mealLogs` document is created.
 - LINE replies with the onboarding card.
 - Webhook result status should be `profile-required-before-meal`.
@@ -66,6 +68,7 @@ Message example:
 ```
 
 Expected:
+
 - `profiles/{canonicalUserId}.target` is saved with calories and macro grams.
 - `subscriptions/{canonicalUserId}` is created with a 3-day trial if no previous expiry exists.
 - `profileEvents` receives a `manual-line-setup` event.
@@ -80,6 +83,7 @@ Message example:
 ```
 
 Expected:
+
 - AI uses `aiAgents/mealAnalysis`.
 - `mealLogs` and `aiRuns` are created.
 - LINE replies with meal analysis.
@@ -87,9 +91,65 @@ Expected:
 ### 5. Re-follow existing configured user
 
 Expected:
+
 - Existing custom profile display name is not overwritten by LINE display name.
 - If subscription is active, LINE replies with a ready message.
 - If subscription is expired, LINE replies with subscription package guidance.
+
+### 6. Manual exercise
+
+Message example:
+
+```text
+วิ่ง 30 นาที
+```
+
+Expected:
+
+- AI uses `aiAgents/exerciseAnalysis`.
+- `exerciseLogs` is created with the legacy 50% safety factor applied.
+- Daily summary and dashboard burn totals include the exercise.
+
+### 7. Portion adjustment
+
+Message examples:
+
+```text
+กินครึ่งเดียว
+กิน 1/4
+กิน 2/3
+```
+
+Expected:
+
+- Latest meal is adjusted by the requested ratio.
+- `mealAdjustments` is created.
+- Dashboard totals reflect the adjusted meal values.
+
+### 8. Dashboard link
+
+Message examples:
+
+```text
+กราฟ
+dashboard
+```
+
+Expected:
+
+- LINE replies with the current configured dashboard bridge.
+- During staging, this should remain the GAS dashboard until migrated Firestore data is verified.
+
+## Real LINE Media UAT Required
+
+These cases cannot be fully tested with fake local message IDs:
+
+- Food image analysis.
+- Leftover image subtraction.
+- Payment slip image review.
+- BIA image or file analysis.
+
+Run these on a staging LINE OA after Firebase secrets are configured and before production cutover.
 
 ## Still Pending After This Plan
 
