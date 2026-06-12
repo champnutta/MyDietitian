@@ -3,6 +3,8 @@ import { Timestamp } from "firebase-admin/firestore";
 import type { Request } from "firebase-functions/v2/https";
 import { db } from "./runtime.js";
 
+const DEFAULT_LINE_CHANNEL_ID = "2009365288";
+
 type ProfileIdentityRequest = {
   userId: string;
   canonicalUserId?: string;
@@ -93,7 +95,7 @@ async function verifyFirebaseIdToken(token: string) {
 }
 
 async function verifyLineOwner(token: string, identity: ProfileIdentityRequest): Promise<VerifiedProfileOwner> {
-  const channelId = process.env.LINE_CHANNEL_ID;
+  const channelId = process.env.LINE_CHANNEL_ID ?? DEFAULT_LINE_CHANNEL_ID;
   if (!channelId) {
     throw new ProfileAuthError("LINE_CHANNEL_ID is not configured");
   }

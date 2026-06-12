@@ -7,7 +7,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Verify LINE signature.
 - Deduplicate message events. Done for staging text messages.
 - Handle `follow` events. Partial: staging creates/updates LINE user links, stores display name for incomplete profiles, and replies with onboarding/subscription guidance.
-- Handle new user onboarding. Partial: staging uses a LINE Flex onboarding card with legacy LIFF link and quick manual setup via `ตั้งค่า ชื่อ 2000 40-30-30`.
+- Handle new user onboarding. Partial: staging uses a LINE Flex onboarding card with LIFF link, Firebase Hosting has a replacement settings form at `https://mydietitian.web.app/settings`, and quick manual setup works via `ตั้งค่า ชื่อ 2000 40-30-30`. The LIFF app endpoint still needs to be pointed to the hosted page in LINE Console and verified from a real LINE chat.
 - Check user subscription status. Partial: staging gates LINE food/image/exercise analysis when profile is incomplete or subscription is expired.
 - Route text commands. Partial: staging supports help, profile/status, dashboard link, daily summary, weight log, undo latest meal, latest-meal correction, portion adjustment, quick setup, subscription, redeem code, contact admin, exercise logs, coach consultation, and menu recommendations.
 - Route image messages. Partial: staging classifies LINE images as food/slip/BIA/leftover/other, supports food/slip/leftover routes, and queues BIA reports.
@@ -44,6 +44,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Contact/admin chat parity: staging forwards customer contact messages to admin, supports temporary admin chat mode, and logs chat messages in Firestore.
 - Subscription parity: staging can show packages/QR, redeem migrated codes from `redeemCodes`, classify slip images, create pending payment reviews, and let admin approve/reject subscriptions. Automatic bank verification is still pending.
 - Error reporting: staging logs failed LINE event processing and best-effort notifies the configured admin LINE user.
+- LIFF settings replacement: hosted page deployed, CORS verified, pending real LIFF `authVerified: true` test from LINE.
 - Dashboard endpoint: staging endpoint deployed, pending migrated production data verification.
 - Full production customer replies: not done.
 - Production replacement: not ready.

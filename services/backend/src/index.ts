@@ -163,6 +163,8 @@ export const health = onRequest((request, response) => {
 });
 
 export const updateProfile = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;
@@ -262,6 +264,8 @@ export const updateProfile = onRequest(async (request, response) => {
 });
 
 export const saveSettingsFromWeb = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;
@@ -406,6 +410,19 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
   }
 });
 
+function handleCorsPreflight(request: Parameters<Parameters<typeof onRequest>[0]>[0], response: Parameters<Parameters<typeof onRequest>[0]>[1]) {
+  response.set("Access-Control-Allow-Origin", String(request.get("origin") ?? "*"));
+  response.set("Vary", "Origin");
+  response.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  response.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Line-Id-Token");
+  response.set("Access-Control-Max-Age", "3600");
+  if (request.method === "OPTIONS") {
+    response.status(204).send("");
+    return true;
+  }
+  return false;
+}
+
 function validateProfileIdentity(userId: string, profile: UpdateProfileRequest): string | null {
   if (!isSafePublicId(userId)) return "invalid userId";
   if (profile.canonicalUserId && !isSafePublicId(profile.canonicalUserId)) return "invalid canonicalUserId";
@@ -538,6 +555,8 @@ function sanitizeSettingsConfigForLog(config: SaveSettingsFromWebRequest["config
 }
 
 export const getDashboardData = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;

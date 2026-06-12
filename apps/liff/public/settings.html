@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ตั้งค่า MyDietitian</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --leaf: #1db446;
+        --leaf-dark: #12743a;
+        --ink: #17231c;
+        --muted: #647067;
+        --paper: #fffdf5;
+        --mist: #edf7ef;
+        --line: #dbe9dc;
+        --warn: #b45309;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Kanit", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 8% 8%, rgba(29, 180, 70, 0.18), transparent 28%),
+          linear-gradient(145deg, #f8fbf4 0%, #eef8ee 44%, #fff8e7 100%);
+      }
+
+      main {
+        width: min(760px, 100%);
+        margin: 0 auto;
+        padding: 22px;
+      }
+
+      .hero {
+        padding: 26px 22px;
+        border: 1px solid rgba(29, 180, 70, 0.18);
+        border-radius: 28px;
+        background: rgba(255, 253, 245, 0.82);
+        box-shadow: 0 18px 50px rgba(23, 35, 28, 0.12);
+        backdrop-filter: blur(14px);
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: var(--leaf-dark);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 8vw, 48px);
+        line-height: 1.05;
+      }
+
+      .hint {
+        color: var(--muted);
+        line-height: 1.65;
+        margin: 14px 0 0;
+      }
+
+      .tabs {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin: 20px 0;
+      }
+
+      button, .tab {
+        border: 0;
+        border-radius: 18px;
+        font-family: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .tab {
+        padding: 13px 12px;
+        color: var(--leaf-dark);
+        background: #ffffff;
+        border: 1px solid var(--line);
+      }
+
+      .tab.active {
+        color: #ffffff;
+        background: linear-gradient(135deg, var(--leaf), var(--leaf-dark));
+        box-shadow: 0 12px 24px rgba(29, 180, 70, 0.22);
+      }
+
+      .panel {
+        display: none;
+        gap: 14px;
+      }
+
+      .panel.active { display: grid; }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      label {
+        display: grid;
+        gap: 7px;
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      input, select {
+        width: 100%;
+        padding: 13px 14px;
+        border-radius: 15px;
+        border: 1px solid var(--line);
+        background: #ffffff;
+        color: var(--ink);
+        font-family: inherit;
+        font-size: 16px;
+      }
+
+      .macro-row {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .submit {
+        width: 100%;
+        margin-top: 18px;
+        padding: 16px;
+        color: #ffffff;
+        font-size: 17px;
+        background: linear-gradient(135deg, var(--leaf), var(--leaf-dark));
+        box-shadow: 0 18px 32px rgba(29, 180, 70, 0.28);
+      }
+
+      .submit:disabled {
+        cursor: wait;
+        opacity: 0.68;
+      }
+
+      .status {
+        margin-top: 16px;
+        padding: 14px 16px;
+        border-radius: 18px;
+        background: var(--mist);
+        color: var(--leaf-dark);
+        line-height: 1.5;
+        display: none;
+      }
+
+      .status.error {
+        display: block;
+        color: var(--warn);
+        background: #fff7ed;
+      }
+
+      .status.show { display: block; }
+
+      .success {
+        text-align: center;
+        padding: 52px 20px;
+      }
+
+      .success-mark {
+        width: 84px;
+        height: 84px;
+        margin: 0 auto 18px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: #ffffff;
+        font-size: 42px;
+        background: var(--leaf);
+      }
+
+      @media (max-width: 640px) {
+        main { padding: 14px; }
+        .hero { border-radius: 22px; padding: 22px 16px; }
+        .grid, .macro-row { grid-template-columns: 1fr; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero" id="app">
+        <p class="eyebrow">MyDietitian setup</p>
+        <h1>ตั้งค่าเป้าหมายสุขภาพ</h1>
+        <p class="hint" id="profileHint">กำลังเชื่อมต่อ LINE เพื่อยืนยันตัวตน...</p>
+
+        <div class="tabs" role="tablist">
+          <button class="tab active" type="button" id="tabAuto">ระบบคำนวณให้</button>
+          <button class="tab" type="button" id="tabCustom">กำหนดเอง</button>
+        </div>
+
+        <form id="settingsForm">
+          <section class="panel active" id="panelAuto">
+            <label>สไตล์การกิน
+              <select id="dietStyle">
+                <option value="ai_auto">ให้ AI เลือกแบบสมดุล</option>
+                <option value="balanced">Balanced 30/40/30</option>
+                <option value="lowcarb">Low-carb 40/20/40</option>
+                <option value="keto">Keto 25/5/70</option>
+                <option value="highprotein">High protein 40/30/30</option>
+              </select>
+            </label>
+            <div class="grid">
+              <label>เพศ
+                <select id="gender">
+                  <option value="male">ชาย</option>
+                  <option value="female">หญิง</option>
+                  <option value="other">อื่นๆ</option>
+                </select>
+              </label>
+              <label>อายุ
+                <input id="age" type="number" min="10" max="100" placeholder="30">
+              </label>
+            </div>
+            <div class="grid">
+              <label>น้ำหนัก (kg)
+                <input id="weight" type="number" min="25" max="300" step="0.1" placeholder="65">
+              </label>
+              <label>ส่วนสูง (cm)
+                <input id="height" type="number" min="100" max="230" placeholder="170">
+              </label>
+            </div>
+            <label>กิจกรรม
+              <select id="activity">
+                <option value="1.2">ไม่ค่อยออกกำลัง</option>
+                <option value="1.375">ออกเบา 1-3 วัน/สัปดาห์</option>
+                <option value="1.55">ออกปานกลาง 3-5 วัน/สัปดาห์</option>
+                <option value="1.725">ออกหนัก 6-7 วัน/สัปดาห์</option>
+              </select>
+            </label>
+            <label>เป้าหมาย
+              <select id="goal">
+                <option value="-500">ลดไขมัน</option>
+                <option value="-200">Body recomposition</option>
+                <option value="0">รักษาน้ำหนัก</option>
+                <option value="300">เพิ่มกล้าม/เพิ่มน้ำหนัก</option>
+              </select>
+            </label>
+          </section>
+
+          <section class="panel" id="panelCustom">
+            <label>TDEE เป้าหมาย (kcal)
+              <input id="customTdee" type="number" min="800" max="6000" placeholder="2000">
+            </label>
+            <div class="macro-row">
+              <label>Protein %
+                <input id="customP" type="number" min="1" max="80" value="40">
+              </label>
+              <label>Carb %
+                <input id="customC" type="number" min="1" max="80" value="30">
+              </label>
+              <label>Fat %
+                <input id="customF" type="number" min="1" max="80" value="30">
+              </label>
+            </div>
+          </section>
+
+          <button class="submit" id="submitBtn" type="submit">บันทึกการตั้งค่า</button>
+          <div class="status" id="statusBox"></div>
+        </form>
+      </section>
+    </main>
+
+    <script>
+      const LIFF_ID = "2009365288-Ux31tFWT";
+      const SAVE_SETTINGS_URL = "https://asia-southeast1-mydietitian.cloudfunctions.net/saveSettingsFromWeb";
+
+      const state = {
+        mode: "auto",
+        lineUserId: new URLSearchParams(location.search).get("uid") || "",
+        displayName: "",
+        idToken: ""
+      };
+
+      const $ = (id) => document.getElementById(id);
+
+      $("tabAuto").addEventListener("click", () => setMode("auto"));
+      $("tabCustom").addEventListener("click", () => setMode("custom"));
+      $("settingsForm").addEventListener("submit", submitSettings);
+
+      initLiff();
+
+      async function initLiff() {
+        try {
+          await liff.init({ liffId: LIFF_ID });
+          if (liff.isLoggedIn()) {
+            state.idToken = liff.getIDToken() || "";
+            const profile = await liff.getProfile();
+            state.lineUserId = profile.userId || state.lineUserId;
+            state.displayName = profile.displayName || "";
+            $("profileHint").textContent = `สวัสดีครับ ${state.displayName || "สมาชิก"} ระบบจะบันทึกด้วย LINE ID ที่ยืนยันแล้ว`;
+            return;
+          }
+          $("profileHint").textContent = "กรุณาเปิดผ่าน LINE หรือ login เพื่อยืนยันตัวตน";
+        } catch (error) {
+          $("profileHint").textContent = "ยังยืนยัน LINE ไม่สำเร็จ แต่สามารถบันทึก staging ด้วย uid จากลิงก์ได้";
+          console.warn(error);
+        }
+      }
+
+      function setMode(mode) {
+        state.mode = mode;
+        $("tabAuto").classList.toggle("active", mode === "auto");
+        $("tabCustom").classList.toggle("active", mode === "custom");
+        $("panelAuto").classList.toggle("active", mode === "auto");
+        $("panelCustom").classList.toggle("active", mode === "custom");
+        setStatus("");
+      }
+
+      function buildPayload() {
+        if (!state.lineUserId || state.lineUserId.length < 5) {
+          throw new Error("ไม่พบ LINE user id กรุณาเปิดฟอร์มจากปุ่มใน LINE อีกครั้ง");
+        }
+
+        const config = state.mode === "auto"
+          ? {
+              mode: "auto",
+              dietStyle: $("dietStyle").value,
+              gender: $("gender").value,
+              age: numberValue("age"),
+              weight: numberValue("weight"),
+              height: numberValue("height"),
+              activity: numberValue("activity"),
+              goal: numberValue("goal")
+            }
+          : {
+              mode: "custom",
+              tdee: numberValue("customTdee"),
+              p: numberValue("customP"),
+              c: numberValue("customC"),
+              f: numberValue("customF"),
+              fiberG: 25
+            };
+
+        if (state.mode === "custom") {
+          const total = config.p + config.c + config.f;
+          if (total < 90 || total > 110) throw new Error("สัดส่วน P/C/F ควรรวมใกล้ 100%");
+        }
+
+        return {
+          userId: state.lineUserId,
+          lineUserId: state.lineUserId,
+          displayName: state.displayName || undefined,
+          config
+        };
+      }
+
+      function numberValue(id) {
+        const value = Number($(id).value);
+        if (!Number.isFinite(value) || value <= 0) {
+          throw new Error("กรุณากรอกข้อมูลให้ครบและถูกต้อง");
+        }
+        return value;
+      }
+
+      async function submitSettings(event) {
+        event.preventDefault();
+        const button = $("submitBtn");
+        try {
+          button.disabled = true;
+          button.textContent = "กำลังบันทึก...";
+          setStatus("กำลังส่งข้อมูลไปยัง Firebase...");
+          const headers = { "Content-Type": "application/json" };
+          if (state.idToken) headers["X-Line-Id-Token"] = state.idToken;
+
+          const response = await fetch(SAVE_SETTINGS_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(buildPayload())
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.message || result.error || "บันทึกไม่สำเร็จ");
+          showSuccess(result);
+        } catch (error) {
+          setStatus(error.message || String(error), true);
+          button.disabled = false;
+          button.textContent = "บันทึกการตั้งค่า";
+        }
+      }
+
+      function showSuccess(result) {
+        $("app").innerHTML = `
+          <div class="success">
+            <div class="success-mark">✓</div>
+            <h1>บันทึกสำเร็จ</h1>
+            <p class="hint">เป้าหมายใหม่คือ ${result.target.calories} kcal ต่อวัน<br>
+            P ${result.target.proteinG}g / C ${result.target.carbsG}g / F ${result.target.fatG}g</p>
+            <p class="hint">ปิดหน้านี้แล้วกลับไปที่ LINE ได้เลยครับ</p>
+          </div>
+        `;
+      }
+
+      function setStatus(message, isError = false) {
+        const box = $("statusBox");
+        box.textContent = message;
+        box.classList.toggle("show", Boolean(message));
+        box.classList.toggle("error", isError);
+      }
+    </script>
+  </body>
+</html>

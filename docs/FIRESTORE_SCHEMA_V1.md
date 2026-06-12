@@ -245,7 +245,7 @@ Validation guardrails:
 Identity verification:
 
 - Firebase/native clients can send `Authorization: Bearer <Firebase ID token>`.
-- LIFF clients can send `X-Line-Id-Token: <LINE ID token>`. This requires `LINE_CHANNEL_ID` to be configured in the function environment.
+- LIFF clients can send `X-Line-Id-Token: <LINE ID token>`. The backend falls back to channel ID `2009365288` from the current LIFF ID, and `LINE_CHANNEL_ID` can override it in the function environment.
 - The current default `PROFILE_AUTH_MODE=optional` verifies tokens when provided but still allows the legacy staging LIFF body-only flow.
 - Set `PROFILE_AUTH_MODE=required` only after the new LIFF/native clients reliably send verified tokens. In required mode, profile/settings writes without a valid token return `401 profile-auth-failed`.
 - Verified writes store `authVerified`, `authProvider`, and a `profileAuthEvents` audit record.

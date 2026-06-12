@@ -8,5 +8,20 @@
     "predeploy": [
       "npm --prefix \"$RESOURCE_DIR\" run build"
     ]
+  },
+  "hosting": {
+    "site": "mydietitian",
+    "public": "apps/liff/public",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "/settings",
+        "destination": "/settings.html"
+      }
+    ]
   }
 }
