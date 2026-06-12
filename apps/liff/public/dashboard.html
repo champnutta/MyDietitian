@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MyDietitian Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <style>
+      :root {
+        --leaf: #1db446;
+        --leaf-dark: #13733d;
+        --ink: #15231b;
+        --muted: #64736a;
+        --paper: #fffdf7;
+        --mist: #eef8ef;
+        --line: #dfeadf;
+        --blue: #36a2eb;
+        --gold: #ffce56;
+        --rose: #ff6384;
+      }
+
+      * { box-sizing: border-box; }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Kanit", sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 92% 10%, rgba(255, 206, 86, 0.24), transparent 30%),
+          radial-gradient(circle at 6% 0%, rgba(29, 180, 70, 0.18), transparent 28%),
+          linear-gradient(160deg, #f8fbf3 0%, #eef8ef 52%, #fff7e5 100%);
+      }
+
+      main {
+        width: min(1080px, 100%);
+        margin: 0 auto;
+        padding: 18px;
+      }
+
+      .hero, .card {
+        border: 1px solid rgba(29, 180, 70, 0.16);
+        border-radius: 28px;
+        background: rgba(255, 253, 247, 0.86);
+        box-shadow: 0 18px 50px rgba(21, 35, 27, 0.11);
+        backdrop-filter: blur(14px);
+      }
+
+      .hero {
+        padding: 24px;
+        margin-bottom: 16px;
+      }
+
+      .eyebrow {
+        margin: 0 0 6px;
+        color: var(--leaf-dark);
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(30px, 7vw, 52px);
+        line-height: 1.05;
+      }
+
+      .sub {
+        color: var(--muted);
+        line-height: 1.55;
+        margin: 12px 0 0;
+      }
+
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .stat {
+        padding: 16px;
+        border-radius: 20px;
+        background: #ffffff;
+        border: 1px solid var(--line);
+      }
+
+      .stat span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .stat strong {
+        display: block;
+        margin-top: 4px;
+        font-size: 28px;
+      }
+
+      .filters {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 16px 0;
+      }
+
+      button {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 10px 15px;
+        color: var(--leaf-dark);
+        background: #ffffff;
+        font-family: inherit;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      button.active {
+        color: #ffffff;
+        border-color: transparent;
+        background: linear-gradient(135deg, var(--leaf), var(--leaf-dark));
+        box-shadow: 0 10px 22px rgba(29, 180, 70, 0.2);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 16px;
+      }
+
+      .card {
+        padding: 20px;
+        margin-bottom: 16px;
+      }
+
+      .card h2 {
+        margin: 0 0 14px;
+        font-size: 20px;
+      }
+
+      .chart {
+        position: relative;
+        height: 360px;
+      }
+
+      .macro-bar {
+        display: flex;
+        overflow: hidden;
+        height: 30px;
+        border-radius: 999px;
+        background: #edf1ec;
+      }
+
+      .macro-bar div {
+        display: grid;
+        place-items: center;
+        color: #ffffff;
+        font-size: 12px;
+        font-weight: 700;
+        min-width: 0;
+      }
+
+      .macro-list {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .mini {
+        padding: 12px;
+        border-radius: 16px;
+        background: #ffffff;
+        border: 1px solid var(--line);
+      }
+
+      .mini span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .mini strong {
+        display: block;
+        font-size: 22px;
+      }
+
+      .history {
+        display: grid;
+        gap: 10px;
+        max-height: 430px;
+        overflow: auto;
+      }
+
+      .meal {
+        padding: 12px 14px;
+        border-radius: 16px;
+        background: #ffffff;
+        border: 1px solid var(--line);
+      }
+
+      .meal strong { display: block; }
+      .meal span { color: var(--muted); font-size: 13px; }
+
+      .status {
+        display: none;
+        margin: 14px 0;
+        padding: 14px 16px;
+        border-radius: 18px;
+        color: var(--leaf-dark);
+        background: var(--mist);
+      }
+
+      .status.show { display: block; }
+      .status.error { color: #b45309; background: #fff7ed; }
+
+      @media (max-width: 860px) {
+        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        .grid { grid-template-columns: 1fr; }
+      }
+
+      @media (max-width: 560px) {
+        main { padding: 12px; }
+        .hero, .card { border-radius: 22px; padding: 16px; }
+        .stats, .macro-list { grid-template-columns: 1fr; }
+        .chart { height: 300px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Firestore dashboard</p>
+        <h1 id="memberName">MyDietitian</h1>
+        <p class="sub" id="rangeText">กำลังโหลดข้อมูลจาก Firebase...</p>
+        <div class="stats">
+          <div class="stat"><span>น้ำหนักล่าสุด</span><strong id="weightStat">-</strong></div>
+          <div class="stat"><span>กินเฉลี่ย</span><strong id="avgCalStat">-</strong></div>
+          <div class="stat"><span>วันสำเร็จ</span><strong id="successStat">-</strong></div>
+          <div class="stat"><span>Streak</span><strong id="streakStat">-</strong></div>
+        </div>
+      </section>
+
+      <div class="filters">
+        <button type="button" data-days="1">วันนี้</button>
+        <button type="button" data-days="7" class="active">7 วัน</button>
+        <button type="button" data-days="30">30 วัน</button>
+        <button type="button" data-days="90">90 วัน</button>
+        <button type="button" data-days="180">6 เดือน</button>
+        <button type="button" data-days="365">1 ปี</button>
+      </div>
+
+      <div class="status" id="statusBox"></div>
+
+      <section class="grid">
+        <div>
+          <article class="card">
+            <h2>พลังงานและสารอาหาร</h2>
+            <div class="chart"><canvas id="calChart"></canvas></div>
+          </article>
+
+          <article class="card">
+            <h2>น้ำหนักและ Body Composition</h2>
+            <div class="chart"><canvas id="bodyChart"></canvas></div>
+          </article>
+        </div>
+
+        <aside>
+          <article class="card">
+            <h2>Macro เฉลี่ย</h2>
+            <div class="macro-bar">
+              <div id="barP" style="background: var(--blue); width: 0"></div>
+              <div id="barC" style="background: var(--gold); width: 0"></div>
+              <div id="barF" style="background: var(--rose); width: 0"></div>
+            </div>
+            <div class="macro-list">
+              <div class="mini"><span>Protein</span><strong id="proteinStat">-</strong></div>
+              <div class="mini"><span>Carb</span><strong id="carbStat">-</strong></div>
+              <div class="mini"><span>Fat</span><strong id="fatStat">-</strong></div>
+              <div class="mini"><span>Fiber</span><strong id="fiberStat">-</strong></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <h2>รายการอาหารล่าสุด</h2>
+            <div class="history" id="mealHistory"></div>
+          </article>
+        </aside>
+      </section>
+    </main>
+
+    <script>
+      const DASHBOARD_URL = "https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData";
+      const params = new URLSearchParams(location.search);
+      const userId = params.get("uid") || params.get("userId") || "";
+      let calChart;
+      let bodyChart;
+
+      document.querySelectorAll("[data-days]").forEach((button) => {
+        button.addEventListener("click", () => {
+          document.querySelectorAll("[data-days]").forEach((item) => item.classList.remove("active"));
+          button.classList.add("active");
+          loadDashboard(Number(button.dataset.days));
+        });
+      });
+
+      loadDashboard(7);
+
+      async function loadDashboard(option) {
+        if (!userId || userId.length < 2) {
+          showStatus("ไม่พบ user id กรุณาเปิด dashboard จาก LINE อีกครั้ง", true);
+          return;
+        }
+
+        try {
+          showStatus("กำลังโหลดข้อมูล...");
+          const response = await fetch(DASHBOARD_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, option })
+          });
+          const data = await response.json();
+          if (!response.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
+          renderDashboard(data);
+          showStatus("");
+        } catch (error) {
+          showStatus(error.message || String(error), true);
+        }
+      }
+
+      function renderDashboard(data) {
+        document.getElementById("memberName").textContent = data.profile?.name || "Member";
+        document.getElementById("rangeText").textContent = `${formatDate(data.range.start)} ถึง ${formatDate(data.range.end)} (${data.range.timezone})`;
+        document.getElementById("weightStat").textContent = data.current?.weight ? `${data.current.weight} kg` : "-";
+        document.getElementById("avgCalStat").textContent = `${Math.round(data.stats?.avgCal || 0)} kcal`;
+        document.getElementById("successStat").textContent = `${data.stats?.successDays || 0} วัน`;
+        document.getElementById("streakStat").textContent = `${data.current?.streak?.count || 0} วัน`;
+
+        renderMacroSummary(data);
+        renderCalChart(data);
+        renderBodyChart(data);
+        renderMeals(data.history?.meals || []);
+      }
+
+      function renderMacroSummary(data) {
+        const days = Math.max(1, data.stats?.totalDays || data.labels?.length || 1);
+        const sum = (items) => (items || []).reduce((total, value) => total + Number(value || 0), 0);
+        const p = sum(data.macros?.p);
+        const c = sum(data.macros?.c);
+        const f = sum(data.macros?.f);
+        const fib = sum(data.macros?.fib);
+        const pCal = p * 4;
+        const cCal = c * 4;
+        const fCal = f * 9;
+        const total = pCal + cCal + fCal || 1;
+        const pPct = Math.round((pCal / total) * 100);
+        const cPct = Math.round((cCal / total) * 100);
+        const fPct = Math.max(0, 100 - pPct - cPct);
+
+        setBar("barP", pPct);
+        setBar("barC", cPct);
+        setBar("barF", fPct);
+        document.getElementById("proteinStat").textContent = `${Math.round(p / days)} g`;
+        document.getElementById("carbStat").textContent = `${Math.round(c / days)} g`;
+        document.getElementById("fatStat").textContent = `${Math.round(f / days)} g`;
+        document.getElementById("fiberStat").textContent = `${(fib / days).toFixed(1)} g`;
+      }
+
+      function setBar(id, value) {
+        const el = document.getElementById(id);
+        el.style.width = `${value}%`;
+        el.textContent = value > 8 ? `${value}%` : "";
+      }
+
+      function renderCalChart(data) {
+        if (calChart) calChart.destroy();
+        const ctx = document.getElementById("calChart");
+        calChart = new Chart(ctx, {
+          type: "bar",
+          data: {
+            labels: data.labels,
+            datasets: [
+              { label: "Dynamic target", data: data.tdeeLine, type: "line", borderColor: "#13733d", borderDash: [6, 4], pointRadius: 0, order: 1 },
+              { label: "Weight", data: data.bodyData?.weight || [], type: "line", borderColor: "#17231c", yAxisID: "y1", spanGaps: true, order: 2 },
+              { label: "Protein", data: (data.macros?.p || []).map((x) => x * 4), backgroundColor: "#36a2eb", stack: "kcal", order: 3 },
+              { label: "Carb", data: (data.macros?.c || []).map((x) => x * 4), backgroundColor: "#ffce56", stack: "kcal", order: 3 },
+              { label: "Fat", data: (data.macros?.f || []).map((x) => x * 9), backgroundColor: "#ff6384", stack: "kcal", order: 3 }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            scales: {
+              x: { stacked: true },
+              y: { stacked: true, beginAtZero: true, title: { display: true, text: "kcal" } },
+              y1: { position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "kg" } }
+            }
+          }
+        });
+      }
+
+      function renderBodyChart(data) {
+        if (bodyChart) bodyChart.destroy();
+        const ctx = document.getElementById("bodyChart");
+        bodyChart = new Chart(ctx, {
+          type: "line",
+          data: {
+            labels: data.labels,
+            datasets: [
+              { label: "Weight kg", data: data.bodyData?.weight || [], borderColor: "#17231c", spanGaps: true, tension: 0.32 },
+              { label: "Fat %", data: data.bodyData?.fat || [], borderColor: "#ff6384", spanGaps: true, tension: 0.32 },
+              { label: "Muscle kg", data: data.bodyData?.muscle || [], borderColor: "#36a2eb", spanGaps: true, tension: 0.32 }
+            ]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false }
+          }
+        });
+      }
+
+      function renderMeals(meals) {
+        const container = document.getElementById("mealHistory");
+        if (!meals.length) {
+          container.innerHTML = "<div class='meal'><span>ยังไม่มีรายการอาหารในช่วงนี้</span></div>";
+          return;
+        }
+        container.innerHTML = meals.slice(0, 18).map((meal) => {
+          const nutrients = meal.nutrients || {};
+          const name = meal.mealNameTh || meal.mealNameEn || "อาหาร";
+          const kcal = Math.round(Number(nutrients.caloriesKcal || 0));
+          return `<div class="meal"><strong>${escapeHtml(name)} · ${kcal} kcal</strong><span>${formatDate(meal.loggedAt)} | P ${Math.round(nutrients.proteinG || 0)}g C ${Math.round(nutrients.carbsG || 0)}g F ${Math.round(nutrients.fatG || 0)}g</span></div>`;
+        }).join("");
+      }
+
+      function formatDate(value) {
+        if (!value) return "-";
+        return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(new Date(value));
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (char) => ({
+          "&": "&amp;",
+          "<": "&lt;",
+          ">": "&gt;",
+          "\"": "&quot;",
+          "'": "&#039;"
+        }[char]));
+      }
+
+      function showStatus(message, isError = false) {
+        const box = document.getElementById("statusBox");
+        box.textContent = message;
+        box.classList.toggle("show", Boolean(message));
+        box.classList.toggle("error", isError);
+      }
+    </script>
+  </body>
+</html>

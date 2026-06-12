@@ -45,6 +45,6 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Subscription parity: staging can show packages/QR, redeem migrated codes from `redeemCodes`, classify slip images, create pending payment reviews, and let admin approve/reject subscriptions. Automatic bank verification is still pending.
 - Error reporting: staging logs failed LINE event processing and best-effort notifies the configured admin LINE user.
 - LIFF settings replacement: hosted page deployed, CORS verified, pending real LIFF `authVerified: true` test from LINE.
-- Dashboard endpoint: staging endpoint deployed, pending migrated production data verification.
+- Dashboard replacement: hosted Firestore preview deployed at `https://mydietitian.web.app/dashboard?uid={LINE_USER_ID}`, pending sampled-user verification against migrated/preview data before switching LINE dashboard links away from GAS.
 - Full production customer replies: not done.
 - Production replacement: not ready.
