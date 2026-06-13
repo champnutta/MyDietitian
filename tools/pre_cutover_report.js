@@ -14,22 +14,26 @@ const REQUIRED_MANUAL_GATES = [
   {
     gate: "Real LINE media UAT",
     status: "manual-required",
-    evidence: "Food image, leftover image, payment slip, and BIA image/file require real LINE messageIds."
+    evidence: "Food image, leftover image, payment slip, and BIA image/file require real LINE messageIds.",
+    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
   },
   {
     gate: "Real LIFF auth UAT",
     status: "manual-required",
-    evidence: "authVerified=true needs a real LIFF session and LINE ID token."
+    evidence: "authVerified=true needs a real LIFF session and LINE ID token.",
+    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
   },
   {
     gate: "Dashboard parity against GAS",
     status: "manual-after-import",
-    evidence: "Run after preview/final import using sampleUsersForDashboardParity from migration dry-run."
+    evidence: "Run after preview/final import using sampleUsersForDashboardParity from migration dry-run.",
+    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
   },
   {
     gate: "Production webhook cutover approval",
     status: "manual-final-step",
-    evidence: "Keep production LINE OA on GAS until all UAT and data parity checks pass."
+    evidence: "Keep production LINE OA on GAS until all UAT and data parity checks pass.",
+    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
   }
 ];
 
@@ -165,12 +169,12 @@ function renderMarkdown(report) {
     "",
     "## Manual Gates Remaining",
     "",
-    "| Gate | Status | Evidence |",
-    "| --- | --- | --- |"
+    "| Gate | Status | Evidence | Template |",
+    "| --- | --- | --- | --- |"
   );
 
   for (const gate of report.manualGatesRemaining) {
-    lines.push(`| ${gate.gate} | ${gate.status} | ${escapeTable(gate.evidence)} |`);
+    lines.push(`| ${gate.gate} | ${gate.status} | ${escapeTable(gate.evidence)} | ${gate.template || "-"} |`);
   }
 
   return lines.join("\n");

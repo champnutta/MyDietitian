@@ -33,3 +33,5 @@ Manual gates intentionally remain outside automation:
 - Real LIFF auth UAT proving `authVerified: true`.
 - Dashboard parity against GAS after preview/final import.
 - Production webhook cutover approval.
+
+Use `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md` to record evidence for the manual gates. The production webhook should not be moved from GAS to Firebase until every manual gate is marked `pass`.

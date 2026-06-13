@@ -163,6 +163,12 @@ These cases cannot be fully tested with fake local message IDs:
 
 Run these on a staging LINE OA after Firebase secrets are configured and before production cutover.
 
+Record real LINE evidence in:
+
+```text
+docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md
+```
+
 ## Still Pending After This Plan
 
 - Signed image tests for food, leftover, slip, BIA, and files.
