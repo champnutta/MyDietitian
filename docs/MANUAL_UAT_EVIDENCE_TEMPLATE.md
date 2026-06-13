@@ -34,6 +34,8 @@ Record the latest output summary:
 | Dashboard contract | `ok=true` |  |
 | Migration dry-run | `okToPreviewImport=true` |  |
 
+Tip: `npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md` now lists the Firestore collections to inspect for each real LINE media/LIFF case.
+
 ## Real LINE Media UAT
 
 These tests must use a real LINE message because Firebase downloads content from LINE by `messageId`.

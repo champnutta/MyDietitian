@@ -30,27 +30,32 @@ const REAL_LINE_MEDIA_CASES = [
   {
     scenario: "food-image",
     reason: "LINE content download requires a real image messageId and channel token.",
-    expected: "Creates mealLogs and aiRuns, then replies with meal summary."
+    expected: "Creates mealLogs and aiRuns, then replies with meal summary.",
+    firestoreEvidence: ["mealLogs", "aiRuns", "lineEvents"]
   },
   {
     scenario: "leftover-image",
     reason: "Classifier and leftover analysis require a real leftover image from LINE.",
-    expected: "Creates a leftover-subtraction adjustment and updates the latest meal log."
+    expected: "Creates a leftover-subtraction adjustment and updates the latest meal log.",
+    firestoreEvidence: ["mealAdjustments", "mealLogs", "aiRuns"]
   },
   {
     scenario: "payment-slip-image",
     reason: "Slip classification/review requires real LINE image content.",
-    expected: "Creates pending paymentReviews, notifies admin, and supports approve/reject."
+    expected: "Creates pending paymentReviews, notifies admin, and supports approve/reject.",
+    firestoreEvidence: ["paymentReviews", "subscriptionRequests", "adminAuditLogs"]
   },
   {
     scenario: "bia-image-or-file",
     reason: "BIA image/PDF download requires a real LINE image/file messageId.",
-    expected: "Creates biaReports, runs biaAnalysis, and waits for target confirmation."
+    expected: "Creates biaReports, runs biaAnalysis, and waits for target confirmation.",
+    firestoreEvidence: ["biaReports", "aiRuns", "weightLogs", "profileEvents"]
   },
   {
     scenario: "real-liff-settings",
     reason: "authVerified=true can only be proven from a real LIFF session with LINE ID token.",
-    expected: "saveSettingsFromWeb returns ok=true and authVerified=true."
+    expected: "saveSettingsFromWeb returns ok=true and authVerified=true.",
+    firestoreEvidence: ["profiles", "profileAuthEvents", "profileEvents"]
   }
 ];
 
@@ -193,12 +198,12 @@ function renderMarkdown(report) {
     "",
     "## Real LINE Required",
     "",
-    "| Scenario | Why local dry-run is not enough | Expected result |",
-    "| --- | --- | --- |"
+    "| Scenario | Why local dry-run is not enough | Expected result | Firestore evidence |",
+    "| --- | --- | --- | --- |"
   );
 
   for (const item of report.realLineMediaCases) {
-    lines.push(`| ${item.scenario} | ${escapeTable(item.reason)} | ${escapeTable(item.expected)} |`);
+    lines.push(`| ${item.scenario} | ${escapeTable(item.reason)} | ${escapeTable(item.expected)} | ${escapeTable((item.firestoreEvidence || []).join(", "))} |`);
   }
 
   lines.push(

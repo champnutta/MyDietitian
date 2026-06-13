@@ -84,9 +84,9 @@ function buildScenarioEvents(scenario, userId, input) {
     case "setup":
       return [textEvent(userId, input.text || "ตั้งค่า Test 2000 40-30-30")];
     case "food":
-      return [textEvent(userId, input.text || "boiled egg 2 pieces")];
+      return [textEvent(userId, input.text || "ไข่ต้ม 2 ฟอง")];
     case "exercise":
-      return [textEvent(userId, input.text || "walking 20 minutes")];
+      return [textEvent(userId, input.text || "วิ่ง 30 นาที")];
     case "menu":
       return [textEvent(userId, input.text || "กินอะไรดี")];
     case "portion":
