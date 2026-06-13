@@ -66,6 +66,7 @@ function main() {
       totalPlannedDocuments: migration.json?.total ?? null,
       countByCollection: migration.json?.countByCollection || null,
       dataQuality: migrationReadiness.dataQuality || null,
+      sourceFingerprint: migrationReadiness.sourceFingerprint || null,
       sourceSummary: migrationReadiness.sourceSummary || null,
       sampleUsersForDashboardParity: migrationReadiness.sampleUsersForDashboardParity || [],
       firestoreTargetSnapshot: firestoreSnapshot.json?.summary || null
@@ -173,6 +174,7 @@ function renderMarkdown(report) {
     "## Migration Snapshot",
     "",
     `Total planned documents: ${report.migrationSnapshot.totalPlannedDocuments ?? "-"}`,
+    `Source fingerprint: ${report.migrationSnapshot.sourceFingerprint?.value ?? "-"}`,
     `Firestore tracked documents before migration: ${report.migrationSnapshot.firestoreTargetSnapshot?.totalDocumentsInTrackedCollections ?? "-"}`,
     `Existing legacy imported documents: ${report.migrationSnapshot.firestoreTargetSnapshot?.legacyImportedDocuments ?? "-"}`,
     `Firestore target risk level: ${report.migrationSnapshot.firestoreTargetSnapshot?.riskLevel ?? "-"}`,
