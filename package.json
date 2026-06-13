@@ -19,6 +19,7 @@
     "dashboard:contract": "node tools/dashboard_contract_check.js",
     "dashboard:parity-plan": "node tools/dashboard_parity_plan.js",
     "report:pre-cutover": "node tools/pre_cutover_report.js",
+    "migration:readiness-packet": "node tools/final_migration_readiness_packet.js",
     "firestore:target-snapshot": "node tools/firestore_target_snapshot.js"
   },
   "devDependencies": {

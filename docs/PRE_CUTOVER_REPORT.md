@@ -18,6 +18,14 @@ Optional smoke-write test user:
 npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
 ```
 
+Final migration readiness packet:
+
+```powershell
+npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --out docs/FINAL_MIGRATION_READINESS_PACKET.md
+```
+
+By default, this packet says `hold-before-data-migration` until manual gates are confirmed with explicit flags such as `--manual-line-media-pass`, `--manual-liff-auth-pass`, `--rollback-reviewed`, and `--owner-approval`.
+
 The report combines:
 
 - Pre-migration readiness audit.
