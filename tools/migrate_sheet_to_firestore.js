@@ -461,6 +461,7 @@ function buildReadinessReport(workbook, docs, limit) {
     dryRun: !commit,
     tabStats,
     sourceSummary: summarizeSourceRows(workbook),
+    sampleUsersForDashboardParity: buildSampleUsersForDashboardParity(workbook, limit),
     countByCollection,
     totalPlannedDocuments: docs.length,
     dataQuality: {
@@ -548,6 +549,105 @@ function summarizeSourceRows(workbook) {
   return summary;
 }
 
+function buildSampleUsersForDashboardParity(workbook, limit) {
+  const users = new Map();
+
+  for (const row of workbook.Users || []) {
+    const userId = stringValue(row.UserID);
+    if (!userId) continue;
+    users.set(userId, {
+      userId,
+      name: stringValue(row.Name) || "Member",
+      tdee: numberValue(row.TDEE),
+      macroPct: {
+        p: numberValue(row["P_%"]),
+        c: numberValue(row["C_%"]),
+        f: numberValue(row["F_%"])
+      },
+      expiresAt: dateToIso(row.Expire_Date),
+      activeSubscription: isFutureDate(row.Expire_Date),
+      logRows: 0,
+      exerciseRows: 0,
+      mealRows: 0,
+      weightRows: 0,
+      firstLogAt: null,
+      lastLogAt: null,
+      latestWeightAt: null,
+      score: 0
+    });
+  }
+
+  for (const [tab, rows] of Object.entries(workbook)) {
+    if (tab !== "Log" && !tab.startsWith("Logs_Archive")) continue;
+    for (const row of rows) {
+      const userId = stringValue(row.UserID);
+      if (!userId) continue;
+      const user = ensureSampleUser(users, userId);
+      const loggedAt = dateOrNull(row.Date);
+      const type = stringValue(row.Dish_EN_or_Type || row.Column_4);
+      user.logRows += 1;
+      if (type === "Exercise" || type === "Burn") user.exerciseRows += 1;
+      else user.mealRows += 1;
+      updateDateRange(user, loggedAt);
+    }
+  }
+
+  for (const row of workbook.Weight_Log || []) {
+    const userId = stringValue(row.UserID);
+    if (!userId) continue;
+    const user = ensureSampleUser(users, userId);
+    user.weightRows += 1;
+    const loggedAt = dateOrNull(row.Date);
+    if (loggedAt && (!user.latestWeightAt || loggedAt.getTime() > new Date(user.latestWeightAt).getTime())) {
+      user.latestWeightAt = loggedAt.toISOString();
+    }
+  }
+
+  for (const user of users.values()) {
+    user.score =
+      user.logRows +
+      (user.weightRows * 5) +
+      (user.exerciseRows * 3) +
+      (user.activeSubscription ? 20 : 0) +
+      (user.firstLogAt && user.lastLogAt && user.firstLogAt !== user.lastLogAt ? 10 : 0);
+  }
+
+  return [...users.values()]
+    .filter((user) => user.logRows || user.weightRows || user.activeSubscription)
+    .sort((a, b) => b.score - a.score || b.logRows - a.logRows || a.userId.localeCompare(b.userId))
+    .slice(0, limit)
+    .map(({ score, ...user }) => user);
+}
+
+function ensureSampleUser(users, userId) {
+  if (!users.has(userId)) {
+    users.set(userId, {
+      userId,
+      name: "Legacy user missing from Users tab",
+      tdee: 0,
+      macroPct: { p: 0, c: 0, f: 0 },
+      expiresAt: null,
+      activeSubscription: false,
+      logRows: 0,
+      exerciseRows: 0,
+      mealRows: 0,
+      weightRows: 0,
+      firstLogAt: null,
+      lastLogAt: null,
+      latestWeightAt: null,
+      score: 0
+    });
+  }
+  return users.get(userId);
+}
+
+function updateDateRange(user, date) {
+  if (!date) return;
+  const iso = date.toISOString();
+  if (!user.firstLogAt || date.getTime() < new Date(user.firstLogAt).getTime()) user.firstLogAt = iso;
+  if (!user.lastLogAt || date.getTime() > new Date(user.lastLogAt).getTime()) user.lastLogAt = iso;
+}
+
 function requiredHeadersForTab(tab) {
   if (tab === "Users") return ["UserID", "Name", "TDEE", "P_%", "C_%", "F_%", "Expire_Date"];
   if (tab === "Log" || tab.startsWith("Logs_Archive")) {
@@ -618,6 +718,11 @@ function dateOrNull(value) {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function dateToIso(value) {
+  const date = dateOrNull(value);
+  return date ? date.toISOString() : null;
 }
 
 function isFutureDate(value) {

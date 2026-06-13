@@ -87,6 +87,7 @@ The output includes:
 - `tabStats`: row counts, detected headers, and missing expected headers per tab.
 - `sourceSummary`: source row counts split by users, active logs, archived logs, exercise-like rows, meal-like rows, weights, and codes.
 - `countByCollection`: planned Firestore writes by collection.
+- `sampleUsersForDashboardParity`: suggested LINE users to compare between GAS dashboard and Firestore dashboard after preview/final import.
 - `dataQuality.okToPreviewImport`: `true` only when no high-severity issue is detected.
 - `dataQuality.warnings`: sampled warnings such as missing `UserID`, invalid dates, invalid numbers, bad macro totals, duplicate users, or tab fetch errors.
 
@@ -98,5 +99,6 @@ Use `--sampleLimit 20` if you want more example rows in the warning output.
 - Imported food/exercise count matches `Log` + archive non-empty row count.
 - Imported weight count matches `Weight_Log` non-empty row count.
 - Dashboard totals match GAS dashboard for sampled users and date ranges.
+- Use `sampleUsersForDashboardParity` from the latest dry-run report to pick users with active subscriptions, many logs, exercise rows, and weight/body-composition history.
 - Subscription expiry matches existing user profile output.
 - After the final write migration, run the hosted Firestore dashboard for sampled users before changing LINE dashboard links.
