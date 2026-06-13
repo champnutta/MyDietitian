@@ -62,6 +62,12 @@ Do not run this section until data has been imported into Firestore in an approv
 
 Use `sampleUsersForDashboardParity` from the latest migration dry-run report.
 
+Optional helper after preview/final import:
+
+```powershell
+npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
+```
+
 | User ID | Date range | GAS calories | Firestore calories | GAS protein/carbs/fat | Firestore protein/carbs/fat | GAS weight/fat/muscle | Firestore weight/fat/muscle | Result | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 |  | 7 days |  |  |  |  |  |  |  |  |

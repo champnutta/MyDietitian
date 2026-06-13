@@ -48,12 +48,13 @@ function main() {
   const audit = runNodeJson("pre-migration audit", auditArgs);
   const migration = runNodeJson("migration dry-run", ["tools/migrate_sheet_to_firestore.js", "--sampleLimit", "5"]);
   const dashboard = runNodeJson("dashboard contract", ["tools/dashboard_contract_check.js"]);
+  const dashboardParityPlan = runNodeJson("dashboard parity plan", ["tools/dashboard_parity_plan.js", "--sampleLimit", "5"]);
   const lineUat = runNodeJson("LINE UAT dry-run", ["tools/line_staging_uat_report.js"]);
   const firestoreSnapshotArgs = ["tools/firestore_target_snapshot.js", "--project", projectId];
   if (serviceAccount) firestoreSnapshotArgs.push("--serviceAccount", serviceAccount);
   const firestoreSnapshot = runNodeJson("Firestore target snapshot", firestoreSnapshotArgs);
 
-  const automatedChecks = [audit, migration, dashboard, lineUat, firestoreSnapshot];
+  const automatedChecks = [audit, migration, dashboard, dashboardParityPlan, lineUat, firestoreSnapshot];
   const failed = automatedChecks.filter((check) => !check.ok);
   const migrationReadiness = migration.json?.migrationReadiness || {};
   const report = {
@@ -132,6 +133,13 @@ function summarizeJson(name, json) {
       status: json.status,
       labels: json.labels,
       failedChecks: Array.isArray(json.checks) ? json.checks.filter((check) => !check.ok).map((check) => check.name) : []
+    };
+  }
+  if (name === "dashboard parity plan") {
+    return {
+      sampleUsers: Array.isArray(json.sampleUsers) ? json.sampleUsers.length : 0,
+      parityWindows: json.parityWindows,
+      readyForManualParity: json.ok
     };
   }
   if (name === "LINE UAT dry-run") {

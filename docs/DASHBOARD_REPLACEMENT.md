@@ -26,6 +26,14 @@ npm run dashboard:contract
 
 This validates response shape and array lengths for labels, calories, macros, body data, TDEE line, daily rows, stats, and detailed history arrays.
 
+After preview/final import, generate a sampled parity checklist from the latest Google Sheet dry-run:
+
+```powershell
+npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
+```
+
+This creates user-specific Firestore/GAS dashboard links plus 7, 30, 90, and 365 day API windows to compare calories, macros, exercise burn, weight, body fat, muscle, and recent history before switching LINE dashboard links.
+
 ## Not Switched Yet
 
 LINE dashboard links still use `appConfig/runtime.legacyGasDashboardUrl`, which currently points to the GAS dashboard.

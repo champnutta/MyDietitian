@@ -35,6 +35,12 @@ Manual gates intentionally remain outside automation:
 - Dashboard parity against GAS after preview/final import.
 - Production webhook cutover approval.
 
+For dashboard parity, generate the comparison plan after preview/final import:
+
+```powershell
+npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
+```
+
 The report also verifies the migration write lock. Final migration still requires the explicit typed command from `docs/DATA_MIGRATION_PLAN.md` and `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`:
 
 ```powershell
