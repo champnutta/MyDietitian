@@ -20,6 +20,10 @@ service cloud.firestore {
       return isOwner(userId) || isLinkedOwner(userId) || isAdmin();
     }
 
+    function canAccessRecord(data) {
+      return canAccessUser(data.userId) || canAccessUser(data.canonicalUserId);
+    }
+
     function isAdmin() {
       return signedIn() && request.auth.token.admin == true;
     }
@@ -44,43 +48,105 @@ service cloud.firestore {
 
     match /mealLogs/{mealLogId} {
       allow create: if signedIn() &&
-        canAccessUser(request.resource.data.userId);
+        canAccessRecord(request.resource.data);
       allow read, update, delete: if (
-        canAccessUser(resource.data.userId)
+        canAccessRecord(resource.data)
       );
     }
 
     match /exerciseLogs/{exerciseLogId} {
       allow create: if signedIn() &&
-        canAccessUser(request.resource.data.userId);
+        canAccessRecord(request.resource.data);
       allow read, update, delete: if (
-        canAccessUser(resource.data.userId)
+        canAccessRecord(resource.data)
       );
     }
 
     match /weightLogs/{weightLogId} {
       allow create: if signedIn() &&
-        canAccessUser(request.resource.data.userId);
+        canAccessRecord(request.resource.data);
       allow read, update, delete: if (
-        canAccessUser(resource.data.userId)
+        canAccessRecord(resource.data)
       );
     }
 
     match /feedback/{feedbackId} {
       allow create: if signedIn() &&
-        canAccessUser(request.resource.data.userId);
-      allow read: if canAccessUser(resource.data.userId);
+        canAccessRecord(request.resource.data);
+      allow read: if canAccessRecord(resource.data);
       allow update, delete: if isAdmin();
     }
 
     match /aiRuns/{runId} {
-      allow read: if canAccessUser(resource.data.userId);
+      allow read: if canAccessRecord(resource.data);
       allow write: if isAdmin();
     }
 
     match /coachConsultations/{consultationId} {
-      allow read: if canAccessUser(resource.data.userId);
+      allow read: if canAccessRecord(resource.data);
       allow write: if isAdmin();
+    }
+
+    match /biaReports/{biaReportId} {
+      allow read: if canAccessRecord(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /profileEvents/{eventId} {
+      allow read: if canAccessRecord(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /profileAuthEvents/{eventId} {
+      allow read: if canAccessRecord(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /subscriptionRequests/{requestId} {
+      allow read: if canAccessRecord(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /paymentReviews/{reviewId} {
+      allow read: if canAccessRecord(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /subscriptionEvents/{eventId} {
+      allow read: if canAccessRecord(resource.data);
+      allow write: if isAdmin();
+    }
+
+    match /redeemCodes/{code} {
+      allow read, write: if isAdmin();
+    }
+
+    match /migrationRuns/{importRunId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /lineEvents/{eventId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /lineEventDedup/{messageId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /lineUnsupportedFiles/{fileId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /adminContactRequests/{requestId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /adminChatMessages/{messageId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /adminChatSessions/{sessionId} {
+      allow read, write: if isAdmin();
     }
 
     match /lineLinks/{lineUserId} {
