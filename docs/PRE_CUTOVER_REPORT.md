@@ -21,7 +21,7 @@ npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\c
 Final migration readiness packet:
 
 ```powershell
-npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --out docs/FINAL_MIGRATION_READINESS_PACKET.md
+npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
 By default, this packet says `hold-before-data-migration` until manual gates are confirmed with explicit flags such as `--manual-line-media-pass`, `--manual-liff-auth-pass`, `--rollback-reviewed`, and `--owner-approval`.
@@ -53,7 +53,7 @@ npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
 The report also verifies the migration write lock. Final migration still requires the explicit typed command from `docs/DATA_MIGRATION_PLAN.md` and `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`:
 
 ```powershell
-npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN
+npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
 Use `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md` to record evidence for the manual gates. The production webhook should not be moved from GAS to Firebase until every manual gate is marked `pass`.

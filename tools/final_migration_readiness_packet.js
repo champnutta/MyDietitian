@@ -8,6 +8,7 @@ const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
 const serviceAccount = args.serviceAccount;
 const outFile = args.out ? path.resolve(args.out) : null;
+const jsonOutFile = args.jsonOut ? path.resolve(args.jsonOut) : null;
 const evidenceFile = args.evidenceFile ? path.resolve(args.evidenceFile) : null;
 const includeSmokeWrite = Boolean(args.smokeWrite || args["smoke-write"]);
 
@@ -107,7 +108,7 @@ function main() {
       firestoreTargetSnapshot: firestoreSnapshot,
       sampleUsersForDashboardParity: migrationSnapshot.sampleUsersForDashboardParity || []
     },
-    lockedFinalMigrationCommand: "npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN",
+    lockedFinalMigrationCommand: "npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json",
     nextActions: readyForDataMigrationWindow
       ? [
         "Open the approved migration window.",
@@ -128,6 +129,11 @@ function main() {
   if (outFile) {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
     fs.writeFileSync(outFile, `${renderMarkdown(report)}\n`, "utf8");
+  }
+
+  if (jsonOutFile) {
+    fs.mkdirSync(path.dirname(jsonOutFile), { recursive: true });
+    fs.writeFileSync(jsonOutFile, `${json}\n`, "utf8");
   }
 
   if (!automatedOk) process.exit(1);
@@ -165,6 +171,7 @@ function printHelp() {
     "",
     "Optional:",
     "  --evidence-file docs/MANUAL_UAT_EVIDENCE.md",
+    "  --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json",
     "  --out docs/FINAL_MIGRATION_READINESS_PACKET.md"
   ].join("\n"));
 }

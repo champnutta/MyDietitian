@@ -319,12 +319,18 @@ function checkMigrationWriteLock() {
   });
   const missingConfirmTextOutput = `${missingConfirmText.stdout || ""}\n${missingConfirmText.stderr || ""}`;
   const confirmTextLocked = missingConfirmText.status !== 0 && missingConfirmTextOutput.includes("--confirmText FINAL_MIGRATION_MYDIETITIAN");
+  const missingReadinessPacket = spawnSync(process.execPath, ["tools/migrate_sheet_to_firestore.js", "--commit", "--confirmFinalMigration", "--confirmText", "FINAL_MIGRATION_MYDIETITIAN"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const missingReadinessPacketOutput = `${missingReadinessPacket.stdout || ""}\n${missingReadinessPacket.stderr || ""}`;
+  const readinessPacketLocked = missingReadinessPacket.status !== 0 && missingReadinessPacketOutput.includes("--readinessPacket");
 
-  const locked = finalFlagLocked && confirmTextLocked;
+  const locked = finalFlagLocked && confirmTextLocked && readinessPacketLocked;
   record(
     "migration write lock",
     locked ? "pass" : "fail",
-    locked ? "write requires --confirmFinalMigration and typed --confirmText" : `finalFlagLocked=${finalFlagLocked}; confirmTextLocked=${confirmTextLocked}`
+    locked ? "write requires --confirmFinalMigration, typed --confirmText, and ready readiness packet" : `finalFlagLocked=${finalFlagLocked}; confirmTextLocked=${confirmTextLocked}; readinessPacketLocked=${readinessPacketLocked}`
   );
 }
 

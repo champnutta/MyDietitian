@@ -66,15 +66,15 @@ Code, Days, Status, Used_By, Used_Date
 
 ## Write command lock
 
-The migration script refuses to write unless both flags are present:
+The migration script refuses to write unless every final-readiness guard is present:
 
 ```powershell
-npm run migrate:sheets:dry-run -- --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN
+npm run migrate:sheets:dry-run -- --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
 Do not use this command until the production migration window is approved.
 
-The typed `--confirmText` guard intentionally prevents accidental writes from copied partial commands.
+The typed `--confirmText` guard and `--readinessPacket` guard intentionally prevent accidental writes from copied partial commands or from running before readiness evidence is complete.
 
 ## Dry-run readiness report
 

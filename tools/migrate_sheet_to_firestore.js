@@ -29,6 +29,8 @@ async function main() {
     throw new Error(
       `Refusing to write. Pass --confirmText ${finalConfirmationText} only during the approved final migration window.`
     );
+  } else {
+    validateFinalMigrationReadinessPacket(args.readinessPacket);
   }
 
   if (commit) initializeFirebase(projectId, args.serviceAccount);
@@ -41,6 +43,33 @@ async function main() {
 
   if (commit) {
     await writePlannedDocuments(planned);
+  }
+}
+
+function validateFinalMigrationReadinessPacket(readinessPacketPath) {
+  if (!readinessPacketPath) {
+    throw new Error(
+      "Refusing to write. Pass --readinessPacket pointing to a JSON packet with decision.status=ready-for-final-data-migration-window."
+    );
+  }
+
+  let packet;
+  try {
+    packet = require(require("node:path").resolve(readinessPacketPath));
+  } catch (error) {
+    throw new Error(`Refusing to write. Unable to read --readinessPacket: ${error.message || String(error)}`);
+  }
+
+  const ready = packet?.decision?.readyForDataMigrationWindow === true &&
+    packet?.decision?.status === "ready-for-final-data-migration-window" &&
+    packet?.evidenceCheck?.ok === true &&
+    packet?.automated?.preCutoverOk === true &&
+    packet?.migrationSnapshot?.firestoreTargetSnapshot?.legacyImportAlreadyPresent === false;
+
+  if (!ready) {
+    throw new Error(
+      "Refusing to write. Readiness packet is not ready-for-final-data-migration-window with passing evidence and automated checks."
+    );
   }
 }
 

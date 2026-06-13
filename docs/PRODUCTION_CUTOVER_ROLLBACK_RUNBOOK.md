@@ -5,7 +5,7 @@ Use this runbook only after the approved final data migration window. Do not mov
 ## Non-Negotiable Preconditions
 
 - Latest `npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write` is `ok=true`.
-- Latest `npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --evidence-file docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --owner-approval` says `ready-for-final-data-migration-window`.
+- Latest `npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --evidence-file docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --owner-approval --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json` says `ready-for-final-data-migration-window`.
 - A completed `docs/MANUAL_UAT_EVIDENCE.md` copied from the template has pass evidence for real LINE media UAT.
 - Real LIFF settings UAT returns `authVerified=true`.
 - Final Google Sheet migration is complete and verified.
@@ -38,7 +38,7 @@ Record these values in the cutover notes before changing anything:
 6. Complete final Google Sheet to Firestore migration using the locked write command only inside the approved window:
 
 ```powershell
-npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN
+npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
 This command is intentionally wordy. Do not shorten it; the typed confirmation prevents accidental writes before the final migration window.
