@@ -25,6 +25,7 @@ npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:
 ```
 
 By default, this packet says `hold-before-data-migration` until manual gates are confirmed with explicit flags such as `--manual-line-media-pass`, `--manual-liff-auth-pass`, `--rollback-reviewed`, and `--owner-approval`.
+If any manual gate flag is used, also pass `--evidence-file docs/MANUAL_UAT_EVIDENCE.md`; the packet will validate that the evidence file has required `pass` rows and owner sign-off.
 
 The report combines:
 

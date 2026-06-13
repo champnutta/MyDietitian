@@ -24,6 +24,12 @@ npm run line:uat-report
 npm run dashboard:contract
 ```
 
+When this file is copied and filled with real evidence, validate it before using readiness flags:
+
+```powershell
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md
+```
+
 Record the latest output summary:
 
 | Check | Expected | Actual |
@@ -85,6 +91,7 @@ npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
 | Real LIFF auth UAT | pass |  |  |
 | Dashboard parity after import | pass |  |  |
 | Rollback plan reviewed | pass |  |  |
+| Final data migration window approved | pass |  |  |
 | Production webhook cutover approved | pass |  |  |
 
 Final decision:

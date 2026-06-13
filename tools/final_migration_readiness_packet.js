@@ -8,6 +8,7 @@ const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
 const serviceAccount = args.serviceAccount;
 const outFile = args.out ? path.resolve(args.out) : null;
+const evidenceFile = args.evidenceFile ? path.resolve(args.evidenceFile) : null;
 const includeSmokeWrite = Boolean(args.smokeWrite || args["smoke-write"]);
 
 const MANUAL_GATE_FLAGS = [
@@ -50,6 +51,9 @@ function main() {
   if (includeSmokeWrite) preCutoverArgs.push("--smoke-write");
 
   const preCutover = runNodeJson("pre-cutover report", preCutoverArgs);
+  const evidenceCheck = evidenceFile
+    ? runNodeJson("manual UAT evidence check", ["tools/manual_uat_evidence_check.js", "--file", evidenceFile])
+    : null;
   const manualGates = MANUAL_GATE_FLAGS.map((gate) => ({
     label: gate.label,
     pass: Boolean(args[gate.flag]),
@@ -58,14 +62,16 @@ function main() {
   }));
 
   const automatedOk = Boolean(preCutover.ok && preCutover.json?.ok);
+  const anyManualFlagProvided = manualGates.some((gate) => gate.pass);
+  const evidenceOk = evidenceCheck ? Boolean(evidenceCheck.ok && evidenceCheck.json?.ok) : !anyManualFlagProvided;
   const manualOk = manualGates.every((gate) => gate.pass);
   const migrationSnapshot = preCutover.json?.migrationSnapshot || {};
   const firestoreSnapshot = migrationSnapshot.firestoreTargetSnapshot || {};
   const noLegacyImportPresent = firestoreSnapshot.legacyImportAlreadyPresent === false;
   const firestoreTargetOk = firestoreSnapshot.okToProceedBeforeMigration === true;
   const dataQualityOk = migrationSnapshot.dataQuality?.okToPreviewImport === true;
-  const readyForDataMigrationWindow = automatedOk && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
-  const blockers = buildBlockers({ automatedOk, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
+  const readyForDataMigrationWindow = automatedOk && evidenceOk && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
+  const blockers = buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
 
   const report = {
     ok: automatedOk,
@@ -81,6 +87,18 @@ function main() {
       checks: preCutover.json?.automatedChecks || [],
       error: preCutover.error
     },
+    evidenceCheck: evidenceCheck
+      ? {
+        ok: evidenceOk,
+        evidenceFile,
+        failures: evidenceCheck.json?.failures || [],
+        error: evidenceCheck.error
+      }
+      : {
+        ok: evidenceOk,
+        evidenceFile: null,
+        failures: anyManualFlagProvided ? ["Manual gate flags require --evidence-file."] : []
+      },
     manualGates,
     migrationSnapshot: {
       totalPlannedDocuments: migrationSnapshot.totalPlannedDocuments ?? null,
@@ -115,9 +133,14 @@ function main() {
   if (!automatedOk) process.exit(1);
 }
 
-function buildBlockers({ automatedOk, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
+function buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
   const blockers = [];
   if (!automatedOk) blockers.push(`Automated pre-cutover report failed: ${preCutover.error || "unknown error"}`);
+  if (anyManualFlagProvided && !evidenceFile) blockers.push("Manual gate flags require --evidence-file pointing to a completed UAT evidence file.");
+  if (evidenceFile && !evidenceOk) {
+    const failures = evidenceCheck?.json?.failures || [evidenceCheck?.error || "unknown evidence check failure"];
+    for (const failure of failures) blockers.push(`Evidence file incomplete: ${failure}`);
+  }
   if (automatedOk && !dataQualityOk) blockers.push("Migration dry-run data quality is not okToPreviewImport=true.");
   if (automatedOk && !firestoreTargetOk) blockers.push("Firestore target snapshot is not okToProceedBeforeMigration=true.");
   if (automatedOk && !noLegacyImportPresent) blockers.push("Firestore already contains legacy imported documents; review before writing again.");
@@ -141,6 +164,7 @@ function printHelp() {
     "  --owner-approval",
     "",
     "Optional:",
+    "  --evidence-file docs/MANUAL_UAT_EVIDENCE.md",
     "  --out docs/FINAL_MIGRATION_READINESS_PACKET.md"
   ].join("\n"));
 }
@@ -203,6 +227,18 @@ function renderMarkdown(report) {
 
   for (const gate of report.manualGates) {
     lines.push(`| ${gate.label} | ${gate.pass ? "pass" : "missing"} | \`${gate.requiredFlag}\` | ${escapeTable(gate.evidence)} |`);
+  }
+
+  lines.push(
+    "",
+    "## Evidence File",
+    "",
+    `Evidence file: ${report.evidenceCheck.evidenceFile || "-"}`,
+    `Evidence check: ${report.evidenceCheck.ok ? "pass" : "missing/fail"}`
+  );
+
+  if (report.evidenceCheck.failures.length) {
+    for (const failure of report.evidenceCheck.failures) lines.push(`- ${failure}`);
   }
 
   lines.push(

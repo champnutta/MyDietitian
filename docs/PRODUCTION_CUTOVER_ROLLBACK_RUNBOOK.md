@@ -5,8 +5,8 @@ Use this runbook only after the approved final data migration window. Do not mov
 ## Non-Negotiable Preconditions
 
 - Latest `npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write` is `ok=true`.
-- Latest `npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --owner-approval` says `ready-for-final-data-migration-window`.
-- `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md` has pass evidence for real LINE media UAT.
+- Latest `npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --evidence-file docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --owner-approval` says `ready-for-final-data-migration-window`.
+- A completed `docs/MANUAL_UAT_EVIDENCE.md` copied from the template has pass evidence for real LINE media UAT.
 - Real LIFF settings UAT returns `authVerified=true`.
 - Final Google Sheet migration is complete and verified.
 - Firestore dashboard parity matches GAS dashboard for sampled users and date ranges.
