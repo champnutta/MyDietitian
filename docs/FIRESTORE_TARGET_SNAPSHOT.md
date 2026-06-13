@@ -18,9 +18,15 @@ For each collection it reports:
 - `total`: total documents.
 - `legacyImported`: documents already marked with `legacy.importedFrom = google-sheet`.
 - `testLike`: approximate count of test-like documents in the first 500 documents scanned.
+- `productionLooking`: estimated count that is neither test-like nor already marked as a legacy import.
+- `riskLevel`: `low`, `medium`, or `high` based on the snapshot.
+- `okToProceedBeforeMigration`: `false` when high-risk conditions are present.
+- `warnings`: review items before final migration.
 
 Before final migration:
 
 - `legacyImportAlreadyPresent` should normally be `false` unless a controlled preview/final import has already happened.
 - Any unexpected non-test production-looking records should be reviewed before write migration.
+- `riskLevel=medium` does not automatically block migration, but it means a human should review the listed collections.
+- `riskLevel=high` should block write migration until the cause is understood.
 - This command does not write, delete, or mutate Firestore data.

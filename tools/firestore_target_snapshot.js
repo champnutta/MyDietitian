@@ -44,7 +44,8 @@ async function main() {
       countQuery(ref.where("legacy.importedFrom", "==", "google-sheet")),
       countTestLikeDocs(ref)
     ]);
-    collections[collection] = { total, legacyImported, testLike };
+    const productionLooking = Math.max(0, total - testLike - legacyImported);
+    collections[collection] = { total, legacyImported, testLike, productionLooking };
   }
 
   const summary = summarizeCollections(collections);
@@ -85,15 +86,52 @@ function summarizeCollections(collections) {
     acc.total += item.total;
     acc.legacyImported += item.legacyImported;
     acc.testLike += item.testLike;
+    acc.productionLooking += item.productionLooking;
     return acc;
-  }, { total: 0, legacyImported: 0, testLike: 0 });
+  }, { total: 0, legacyImported: 0, testLike: 0, productionLooking: 0 });
+
+  const warnings = buildWarnings(collections, totals);
+  const riskLevel = warnings.some((warning) => warning.severity === "high")
+    ? "high"
+    : warnings.some((warning) => warning.severity === "medium")
+      ? "medium"
+      : "low";
 
   return {
     totalDocumentsInTrackedCollections: totals.total,
     legacyImportedDocuments: totals.legacyImported,
     testLikeDocumentsInFirst500PerCollection: totals.testLike,
-    legacyImportAlreadyPresent: totals.legacyImported > 0
+    productionLookingDocumentsEstimate: totals.productionLooking,
+    legacyImportAlreadyPresent: totals.legacyImported > 0,
+    okToProceedBeforeMigration: riskLevel !== "high",
+    riskLevel,
+    warnings
   };
+}
+
+function buildWarnings(collections, totals) {
+  const warnings = [];
+
+  if (totals.legacyImported > 0) {
+    warnings.push({
+      severity: "high",
+      type: "legacy-import-already-present",
+      message: "Firestore already contains documents marked as imported from Google Sheet. Confirm whether this was a controlled preview/final import before writing again."
+    });
+  }
+
+  for (const [collection, item] of Object.entries(collections)) {
+    if (item.productionLooking <= 0) continue;
+    warnings.push({
+      severity: "medium",
+      type: "production-looking-documents",
+      collection,
+      count: item.productionLooking,
+      message: `${collection} has documents that do not look like test records or legacy imports in the sampled snapshot. Review before final migration.`
+    });
+  }
+
+  return warnings;
 }
 
 function initializeFirebase(projectId, serviceAccountPath) {

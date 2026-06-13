@@ -167,6 +167,8 @@ function renderMarkdown(report) {
     `Total planned documents: ${report.migrationSnapshot.totalPlannedDocuments ?? "-"}`,
     `Firestore tracked documents before migration: ${report.migrationSnapshot.firestoreTargetSnapshot?.totalDocumentsInTrackedCollections ?? "-"}`,
     `Existing legacy imported documents: ${report.migrationSnapshot.firestoreTargetSnapshot?.legacyImportedDocuments ?? "-"}`,
+    `Firestore target risk level: ${report.migrationSnapshot.firestoreTargetSnapshot?.riskLevel ?? "-"}`,
+    `Firestore target ok to proceed before migration: ${report.migrationSnapshot.firestoreTargetSnapshot?.okToProceedBeforeMigration ?? "-"}`,
     "",
     "Suggested sample users for dashboard parity:"
   );
