@@ -874,34 +874,59 @@ async function writePlannedDocuments(docs, importManifest) {
   let batch = db.batch();
   let pending = 0;
   let written = 0;
-  const importedAt = admin.firestore.Timestamp.now();
-  const committedManifest = {
+  const startedAt = admin.firestore.Timestamp.now();
+  const manifestRef = db.collection("migrationRuns").doc(importManifest.importRunId);
+  const runningManifest = {
     ...importManifest,
-    status: "completed",
-    importedAt,
-    updatedAt: importedAt
+    status: "running",
+    startedAt,
+    updatedAt: startedAt,
+    writtenDocuments: 0
   };
 
-  for (const item of docs) {
-    batch.set(db.collection(item.collection).doc(item.id), withImportProvenance(item.data, committedManifest), { merge: true });
-    pending += 1;
+  await manifestRef.set(runningManifest, { merge: true });
 
-    if (pending >= 450) {
+  try {
+    for (const item of docs) {
+      batch.set(db.collection(item.collection).doc(item.id), withImportProvenance(item.data, runningManifest), { merge: true });
+      pending += 1;
+
+      if (pending >= 450) {
+        await batch.commit();
+        written += pending;
+        await manifestRef.set({ writtenDocuments: written, updatedAt: admin.firestore.Timestamp.now() }, { merge: true });
+        pending = 0;
+        batch = db.batch();
+      }
+    }
+
+    if (pending) {
       await batch.commit();
       written += pending;
-      pending = 0;
-      batch = db.batch();
     }
+
+    const completedAt = admin.firestore.Timestamp.now();
+    await manifestRef.set({
+      status: "completed",
+      writtenDocuments: written,
+      completedAt,
+      importedAt: completedAt,
+      updatedAt: completedAt
+    }, { merge: true });
+
+    console.log(`Wrote ${written} documents.`);
+  } catch (error) {
+    const failedAt = admin.firestore.Timestamp.now();
+    await manifestRef.set({
+      status: "failed",
+      writtenDocuments: written,
+      failedAt,
+      updatedAt: failedAt,
+      error: error instanceof Error ? error.message : String(error)
+    }, { merge: true });
+
+    throw error;
   }
-
-  if (pending) {
-    await batch.commit();
-    written += pending;
-  }
-
-  await db.collection("migrationRuns").doc(importManifest.importRunId).set(committedManifest, { merge: true });
-
-  console.log(`Wrote ${written} documents.`);
 }
 
 function withImportProvenance(data, manifest) {

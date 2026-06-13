@@ -29,7 +29,7 @@ Current uses:
 
 ### `migrationRuns/{importRunId}`
 
-Audit manifest written after a controlled Google Sheet import. The import tool also stamps imported documents with matching `legacy.importRunId`, `legacy.sourceFingerprint`, `legacy.sourceSheetId`, `legacy.readinessPacketGeneratedAt`, and `legacy.migrationCommit`.
+Audit manifest written during a controlled Google Sheet import. The import tool creates the manifest with `status=running` before batch writes, updates `writtenDocuments` during progress, then marks it `completed` or `failed`. Imported documents are stamped with matching `legacy.importRunId`, `legacy.sourceFingerprint`, `legacy.sourceSheetId`, `legacy.readinessPacketGeneratedAt`, and `legacy.migrationCommit`.
 
 ```json
 {
@@ -48,6 +48,9 @@ Audit manifest written after a controlled Google Sheet import. The import tool a
     "mealLogs": 11035
   },
   "totalPlannedDocuments": 11622,
+  "writtenDocuments": 11622,
+  "startedAt": "timestamp",
+  "completedAt": "timestamp",
   "importedAt": "timestamp"
 }
 ```
