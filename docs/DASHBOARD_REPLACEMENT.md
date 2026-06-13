@@ -29,10 +29,10 @@ This validates response shape and array lengths for labels, calories, macros, bo
 After preview/final import, generate a sampled parity checklist from the latest Google Sheet dry-run:
 
 ```powershell
-npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
+npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md --json-out docs/DASHBOARD_PARITY_PLAN_OUTPUT.json
 ```
 
-This creates user-specific Firestore/GAS dashboard links plus 7, 30, 90, and 365 day API windows to compare calories, macros, exercise burn, weight, body fat, muscle, and recent history before switching LINE dashboard links.
+This creates user-specific Firestore/GAS dashboard links plus 7, 30, 90, and 365 day API windows to compare calories, macros, exercise burn, weight, body fat, muscle, and recent history before switching LINE dashboard links. The cutover evidence checker uses the JSON file to require passing parity rows for every sampled user/window.
 
 ## Not Switched Yet
 

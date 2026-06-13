@@ -122,8 +122,8 @@ function main() {
     postMigrationVerificationCommands: [
       "npm run migration:verify-import -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json",
       "npm run report:pre-cutover -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --smoke-write",
-      "npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md",
-      "npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover"
+      "npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md --json-out docs/DASHBOARD_PARITY_PLAN_OUTPUT.json",
+      "npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover --parity-plan-json docs/DASHBOARD_PARITY_PLAN_OUTPUT.json"
     ],
     nextActions: readyForDataMigrationWindow
       ? [

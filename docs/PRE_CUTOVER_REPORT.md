@@ -68,6 +68,6 @@ npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Use
 ```
 
 Use `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md` to record evidence for the manual gates. The production webhook should not be moved from GAS to Firebase until every manual gate is marked `pass`.
-After the final import, run `npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover` to require dashboard parity evidence and production webhook cutover approval before changing LINE Console.
+After the final import, run `npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover --parity-plan-json docs/DASHBOARD_PARITY_PLAN_OUTPUT.json` to require dashboard parity evidence for every sampled user/date window plus production webhook cutover approval before changing LINE Console.
 
 Use `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md` for the final webhook switch and rollback procedure after data migration and dashboard parity are verified.

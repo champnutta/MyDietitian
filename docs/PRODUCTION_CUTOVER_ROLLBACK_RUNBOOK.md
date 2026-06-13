@@ -60,7 +60,7 @@ npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Us
 11. Validate final cutover evidence:
 
 ```powershell
-npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover --parity-plan-json docs/DASHBOARD_PARITY_PLAN_OUTPUT.json
 ```
 
 12. In LINE Developers Console, change the production webhook URL to Firebase.

@@ -36,10 +36,10 @@ The pre-migration evidence checker requires every pre-run `Actual` field to cont
 After the approved import completes, validate the final cutover evidence before changing the production LINE webhook:
 
 ```powershell
-npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover --parity-plan-json docs/DASHBOARD_PARITY_PLAN_OUTPUT.json
 ```
 
-The cutover phase additionally requires completed dashboard parity rows and production webhook cutover approval.
+The cutover phase additionally requires completed dashboard parity rows for every sampled user/date window in `docs/DASHBOARD_PARITY_PLAN_OUTPUT.json` and production webhook cutover approval.
 
 Record the latest output summary:
 
@@ -85,7 +85,7 @@ Use `sampleUsersForDashboardParity` from the latest migration dry-run report.
 Optional helper after preview/final import:
 
 ```powershell
-npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
+npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md --json-out docs/DASHBOARD_PARITY_PLAN_OUTPUT.json
 ```
 
 | User ID | Date range | GAS calories | Firestore calories | GAS protein/carbs/fat | Firestore protein/carbs/fat | GAS weight/fat/muscle | Firestore weight/fat/muscle | Result | Notes |

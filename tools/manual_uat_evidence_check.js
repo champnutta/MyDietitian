@@ -6,6 +6,8 @@ const path = require("node:path");
 const args = parseArgs(process.argv.slice(2));
 const evidenceFile = path.resolve(args.file || "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md");
 const phase = args.phase || "pre-migration";
+const parityPlanJson = args.parityPlanJson || args["parity-plan-json"];
+const parityPlanJsonPath = parityPlanJson ? path.resolve(parityPlanJson) : null;
 
 if (args.help || args.h) {
   printHelp();
@@ -20,18 +22,19 @@ function main() {
   }
 
   const text = fs.readFileSync(evidenceFile, "utf8");
-  const report = buildReport(text, phase);
+  const parityPlan = parityPlanJsonPath ? readJson(parityPlanJsonPath) : null;
+  const report = buildReport(text, phase, parityPlan);
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exit(1);
 }
 
-function buildReport(text, validationPhase) {
+function buildReport(text, validationPhase, parityPlan) {
   const session = checkSessionFields(text);
   const preRun = checkPreRunCommands(text);
   const lineMedia = checkLineMediaEvidence(text);
   const liffAuth = checkLiffEvidence(text);
   const rollbackValues = checkRollbackValues(text);
-  const dashboardParity = validationPhase === "cutover" ? checkDashboardParityEvidence(text) : [];
+  const dashboardParity = validationPhase === "cutover" ? checkDashboardParityEvidence(text, parityPlan) : [];
   const decisions = checkCutoverDecision(text, validationPhase);
   const failures = [
     ...session.filter((item) => !item.ok).map((item) => item.message),
@@ -54,6 +57,7 @@ function buildReport(text, validationPhase) {
     liffAuth,
     rollbackValues,
     dashboardParity,
+    parityPlanJson: parityPlanJsonPath,
     decisions,
     failures
   };
@@ -109,7 +113,7 @@ function checkCutoverDecision(text, validationPhase) {
   });
 }
 
-function checkDashboardParityEvidence(text) {
+function checkDashboardParityEvidence(text, parityPlan) {
   const table = extractTableRows(text, "## Dashboard Parity After Preview/Final Import");
   const rows = table.filter((row) => stripMarkdown(row[0]) && normalize(row[0]) !== "user id");
   const checks = [];
@@ -122,7 +126,7 @@ function checkDashboardParityEvidence(text) {
     }];
   }
 
-  rows.forEach((row, index) => {
+  const parsedRows = rows.map((row, index) => {
     const userId = row[0]?.trim() || "";
     const dateRange = row[1]?.trim() || "";
     const gasCalories = row[2]?.trim() || "";
@@ -135,7 +139,7 @@ function checkDashboardParityEvidence(text) {
     const hasCoreEvidence = [userId, dateRange, gasCalories, firestoreCalories, gasMacros, firestoreMacros, notes]
       .every((value) => Boolean(stripMarkdown(value)));
 
-    checks.push({
+    return {
       section: "Dashboard Parity After Preview/Final Import",
       row: index + 1,
       userId,
@@ -144,8 +148,46 @@ function checkDashboardParityEvidence(text) {
       result,
       notes,
       message: `Dashboard parity row ${index + 1} must include user, range, GAS/Firestore calorie+macro evidence, Result pass, and notes.`
-    });
+    };
   });
+  checks.push(...parsedRows);
+
+  if (parityPlan) {
+    checks.push(...checkParityPlanCoverage(parsedRows, parityPlan));
+  }
+
+  return checks;
+}
+
+function checkParityPlanCoverage(rows, parityPlan) {
+  const users = Array.isArray(parityPlan.sampleUsers) ? parityPlan.sampleUsers : [];
+  const windows = Array.isArray(parityPlan.parityWindows) ? parityPlan.parityWindows : [];
+  const checks = [];
+
+  if (!users.length || !windows.length) {
+    return [{
+      section: "Dashboard Parity After Preview/Final Import",
+      ok: false,
+      message: "Dashboard parity plan JSON must include sampleUsers and parityWindows."
+    }];
+  }
+
+  for (const user of users) {
+    for (const days of windows) {
+      const match = rows.find((row) =>
+        normalize(row.userId) === normalize(user.userId) &&
+        normalize(row.dateRange) === normalize(`${days} days`) &&
+        row.ok === true
+      );
+      checks.push({
+        section: "Dashboard Parity After Preview/Final Import",
+        userId: user.userId,
+        dateRange: `${days} days`,
+        ok: Boolean(match),
+        message: `Dashboard parity must include passing evidence for ${user.userId} / ${days} days from the parity plan.`
+      });
+    }
+  }
 
   return checks;
 }
@@ -288,6 +330,10 @@ function stripMarkdown(value) {
   return String(value || "").replace(/`/g, "").trim();
 }
 
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, "utf8").replace(/^\uFEFF/, ""));
+}
+
 function hasValue(value) {
   return Boolean(stripMarkdown(value));
 }
@@ -309,12 +355,18 @@ function parseArgs(argv) {
     const value = argv[index + 1];
     if (!value || value.startsWith("--")) {
       out[key] = true;
+      out[toCamelCase(key)] = true;
     } else {
       out[key] = value;
+      out[toCamelCase(key)] = value;
       index += 1;
     }
   }
   return out;
+}
+
+function toCamelCase(value) {
+  return value.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
 }
 
 function printHelp() {
@@ -323,7 +375,7 @@ function printHelp() {
     "",
     "Usage:",
     "  npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration",
-    "  npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover",
+    "  npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover --parity-plan-json docs/DASHBOARD_PARITY_PLAN_OUTPUT.json",
     "",
     "pre-migration validates gates needed before the final Google Sheet import window.",
     "cutover additionally requires dashboard parity evidence and production webhook cutover approval."

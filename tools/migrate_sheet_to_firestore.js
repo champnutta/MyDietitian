@@ -28,8 +28,10 @@ const requiredPostMigrationCommandFragments = [
   "migration:verify-import",
   "report:pre-cutover",
   "dashboard:parity-plan",
+  "--json-out",
   "uat:evidence-check",
-  "--phase cutover"
+  "--phase cutover",
+  "--parity-plan-json"
 ];
 const requiredManualGateLabels = [
   "Real LINE media UAT",
