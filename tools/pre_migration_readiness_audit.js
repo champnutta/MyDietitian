@@ -2,6 +2,9 @@
 
 const admin = require("firebase-admin");
 const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
@@ -328,13 +331,97 @@ function checkMigrationWriteLock() {
   });
   const missingReadinessPacketOutput = `${missingReadinessPacket.stdout || ""}\n${missingReadinessPacket.stderr || ""}`;
   const readinessPacketLocked = missingReadinessPacket.status !== 0 && missingReadinessPacketOutput.includes("--readinessPacket");
+  const staleReadinessPacket = checkStaleReadinessPacketLock();
 
-  const locked = finalFlagLocked && confirmTextLocked && readinessPacketLocked;
+  const locked = finalFlagLocked && confirmTextLocked && readinessPacketLocked && staleReadinessPacket.locked;
   record(
     "migration write lock",
     locked ? "pass" : "fail",
-    locked ? "write requires --confirmFinalMigration, typed --confirmText, and ready readiness packet" : `finalFlagLocked=${finalFlagLocked}; confirmTextLocked=${confirmTextLocked}; readinessPacketLocked=${readinessPacketLocked}`
+    locked
+      ? "write requires --confirmFinalMigration, typed --confirmText, fresh readiness packet, and post-migration verification commands"
+      : `finalFlagLocked=${finalFlagLocked}; confirmTextLocked=${confirmTextLocked}; readinessPacketLocked=${readinessPacketLocked}; staleReadinessPacketLocked=${staleReadinessPacket.locked}; staleReason=${staleReadinessPacket.reason}`
   );
+}
+
+function checkStaleReadinessPacketLock() {
+  const stalePacketPath = path.join(os.tmpdir(), `mydietitian-stale-readiness-${Date.now()}.json`);
+  fs.writeFileSync(stalePacketPath, JSON.stringify(buildStaleReadyPacket(), null, 2), "utf8");
+  try {
+    const result = spawnSync(process.execPath, [
+      "tools/migrate_sheet_to_firestore.js",
+      "--sheetId", "guard-test-no-write",
+      "--commit",
+      "--confirmFinalMigration",
+      "--confirmText", "FINAL_MIGRATION_MYDIETITIAN",
+      "--readinessPacket", stalePacketPath
+    ], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      maxBuffer: 5 * 1024 * 1024
+    });
+    const output = `${result.stdout || ""}\n${result.stderr || ""}`;
+    return {
+      locked: result.status !== 0 && output.includes("post-migration verification commands"),
+      reason: output.trim().split(/\r?\n/).slice(-1)[0] || `status=${result.status}`
+    };
+  } finally {
+    try {
+      fs.unlinkSync(stalePacketPath);
+    } catch {
+      // Best-effort cleanup for local temp guard fixture.
+    }
+  }
+}
+
+function buildStaleReadyPacket() {
+  return {
+    packetType: "final-migration-readiness-packet",
+    schemaVersion: 1,
+    ok: true,
+    generatedAt: new Date().toISOString(),
+    projectId,
+    decision: {
+      status: "ready-for-final-data-migration-window",
+      readyForDataMigrationWindow: true,
+      blockers: []
+    },
+    automated: {
+      preCutoverOk: true,
+      checks: [
+        "pre-migration audit",
+        "migration dry-run",
+        "dashboard contract",
+        "dashboard parity plan",
+        "LINE UAT dry-run",
+        "runtime cutover guard",
+        "Firestore target snapshot"
+      ].map((name) => ({ name, ok: true }))
+    },
+    evidenceCheck: {
+      ok: true,
+      evidenceFile: "docs/MANUAL_UAT_EVIDENCE.md"
+    },
+    manualGates: [
+      "Real LINE media UAT",
+      "Real LIFF auth UAT",
+      "Rollback plan reviewed",
+      "Owner approval for migration window"
+    ].map((label) => ({ label, pass: true })),
+    migrationSnapshot: {
+      totalPlannedDocuments: 1,
+      dataQuality: { okToPreviewImport: true },
+      sourceFingerprint: {
+        algorithm: "sha256",
+        value: "a".repeat(64),
+        sheetId: "guard-test-no-write"
+      },
+      firestoreTargetSnapshot: {
+        legacyImportAlreadyPresent: false,
+        okToProceedBeforeMigration: true,
+        riskLevel: "low"
+      }
+    }
+  };
 }
 
 function checkMigrationDryRunMapping() {
