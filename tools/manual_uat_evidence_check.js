@@ -22,9 +22,15 @@ function main() {
 
 function buildReport(text) {
   const session = checkSessionFields(text);
+  const preRun = checkPreRunCommands(text);
+  const lineMedia = checkLineMediaEvidence(text);
+  const liffAuth = checkLiffEvidence(text);
   const decisions = checkCutoverDecision(text);
   const failures = [
     ...session.filter((item) => !item.ok).map((item) => item.message),
+    ...preRun.filter((item) => !item.ok).map((item) => item.message),
+    ...lineMedia.filter((item) => !item.ok).map((item) => item.message),
+    ...liffAuth.filter((item) => !item.ok).map((item) => item.message),
     ...decisions.filter((item) => !item.ok).map((item) => item.message)
   ];
 
@@ -33,6 +39,9 @@ function buildReport(text) {
     generatedAt: new Date().toISOString(),
     evidenceFile,
     session,
+    preRun,
+    lineMedia,
+    liffAuth,
     decisions,
     failures
   };
@@ -83,6 +92,73 @@ function checkCutoverDecision(text) {
         : `${gate} row is missing from Cutover Decision.`
     };
   });
+}
+
+function checkPreRunCommands(text) {
+  const required = [
+    "Pre-cutover report",
+    "Pre-migration audit",
+    "LINE text dry-run",
+    "Signed LINE webhook contract",
+    "Dashboard contract",
+    "Migration dry-run"
+  ];
+  const table = extractTableRows(text, "## Pre-Run Commands");
+  return required.map((check) => {
+    const row = table.find((item) => normalize(item[0]) === normalize(check));
+    const actual = row?.[2]?.trim() || "";
+    const actualPass = /pass|ok=true|13\/13|mode=line-webhook-contract-dry-run|okToPreviewImport=true/i.test(stripMarkdown(actual));
+    return {
+      check,
+      ok: Boolean(row) && actualPass,
+      actual,
+      message: row
+        ? `${check} Actual must include a passing result.`
+        : `${check} row is missing from Pre-Run Commands.`
+    };
+  });
+}
+
+function checkLineMediaEvidence(text) {
+  const required = [
+    "Food image",
+    "Leftover image",
+    "Payment slip image",
+    "Admin approve",
+    "Admin reject",
+    "BIA image/PDF",
+    "BIA confirm"
+  ];
+  const table = extractTableRows(text, "## Real LINE Media UAT");
+  return required.map((testCase) => checkEvidenceCase(table, testCase, "Real LINE Media UAT"));
+}
+
+function checkLiffEvidence(text) {
+  const required = [
+    "LIFF settings opens",
+    "LINE ID token sent",
+    "Invalid token rejected"
+  ];
+  const table = extractTableRows(text, "## Real LIFF Auth UAT");
+  return required.map((testCase) => checkEvidenceCase(table, testCase, "Real LIFF Auth UAT"));
+}
+
+function checkEvidenceCase(table, testCase, section) {
+  const row = table.find((item) => normalize(item[0]) === normalize(testCase));
+  const result = row?.[row.length - 2]?.trim() || "";
+  const notes = row?.[row.length - 1]?.trim() || "";
+  const resultPass = /^pass\b/i.test(stripMarkdown(result));
+  const hasNotes = Boolean(stripMarkdown(notes));
+  return {
+    section,
+    case: testCase,
+    ok: Boolean(row) && resultPass && hasNotes,
+    result,
+    notes,
+    message: row
+      ? `${section} / ${testCase} must have Result pass and evidence notes.`
+      : `${section} / ${testCase} row is missing.`
+  };
 }
 
 function extractTableRows(text, heading) {

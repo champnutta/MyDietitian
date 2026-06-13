@@ -31,6 +31,8 @@ When this file is copied and filled with real evidence, validate it before using
 npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md
 ```
 
+The evidence checker requires every pre-run `Actual` field to contain a passing result, every Real LINE Media and Real LIFF case to have `Result=pass`, evidence notes filled, and each required Cutover Decision row to have owner sign-off.
+
 Record the latest output summary:
 
 | Check | Expected | Actual |
