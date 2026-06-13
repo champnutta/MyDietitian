@@ -38,7 +38,7 @@ This creates user-specific Firestore/GAS dashboard links plus 7, 30, 90, and 365
 
 LINE dashboard links still use `appConfig/runtime.legacyGasDashboardUrl`, which currently points to the GAS dashboard.
 
-The pre-migration audit intentionally fails if this bridge is switched to `https://mydietitian.web.app/dashboard` before data migration and dashboard parity are complete.
+The pre-migration audit intentionally fails if this bridge is switched to `https://mydietitian.web.app/dashboard` before data migration and dashboard parity are complete. It also checks that the GAS dashboard bridge remains reachable while production users still depend on GAS/Sheets.
 
 Do not switch this config to the hosted dashboard until:
 

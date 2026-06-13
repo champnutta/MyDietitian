@@ -39,6 +39,7 @@ async function main() {
 
   await checkFirestoreConfig();
   await checkDashboardBridgeGuard();
+  await checkLegacyGasDashboardBridge();
   await checkAiAgents();
   await checkSubscriptionPlans();
   checkLineUatDryRunReport();
@@ -245,6 +246,35 @@ async function checkDashboardBridgeGuard() {
       ? "legacyGasDashboardUrl still points to GAS before migration"
       : `legacyGasDashboardUrl must remain GAS before data migration; current=${dashboardUrl || "missing"}`
   );
+}
+
+async function checkLegacyGasDashboardBridge() {
+  const db = admin.firestore();
+  const snap = await db.collection("appConfig").doc("runtime").get();
+  if (!snap.exists) {
+    record("legacy GAS dashboard bridge", "fail", "appConfig/runtime missing");
+    return;
+  }
+
+  const dashboardUrl = String(snap.data()?.legacyGasDashboardUrl || "");
+  if (!dashboardUrl) {
+    record("legacy GAS dashboard bridge", "fail", "legacyGasDashboardUrl missing");
+    return;
+  }
+
+  try {
+    const target = new URL(dashboardUrl);
+    target.searchParams.set("uid", "test-readiness-audit");
+    const response = await fetch(target.toString(), { redirect: "follow" });
+    const reachable = response.status >= 200 && response.status < 400;
+    record(
+      "legacy GAS dashboard bridge",
+      reachable ? "pass" : "fail",
+      `status=${response.status}; url=${target.origin}${target.pathname}`
+    );
+  } catch (error) {
+    record("legacy GAS dashboard bridge", "fail", error.message || String(error));
+  }
 }
 
 async function checkAiAgents() {

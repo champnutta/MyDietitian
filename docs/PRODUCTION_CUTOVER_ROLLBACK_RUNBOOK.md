@@ -31,6 +31,7 @@ Record these values in the cutover notes before changing anything:
 1. Pause non-essential code changes.
 2. Run the pre-cutover report with `--smoke-write`.
 3. Confirm production GAS remains healthy.
+   The automated pre-cutover report checks the legacy GAS dashboard bridge, but still record the current GAS webhook URL before changing LINE Console.
 4. Confirm Firebase health endpoint is healthy.
 5. Confirm `appConfig/runtime.productionLineWebhookReady` is still `false` before the final switch.
 6. Complete final Google Sheet to Firestore migration using the locked write command only inside the approved window:
