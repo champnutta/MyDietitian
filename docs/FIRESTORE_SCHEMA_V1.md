@@ -27,6 +27,31 @@ Current uses:
 - `legacyGasDashboardUrl` is the temporary dashboard bridge until the Firestore dashboard replaces GAS.
 - URL values must be HTTPS; invalid values fall back to the safe defaults.
 
+### `migrationRuns/{importRunId}`
+
+Audit manifest written after a controlled Google Sheet import. The import tool also stamps imported documents with matching `legacy.importRunId`, `legacy.sourceFingerprint`, `legacy.sourceSheetId`, `legacy.readinessPacketGeneratedAt`, and `legacy.migrationCommit`.
+
+```json
+{
+  "importRunId": "google_sheet_5b5b312473ef",
+  "status": "completed",
+  "projectId": "mydietitian",
+  "sheetId": "1Yf1yxbBbV7S1nCCtxuSOC1YIdiirFbx3GKKLUv_AUPI",
+  "sourceFingerprint": {
+    "algorithm": "sha256",
+    "value": "5b5b..."
+  },
+  "readinessPacketGeneratedAt": "timestamp",
+  "migrationCommit": "git-sha",
+  "countByCollection": {
+    "users": 74,
+    "mealLogs": 11035
+  },
+  "totalPlannedDocuments": 11622,
+  "importedAt": "timestamp"
+}
+```
+
 ### `users/{canonicalUserId}`
 
 Top-level account document shared by LINE OA and native app users.

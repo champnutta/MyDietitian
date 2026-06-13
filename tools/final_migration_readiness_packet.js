@@ -183,7 +183,21 @@ function currentGitCommit() {
     cwd: process.cwd(),
     encoding: "utf8"
   });
-  return result.status === 0 ? result.stdout.trim() : "";
+  if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
+  return currentGitCommitFromFiles();
+}
+
+function currentGitCommitFromFiles() {
+  try {
+    const gitDir = path.join(process.cwd(), ".git");
+    const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+    if (/^[a-f0-9]{40}$/i.test(head)) return head;
+    const ref = head.match(/^ref:\s+(.+)$/)?.[1];
+    if (!ref) return "";
+    return fs.readFileSync(path.join(gitDir, ref), "utf8").trim();
+  } catch {
+    return "";
+  }
 }
 
 function stripMarkdown(value) {

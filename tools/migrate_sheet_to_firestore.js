@@ -2,6 +2,9 @@
 
 const admin = require("firebase-admin");
 const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
 
 const DEFAULT_SHEET_ID = "1Yf1yxbBbV7S1nCCtxuSOC1YIdiirFbx3GKKLUv_AUPI";
 
@@ -56,11 +59,12 @@ async function main() {
   const planned = planMigration(workbook);
   const report = buildReadinessReport(workbook, planned, sampleLimit);
   if (commit) validateCurrentSourceFingerprint(readinessPacket, report);
+  const importManifest = buildImportManifest(report, planned, readinessPacket);
 
-  printSummary(planned, report);
+  printSummary(planned, report, importManifest);
 
   if (commit) {
-    await writePlannedDocuments(planned);
+    await writePlannedDocuments(planned, importManifest);
   }
 }
 
@@ -803,22 +807,83 @@ function countDocumentsByCollection(docs) {
   return counts;
 }
 
-function printSummary(docs, report) {
+function buildImportManifest(report, docs, readinessPacket) {
+  const sourceFingerprint = report.sourceFingerprint || {};
+  const fingerprintValue = sourceFingerprint.value || "unknown";
+  const generatedAt = new Date().toISOString();
+  const readinessGeneratedAt = readinessPacket?.generatedAt || null;
+  const importRunId = `google_sheet_${fingerprintValue.slice(0, 12)}`;
+
+  return {
+    importRunId,
+    status: commit ? "ready-to-write" : "dry-run-preview",
+    projectId,
+    sheetId: sourceFingerprint.sheetId || report.sheetId || sheetId,
+    sourceFingerprint,
+    readinessPacketGeneratedAt: readinessGeneratedAt,
+    readinessPacketDecision: readinessPacket?.decision?.status || null,
+    migrationCommit: currentGitCommit(),
+    plannedAt: generatedAt,
+    countByCollection: countDocumentsByCollection(docs),
+    totalPlannedDocuments: docs.length,
+    dataQuality: report.dataQuality,
+    tabStats: Object.fromEntries(Object.entries(report.tabStats || {}).map(([tab, stat]) => [
+      tab,
+      {
+        rows: stat.rows,
+        nonEmptyRows: stat.nonEmptyRows,
+        missingHeaders: stat.missingHeaders
+      }
+    ]))
+  };
+}
+
+function currentGitCommit() {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  if (result.status === 0 && result.stdout.trim()) return result.stdout.trim();
+  return currentGitCommitFromFiles();
+}
+
+function currentGitCommitFromFiles() {
+  try {
+    const gitDir = path.join(process.cwd(), ".git");
+    const head = fs.readFileSync(path.join(gitDir, "HEAD"), "utf8").trim();
+    if (/^[a-f0-9]{40}$/i.test(head)) return head;
+    const ref = head.match(/^ref:\s+(.+)$/)?.[1];
+    if (!ref) return "";
+    return fs.readFileSync(path.join(gitDir, ref), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
+function printSummary(docs, report, importManifest) {
   console.log(JSON.stringify({
     countByCollection: countDocumentsByCollection(docs),
     total: docs.length,
+    importManifest,
     migrationReadiness: report
   }, null, 2));
 }
 
-async function writePlannedDocuments(docs) {
+async function writePlannedDocuments(docs, importManifest) {
   const db = admin.firestore();
   let batch = db.batch();
   let pending = 0;
   let written = 0;
+  const importedAt = admin.firestore.Timestamp.now();
+  const committedManifest = {
+    ...importManifest,
+    status: "completed",
+    importedAt,
+    updatedAt: importedAt
+  };
 
   for (const item of docs) {
-    batch.set(db.collection(item.collection).doc(item.id), item.data, { merge: true });
+    batch.set(db.collection(item.collection).doc(item.id), withImportProvenance(item.data, committedManifest), { merge: true });
     pending += 1;
 
     if (pending >= 450) {
@@ -834,7 +899,24 @@ async function writePlannedDocuments(docs) {
     written += pending;
   }
 
+  await db.collection("migrationRuns").doc(importManifest.importRunId).set(committedManifest, { merge: true });
+
   console.log(`Wrote ${written} documents.`);
+}
+
+function withImportProvenance(data, manifest) {
+  return {
+    ...data,
+    legacy: {
+      ...(data.legacy || {}),
+      importRunId: manifest.importRunId,
+      sourceFingerprint: manifest.sourceFingerprint?.value || null,
+      sourceSheetId: manifest.sheetId,
+      readinessPacketGeneratedAt: manifest.readinessPacketGeneratedAt,
+      migrationCommit: manifest.migrationCommit,
+      importedAt: manifest.importedAt
+    }
+  };
 }
 
 function stringValue(value) {

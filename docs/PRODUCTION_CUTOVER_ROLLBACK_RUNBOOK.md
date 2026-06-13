@@ -29,6 +29,7 @@ Record these values in the cutover notes before changing anything:
 | Latest pre-cutover report result |  |
 | Latest migration document counts |  |
 | Latest Google Sheet source fingerprint |  |
+| Expected migration importRunId |  |
 
 ## Cutover Steps
 
@@ -47,6 +48,7 @@ npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Use
 This command is intentionally wordy. Do not shorten it; the typed confirmation prevents accidental writes before the final migration window.
 
 7. Run the pre-cutover report again with `--smoke-write`.
+   Confirm the expected `migrationRuns/{importRunId}` document exists and its counts/fingerprint match the final readiness packet.
 8. Run dashboard parity checks for sampled users.
 9. Run real LINE staging media and LIFF auth tests one final time.
 10. In LINE Developers Console, change the production webhook URL to Firebase.

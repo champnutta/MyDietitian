@@ -53,7 +53,8 @@ Code, Days, Status, Used_By, Used_Date
 - Record a source fingerprint for the Google Sheet snapshot used by the final readiness packet.
 - Generate deterministic Firestore document IDs from source tab + row number.
 - Preserve and write `canonicalUserId` so LINE OA and native app can share the same user record later.
-- Preserve `legacy` metadata on each imported document.
+- Preserve `legacy` metadata on each imported document, including `importRunId`, source fingerprint, source sheet ID, readiness packet timestamp, and migration commit.
+- Write a `migrationRuns/{importRunId}` manifest after the final write so the import can be audited by fingerprint, counts, commit, and readiness packet.
 - Never delete or mutate Google Sheet rows during migration.
 - Keep GAS production running until imported dashboard and LINE flows are verified.
 
@@ -92,6 +93,7 @@ The output includes:
 - `tabStats`: row counts, detected headers, and missing expected headers per tab.
 - `sourceSummary`: source row counts split by users, active logs, archived logs, exercise-like rows, meal-like rows, weights, and codes.
 - `sourceFingerprint`: SHA-256 fingerprint of the Google Sheet tabs/rows included in the dry-run.
+- `importManifest`: planned import run ID, source fingerprint, document counts, commit SHA, and tab row summary.
 - `countByCollection`: planned Firestore writes by collection.
 - `sampleUsersForDashboardParity`: suggested LINE users to compare between GAS dashboard and Firestore dashboard after preview/final import.
 - `dataQuality.okToPreviewImport`: `true` only when no high-severity issue is detected.

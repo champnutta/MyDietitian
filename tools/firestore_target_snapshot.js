@@ -24,7 +24,8 @@ const TARGET_COLLECTIONS = [
   "subscriptionEvents",
   "adminAuditLogs",
   "lineEvents",
-  "lineEventDedup"
+  "lineEventDedup",
+  "migrationRuns"
 ];
 
 main().catch((error) => {

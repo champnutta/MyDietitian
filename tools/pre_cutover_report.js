@@ -126,6 +126,7 @@ function summarizeJson(name, json) {
     return {
       total: json.total,
       countByCollection: json.countByCollection,
+      importRunId: json.importManifest?.importRunId,
       okToPreviewImport: json.migrationReadiness?.dataQuality?.okToPreviewImport
     };
   }
