@@ -71,8 +71,12 @@ function main() {
   const noLegacyImportPresent = firestoreSnapshot.legacyImportAlreadyPresent === false;
   const firestoreTargetOk = firestoreSnapshot.okToProceedBeforeMigration === true;
   const dataQualityOk = migrationSnapshot.dataQuality?.okToPreviewImport === true;
-  const readyForDataMigrationWindow = automatedOk && evidenceOk && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
-  const blockers = buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
+  const evidenceConsistency = evidenceCheck
+    ? buildEvidenceConsistency(evidenceCheck.json, migrationSnapshot)
+    : { ok: !anyManualFlagProvided, checks: [], failures: anyManualFlagProvided ? ["Manual gate flags require --evidence-file."] : [] };
+  const evidenceConsistent = evidenceConsistency.ok;
+  const readyForDataMigrationWindow = automatedOk && evidenceOk && evidenceConsistent && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
+  const blockers = buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
 
   const report = {
     packetType: "final-migration-readiness-packet",
@@ -95,12 +99,14 @@ function main() {
         ok: evidenceOk,
         evidenceFile,
         failures: evidenceCheck.json?.failures || [],
+        consistency: evidenceConsistency,
         error: evidenceCheck.error
       }
       : {
         ok: evidenceOk,
         evidenceFile: null,
-        failures: anyManualFlagProvided ? ["Manual gate flags require --evidence-file."] : []
+        failures: anyManualFlagProvided ? ["Manual gate flags require --evidence-file."] : [],
+        consistency: evidenceConsistency
       },
     manualGates,
     migrationSnapshot: {
@@ -142,13 +148,58 @@ function main() {
   if (!automatedOk) process.exit(1);
 }
 
-function buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
+function buildEvidenceConsistency(evidenceReport, migrationSnapshot) {
+  const rollbackValues = Array.isArray(evidenceReport?.rollbackValues) ? evidenceReport.rollbackValues : [];
+  const values = Object.fromEntries(rollbackValues.map((item) => [item.item, stripMarkdown(item.value)]));
+  const currentFingerprint = migrationSnapshot?.sourceFingerprint?.value || "";
+  const currentCommit = currentGitCommit();
+  const checks = [
+    {
+      name: "Google Sheet source fingerprint",
+      expected: currentFingerprint,
+      actual: values["Latest Google Sheet source fingerprint"] || "",
+      ok: Boolean(currentFingerprint) && values["Latest Google Sheet source fingerprint"] === currentFingerprint
+    },
+    {
+      name: "Latest commit SHA",
+      expected: currentCommit,
+      actual: values["Latest commit SHA"] || "",
+      ok: Boolean(currentCommit) && currentCommit.startsWith(values["Latest commit SHA"] || "")
+    }
+  ];
+  const failures = checks
+    .filter((check) => !check.ok)
+    .map((check) => `${check.name} evidence mismatch. expected=${check.expected || "-"} actual=${check.actual || "-"}`);
+
+  return {
+    ok: failures.length === 0,
+    checks,
+    failures
+  };
+}
+
+function currentGitCommit() {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+function stripMarkdown(value) {
+  return String(value || "").replace(/`/g, "").trim();
+}
+
+function buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
   const blockers = [];
   if (!automatedOk) blockers.push(`Automated pre-cutover report failed: ${preCutover.error || "unknown error"}`);
   if (anyManualFlagProvided && !evidenceFile) blockers.push("Manual gate flags require --evidence-file pointing to a completed UAT evidence file.");
   if (evidenceFile && !evidenceOk) {
     const failures = evidenceCheck?.json?.failures || [evidenceCheck?.error || "unknown evidence check failure"];
     for (const failure of failures) blockers.push(`Evidence file incomplete: ${failure}`);
+  }
+  if (evidenceFile && evidenceOk && !evidenceConsistency.ok) {
+    for (const failure of evidenceConsistency.failures) blockers.push(`Evidence file stale or mismatched: ${failure}`);
   }
   if (automatedOk && !dataQualityOk) blockers.push("Migration dry-run data quality is not okToPreviewImport=true.");
   if (automatedOk && !firestoreTargetOk) blockers.push("Firestore target snapshot is not okToProceedBeforeMigration=true.");
@@ -249,6 +300,16 @@ function renderMarkdown(report) {
 
   if (report.evidenceCheck.failures.length) {
     for (const failure of report.evidenceCheck.failures) lines.push(`- ${failure}`);
+  }
+
+  lines.push(
+    "",
+    "Evidence consistency:",
+    report.evidenceCheck.consistency?.ok ? "pass" : "missing/fail"
+  );
+
+  for (const failure of report.evidenceCheck.consistency?.failures || []) {
+    lines.push(`- ${failure}`);
   }
 
   lines.push(
