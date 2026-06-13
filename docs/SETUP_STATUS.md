@@ -35,7 +35,7 @@
 - `appConfig/runtime` can now override the staging payment QR image, LIFF settings URL, and legacy GAS dashboard bridge without redeploying Functions. Missing or invalid config falls back to safe defaults.
 - Firebase Hosting now serves a replacement LIFF settings page at `https://mydietitian.web.app/settings`; it posts to `saveSettingsFromWeb` and sends `X-Line-Id-Token` when LIFF provides one.
 - Firebase Hosting now also serves a Firestore dashboard preview at `https://mydietitian.web.app/dashboard?uid={LINE_USER_ID}`. It reads `getDashboardData` directly and is ready for staging verification before switching `appConfig/runtime.legacyGasDashboardUrl`.
-- `tools/pre_migration_readiness_audit.js` verifies Functions, Hosting, CORS, Firestore runtime config, AI agents, subscription plans, dashboard API, optional settings smoke-write, and the migration write lock before any final Google Sheet migration window.
+- `tools/pre_migration_readiness_audit.js` verifies Functions, Hosting, CORS, Firestore runtime config, AI agents, subscription plans, dashboard API, LINE UAT dry-run payload generation, migration dry-run mapping, optional settings smoke-write, and the migration write lock before any final Google Sheet migration window.
 - `saveSettingsFromWeb` staging endpoint now accepts LIFF-style auto/custom settings, validates safe IDs and sensible nutrition ranges, verifies Firebase/LINE identity tokens when provided, calculates TDEE/macros, saves `profiles`, `users`, optional `weightLogs`, `profileEvents`, links LINE/Auth IDs when provided, and grants a 3-day trial if no subscription expiry exists.
 - `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
 - `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
@@ -55,7 +55,7 @@
 - `lineWebhook` staging contact-admin flow now forwards customer contact messages to admin LINE, stores `adminContactRequests`, and supports 30-minute admin chat sessions through `adminChatSessions`.
 - `lineWebhook` staging subscription flow now supports package/QR instructions for `สมัคร/เติมวัน`, configurable `subscriptionPlans` with fallback 30/90-day packages, redeeming migrated/lifetime codes from `redeemCodes`, admin approve/reject commands by days or plan ID, and lifetime/free entitlements for VIP/family/internal users.
 - `saveSettingsFromWeb` and `updateProfile` have staging validation guardrails plus optional verified identity ownership. Keep `PROFILE_AUTH_MODE=optional` during legacy LIFF testing; switch to `PROFILE_AUTH_MODE=required` only after the new LIFF/native clients send Firebase ID tokens or LINE ID tokens successfully.
-- `lineWebhook` still needs a signed webhook test from a staging LINE OA before it can be marked verified.
+- `lineWebhook` has local signed text webhook dry-run coverage through `npm run line:uat-report`, but still needs real staging LINE OA tests for media/file/BIA/slip/LIFF auth before it can be marked production verified.
 - Health endpoint verified:
   - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
 - Secrets are configured and attached to Functions:

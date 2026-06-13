@@ -22,6 +22,7 @@ The audit checks:
 - Firestore `appConfig/runtime`.
 - Firestore `aiAgents/*`.
 - Firestore `subscriptionPlans/*`.
+- LINE staging UAT dry-run report for signed text webhook payload generation.
 - Google Sheet migration dry-run mapping for users, profiles, subscriptions, LINE links, meals, exercises, weights, redeem codes, and data-quality warnings.
 - Migration write lock still refuses `--commit` without `--confirmFinalMigration`.
 

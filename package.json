@@ -14,7 +14,8 @@
     "audit:pre-migration": "node tools/pre_migration_readiness_audit.js",
     "seed:app-config": "node tools/seed_app_config.js",
     "seed:subscription-plans": "node tools/seed_subscription_plans.js",
-    "test:line-webhook": "node tools/signed_line_webhook_test.js"
+    "test:line-webhook": "node tools/signed_line_webhook_test.js",
+    "line:uat-report": "node tools/line_staging_uat_report.js"
   },
   "devDependencies": {
     "jose": "^4.15.9"

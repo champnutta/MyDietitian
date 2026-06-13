@@ -13,6 +13,18 @@ Production LINE OA must stay on GAS while this plan is tested on a staging LINE 
 
 Use the local script to send signed LINE-style webhook events to Firebase staging without changing the production LINE OA webhook.
 
+Generate the full dry-run UAT matrix first:
+
+```powershell
+npm run line:uat-report
+```
+
+Optional Markdown report:
+
+```powershell
+npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md
+```
+
 PowerShell example:
 
 ```powershell

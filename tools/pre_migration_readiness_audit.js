@@ -39,6 +39,7 @@ async function main() {
   await checkFirestoreConfig();
   await checkAiAgents();
   await checkSubscriptionPlans();
+  checkLineUatDryRunReport();
   checkMigrationDryRunMapping();
   checkMigrationWriteLock();
 
@@ -211,6 +212,29 @@ function checkMigrationDryRunMapping() {
     ok
       ? `planned=${json.total}; users=${counts.users}; meals=${counts.mealLogs}; exercise=${counts.exerciseLogs || 0}`
       : `missing=${missing.join(",")}; hasExercise=${hasExerciseField}; readinessOk=${readinessOk}`
+  );
+}
+
+function checkLineUatDryRunReport() {
+  const result = spawnSync(process.execPath, ["tools/line_staging_uat_report.js", "--secret", "audit-dummy-secret"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0) {
+    record("LINE UAT dry-run report", "fail", `status=${result.status}; ${result.stderr || result.stdout}`);
+    return;
+  }
+
+  const json = parseFirstJsonObject(result.stdout || "");
+  const failed = Number(json?.summary?.textScenarioFailed ?? 999);
+  const passed = Number(json?.summary?.textScenarioPassed ?? 0);
+  const realLineRequired = Number(json?.summary?.realLineRequiredCount ?? 0);
+  const ok = json?.ok === true && failed === 0 && passed >= 13 && realLineRequired >= 5;
+  record(
+    "LINE UAT dry-run report",
+    ok ? "pass" : "fail",
+    `textPassed=${passed}; textFailed=${failed}; realLineRequired=${realLineRequired}`
   );
 }
 
