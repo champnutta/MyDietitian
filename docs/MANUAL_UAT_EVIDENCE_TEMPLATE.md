@@ -31,7 +31,7 @@ When this file is copied and filled with real evidence, validate it before using
 npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md
 ```
 
-The evidence checker requires every pre-run `Actual` field to contain a passing result, every Real LINE Media and Real LIFF case to have `Result=pass`, evidence notes filled, and each required Cutover Decision row to have owner sign-off.
+The evidence checker requires every pre-run `Actual` field to contain a passing result, every Real LINE Media and Real LIFF case to have `Result=pass`, evidence notes filled, rollback/cutover values filled, and each required Cutover Decision row to have owner sign-off.
 
 Record the latest output summary:
 
@@ -85,6 +85,19 @@ npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md
 |  | 7 days |  |  |  |  |  |  |  |  |
 |  | 30 days |  |  |  |  |  |  |  |  |
 |  | custom |  |  |  |  |  |  |  |  |
+
+## Rollback/Cutover Values
+
+Record these values before using `--rollback-reviewed` or approving the final migration window.
+
+| Item | Value |
+| --- | --- |
+| Current GAS webhook URL |  |
+| Firebase webhook URL | `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook` |
+| LINE channel |  |
+| Operator |  |
+| Latest commit SHA |  |
+| Latest Google Sheet source fingerprint |  |
 
 ## Cutover Decision
 

@@ -25,12 +25,14 @@ function buildReport(text) {
   const preRun = checkPreRunCommands(text);
   const lineMedia = checkLineMediaEvidence(text);
   const liffAuth = checkLiffEvidence(text);
+  const rollbackValues = checkRollbackValues(text);
   const decisions = checkCutoverDecision(text);
   const failures = [
     ...session.filter((item) => !item.ok).map((item) => item.message),
     ...preRun.filter((item) => !item.ok).map((item) => item.message),
     ...lineMedia.filter((item) => !item.ok).map((item) => item.message),
     ...liffAuth.filter((item) => !item.ok).map((item) => item.message),
+    ...rollbackValues.filter((item) => !item.ok).map((item) => item.message),
     ...decisions.filter((item) => !item.ok).map((item) => item.message)
   ];
 
@@ -42,6 +44,7 @@ function buildReport(text) {
     preRun,
     lineMedia,
     liffAuth,
+    rollbackValues,
     decisions,
     failures
   };
@@ -143,6 +146,54 @@ function checkLiffEvidence(text) {
   return required.map((testCase) => checkEvidenceCase(table, testCase, "Real LIFF Auth UAT"));
 }
 
+function checkRollbackValues(text) {
+  const required = [
+    {
+      item: "Current GAS webhook URL",
+      validate: isHttpsUrl,
+      hint: "must be the current GAS webhook URL from LINE Developers Console"
+    },
+    {
+      item: "Firebase webhook URL",
+      validate: (value) => isHttpsUrl(value) && value.includes("lineWebhook"),
+      hint: "must be the Firebase lineWebhook URL"
+    },
+    {
+      item: "LINE channel",
+      validate: hasValue,
+      hint: "must identify the staging/production LINE channel"
+    },
+    {
+      item: "Operator",
+      validate: hasValue,
+      hint: "must name the operator responsible for rollback"
+    },
+    {
+      item: "Latest commit SHA",
+      validate: (value) => /^[a-f0-9]{7,40}$/i.test(stripMarkdown(value)),
+      hint: "must be a Git commit SHA"
+    },
+    {
+      item: "Latest Google Sheet source fingerprint",
+      validate: (value) => /^[a-f0-9]{64}$/i.test(stripMarkdown(value)),
+      hint: "must be the 64-character migration dry-run source fingerprint"
+    }
+  ];
+  const table = extractTableRows(text, "## Rollback/Cutover Values");
+  return required.map((field) => {
+    const row = table.find((item) => normalize(item[0]) === normalize(field.item));
+    const value = row?.[1]?.trim() || "";
+    return {
+      item: field.item,
+      ok: Boolean(row) && field.validate(value),
+      value,
+      message: row
+        ? `${field.item} is invalid; ${field.hint}.`
+        : `${field.item} row is missing from Rollback/Cutover Values.`
+    };
+  });
+}
+
 function checkEvidenceCase(table, testCase, section) {
   const row = table.find((item) => normalize(item[0]) === normalize(testCase));
   const result = row?.[row.length - 2]?.trim() || "";
@@ -182,6 +233,18 @@ function normalize(value) {
 
 function stripMarkdown(value) {
   return String(value || "").replace(/`/g, "").trim();
+}
+
+function hasValue(value) {
+  return Boolean(stripMarkdown(value));
+}
+
+function isHttpsUrl(value) {
+  try {
+    return new URL(stripMarkdown(value)).protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function parseArgs(argv) {
