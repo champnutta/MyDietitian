@@ -18,6 +18,13 @@ https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData
 - CORS preflight from `https://mydietitian.web.app` is verified.
 - API POST from the hosted origin is verified with a staging test user.
 - The page renders the existing dashboard contract: `labels`, `macros`, `bodyData`, `tdeeLine`, `stats`, `profile`, `current`, and recent `history.meals`.
+- The dashboard API contract can be checked without writing data:
+
+```powershell
+npm run dashboard:contract
+```
+
+This validates response shape and array lengths for labels, calories, macros, body data, TDEE line, daily rows, stats, and detailed history arrays.
 
 ## Not Switched Yet
 

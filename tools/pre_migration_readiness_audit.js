@@ -28,6 +28,7 @@ async function main() {
   await checkHostingPage("Firestore dashboard page", `${HOSTING_ORIGIN}/dashboard?uid=test-readiness-audit`, ["Firestore dashboard", "DASHBOARD_URL", "mealHistory"]);
   await checkCors("saveSettingsFromWeb CORS", `${FUNCTIONS_BASE}/saveSettingsFromWeb`, "content-type,x-line-id-token");
   await checkCors("getDashboardData CORS", `${FUNCTIONS_BASE}/getDashboardData`, "content-type");
+  await checkDashboardContract("test-readiness-audit", 7);
 
   if (smokeWrite) {
     await checkSettingsSmoke();
@@ -133,6 +134,81 @@ async function checkDashboardSmoke(userId) {
   } catch (error) {
     record("dashboard API smoke", "fail", error.message || String(error));
   }
+}
+
+async function checkDashboardContract(userId, option) {
+  try {
+    const response = await fetch(`${FUNCTIONS_BASE}/getDashboardData`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: HOSTING_ORIGIN },
+      body: JSON.stringify({ userId, option })
+    });
+    const json = await response.json();
+    const failures = validateDashboardContract(json, option).filter((check) => !check.ok);
+    const ok = response.ok && failures.length === 0;
+    record(
+      "dashboard contract",
+      ok ? "pass" : "fail",
+      ok ? `status=${response.status}; labels=${json.labels?.length ?? 0}` : `status=${response.status}; failures=${failures.map((item) => item.name).join(",")}`
+    );
+  } catch (error) {
+    record("dashboard contract", "fail", error.message || String(error));
+  }
+}
+
+function validateDashboardContract(data, expectedDays) {
+  const labels = Array.isArray(data?.labels) ? data.labels : [];
+  const expectedLength = Number.isFinite(expectedDays) && expectedDays > 0 ? expectedDays : labels.length;
+  return [
+    { name: "ok flag", ok: data?.ok === true },
+    { name: "canonical user id", ok: typeof data?.canonicalUserId === "string" && data.canonicalUserId.length > 0 },
+    { name: "range", ok: isIsoDate(data?.range?.start) && isIsoDate(data?.range?.end) && data?.range?.timezone === "Asia/Bangkok" },
+    { name: "profile target", ok: isFiniteNumber(data?.profile?.target?.cal) && isFiniteNumber(data?.profile?.target?.p) },
+    { name: "current object", ok: data?.current && typeof data.current === "object" },
+    { name: "labels length", ok: labels.length === expectedLength },
+    { name: "calories length", ok: sameLength(data?.calories, labels) },
+    { name: "tdeeLine length", ok: sameLength(data?.tdeeLine, labels) },
+    { name: "macro p length", ok: sameLength(data?.macros?.p, labels) },
+    { name: "macro c length", ok: sameLength(data?.macros?.c, labels) },
+    { name: "macro f length", ok: sameLength(data?.macros?.f, labels) },
+    { name: "macro fiber length", ok: sameLength(data?.macros?.fib, labels) },
+    { name: "body weight length", ok: sameLength(data?.bodyData?.weight, labels) },
+    { name: "body fat length", ok: sameLength(data?.bodyData?.fat, labels) },
+    { name: "body muscle length", ok: sameLength(data?.bodyData?.muscle, labels) },
+    { name: "body devices length", ok: sameLength(data?.bodyData?.devices, labels) },
+    { name: "stats", ok: isFiniteNumber(data?.stats?.avgCal) && isFiniteNumber(data?.stats?.totalDays) && isFiniteNumber(data?.stats?.successDays) },
+    { name: "daily length", ok: sameLength(data?.daily, labels) },
+    { name: "daily shape", ok: Array.isArray(data?.daily) && data.daily.every(isDailyRow) },
+    { name: "history meals array", ok: Array.isArray(data?.history?.meals) },
+    { name: "history exercises array", ok: Array.isArray(data?.history?.exercises) },
+    { name: "history weights array", ok: Array.isArray(data?.history?.weights) },
+    { name: "history adjustments array", ok: Array.isArray(data?.history?.adjustments) }
+  ];
+}
+
+function sameLength(value, labels) {
+  return Array.isArray(value) && value.length === labels.length;
+}
+
+function isDailyRow(row) {
+  return row &&
+    typeof row.date === "string" &&
+    isFiniteNumber(row.calories) &&
+    isFiniteNumber(row.proteinG) &&
+    isFiniteNumber(row.carbsG) &&
+    isFiniteNumber(row.fatG) &&
+    isFiniteNumber(row.fiberG) &&
+    isFiniteNumber(row.burnedCalories) &&
+    isFiniteNumber(row.dynamicTargetCalories) &&
+    isFiniteNumber(row.remainingCalories);
+}
+
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isIsoDate(value) {
+  return typeof value === "string" && !Number.isNaN(new Date(value).getTime());
 }
 
 async function checkFirestoreConfig() {

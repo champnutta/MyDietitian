@@ -18,6 +18,7 @@ The audit checks:
 - Hosted LIFF settings page.
 - Hosted Firestore dashboard page.
 - CORS preflight for `saveSettingsFromWeb` and `getDashboardData`.
+- Dashboard API contract shape and array-length consistency.
 - Optional test profile save and dashboard API read.
 - Firestore `appConfig/runtime`.
 - Firestore `aiAgents/*`.
