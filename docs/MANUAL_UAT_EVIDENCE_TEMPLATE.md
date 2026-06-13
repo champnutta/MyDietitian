@@ -84,3 +84,9 @@ Final decision:
 ```text
 Do not switch production LINE webhook until every gate above is pass.
 ```
+
+Final cutover and rollback steps live in:
+
+```text
+docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md
+```

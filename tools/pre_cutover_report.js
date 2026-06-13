@@ -33,7 +33,8 @@ const REQUIRED_MANUAL_GATES = [
     gate: "Production webhook cutover approval",
     status: "manual-final-step",
     evidence: "Keep production LINE OA on GAS until all UAT and data parity checks pass.",
-    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
+    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md",
+    runbook: "docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md"
   }
 ];
 
@@ -169,12 +170,12 @@ function renderMarkdown(report) {
     "",
     "## Manual Gates Remaining",
     "",
-    "| Gate | Status | Evidence | Template |",
-    "| --- | --- | --- | --- |"
+    "| Gate | Status | Evidence | Template | Runbook |",
+    "| --- | --- | --- | --- | --- |"
   );
 
   for (const gate of report.manualGatesRemaining) {
-    lines.push(`| ${gate.gate} | ${gate.status} | ${escapeTable(gate.evidence)} | ${gate.template || "-"} |`);
+    lines.push(`| ${gate.gate} | ${gate.status} | ${escapeTable(gate.evidence)} | ${gate.template || "-"} | ${gate.runbook || "-"} |`);
   }
 
   return lines.join("\n");

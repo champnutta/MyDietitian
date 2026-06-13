@@ -35,3 +35,5 @@ Manual gates intentionally remain outside automation:
 - Production webhook cutover approval.
 
 Use `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md` to record evidence for the manual gates. The production webhook should not be moved from GAS to Firebase until every manual gate is marked `pass`.
+
+Use `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md` for the final webhook switch and rollback procedure after data migration and dashboard parity are verified.
