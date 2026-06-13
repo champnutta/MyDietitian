@@ -254,13 +254,26 @@ async function checkSubscriptionPlans() {
 }
 
 function checkMigrationWriteLock() {
-  const result = spawnSync(process.execPath, ["tools/migrate_sheet_to_firestore.js", "--commit"], {
+  const missingFinalFlag = spawnSync(process.execPath, ["tools/migrate_sheet_to_firestore.js", "--commit"], {
     cwd: process.cwd(),
     encoding: "utf8"
   });
-  const output = `${result.stdout || ""}\n${result.stderr || ""}`;
-  const locked = result.status !== 0 && output.includes("Refusing to write");
-  record("migration write lock", locked ? "pass" : "fail", locked ? "write requires --confirmFinalMigration" : `status=${result.status}`);
+  const missingFinalFlagOutput = `${missingFinalFlag.stdout || ""}\n${missingFinalFlag.stderr || ""}`;
+  const finalFlagLocked = missingFinalFlag.status !== 0 && missingFinalFlagOutput.includes("Refusing to write");
+
+  const missingConfirmText = spawnSync(process.execPath, ["tools/migrate_sheet_to_firestore.js", "--commit", "--confirmFinalMigration"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  const missingConfirmTextOutput = `${missingConfirmText.stdout || ""}\n${missingConfirmText.stderr || ""}`;
+  const confirmTextLocked = missingConfirmText.status !== 0 && missingConfirmTextOutput.includes("--confirmText FINAL_MIGRATION_MYDIETITIAN");
+
+  const locked = finalFlagLocked && confirmTextLocked;
+  record(
+    "migration write lock",
+    locked ? "pass" : "fail",
+    locked ? "write requires --confirmFinalMigration and typed --confirmText" : `finalFlagLocked=${finalFlagLocked}; confirmTextLocked=${confirmTextLocked}`
+  );
 }
 
 function checkMigrationDryRunMapping() {

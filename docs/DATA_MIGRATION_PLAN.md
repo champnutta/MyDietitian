@@ -69,10 +69,12 @@ Code, Days, Status, Used_By, Used_Date
 The migration script refuses to write unless both flags are present:
 
 ```powershell
-npm run migrate:sheets:dry-run -- --commit --confirmFinalMigration
+npm run migrate:sheets:dry-run -- --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN
 ```
 
 Do not use this command until the production migration window is approved.
+
+The typed `--confirmText` guard intentionally prevents accidental writes from copied partial commands.
 
 ## Dry-run readiness report
 

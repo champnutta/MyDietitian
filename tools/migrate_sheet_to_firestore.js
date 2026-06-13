@@ -9,6 +9,7 @@ const projectId = args.project || "mydietitian";
 const sheetId = args.sheetId || DEFAULT_SHEET_ID;
 const commit = Boolean(args.commit);
 const finalMigrationConfirmed = Boolean(args.confirmFinalMigration);
+const finalConfirmationText = "FINAL_MIGRATION_MYDIETITIAN";
 const sampleLimit = positiveInteger(args.sampleLimit, 5);
 
 main().catch((error) => {
@@ -23,6 +24,10 @@ async function main() {
     throw new Error(
       "Refusing to write. Data migration is reserved for final production cutover. " +
       "Pass --commit --confirmFinalMigration only during the approved final migration window."
+    );
+  } else if (args.confirmText !== finalConfirmationText) {
+    throw new Error(
+      `Refusing to write. Pass --confirmText ${finalConfirmationText} only during the approved final migration window.`
     );
   }
 

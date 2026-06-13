@@ -25,7 +25,7 @@ The audit checks:
 - Firestore `subscriptionPlans/*`.
 - LINE staging UAT dry-run report for signed text webhook payload generation.
 - Google Sheet migration dry-run mapping for users, profiles, subscriptions, LINE links, meals, exercises, weights, redeem codes, and data-quality warnings.
-- Migration write lock still refuses `--commit` without `--confirmFinalMigration`.
+- Migration write lock still refuses `--commit` without `--confirmFinalMigration` and typed `--confirmText FINAL_MIGRATION_MYDIETITIAN`.
 
 Passing this audit does not mean production cutover is complete. It only proves the pre-migration technical surfaces are reachable and guarded. Real LINE OA media/file/slip/BIA UAT and dashboard data verification are still required before the final migration window.
 
