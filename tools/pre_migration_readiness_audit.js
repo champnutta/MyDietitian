@@ -45,6 +45,7 @@ async function main() {
   await checkSubscriptionPlans();
   checkLineUatDryRunReport();
   checkSignedLineWebhookContract();
+  checkFirestoreIndexCoverage();
   checkMigrationDryRunMapping();
   checkMigrationWriteLock();
 
@@ -361,6 +362,25 @@ function checkMigrationDryRunMapping() {
     ok
       ? `planned=${json.total}; users=${counts.users}; meals=${counts.mealLogs}; exercise=${counts.exerciseLogs || 0}`
       : `missing=${missing.join(",")}; hasExercise=${hasExerciseField}; readinessOk=${readinessOk}`
+  );
+}
+
+function checkFirestoreIndexCoverage() {
+  const result = spawnSync(process.execPath, ["tools/firestore_index_coverage_check.js"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  if (result.status !== 0) {
+    record("Firestore index coverage", "fail", `status=${result.status}; ${result.stderr || result.stdout}`);
+    return;
+  }
+
+  const json = parseFirstJsonObject(result.stdout || "");
+  record(
+    "Firestore index coverage",
+    json?.ok === true ? "pass" : "fail",
+    `required=${json?.required ?? "unknown"}; configured=${json?.configured ?? "unknown"}`
   );
 }
 
