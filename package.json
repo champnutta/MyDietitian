@@ -16,7 +16,8 @@
     "seed:subscription-plans": "node tools/seed_subscription_plans.js",
     "test:line-webhook": "node tools/signed_line_webhook_test.js",
     "line:uat-report": "node tools/line_staging_uat_report.js",
-    "dashboard:contract": "node tools/dashboard_contract_check.js"
+    "dashboard:contract": "node tools/dashboard_contract_check.js",
+    "report:pre-cutover": "node tools/pre_cutover_report.js"
   },
   "devDependencies": {
     "jose": "^4.15.9"
