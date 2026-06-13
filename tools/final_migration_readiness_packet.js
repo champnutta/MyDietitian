@@ -75,6 +75,8 @@ function main() {
   const blockers = buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
 
   const report = {
+    packetType: "final-migration-readiness-packet",
+    schemaVersion: 1,
     ok: automatedOk,
     generatedAt: new Date().toISOString(),
     projectId,
