@@ -23,7 +23,7 @@ async function main() {
   } else if (!finalMigrationConfirmed) {
     throw new Error(
       "Refusing to write. Data migration is reserved for final production cutover. " +
-      "Pass --commit --confirmFinalMigration only during the approved final migration window."
+      `Pass --commit --confirmFinalMigration --confirmText ${finalConfirmationText} only during the approved final migration window.`
     );
   } else if (args.confirmText !== finalConfirmationText) {
     throw new Error(

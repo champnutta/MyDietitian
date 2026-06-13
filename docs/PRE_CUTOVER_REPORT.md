@@ -35,6 +35,12 @@ Manual gates intentionally remain outside automation:
 - Dashboard parity against GAS after preview/final import.
 - Production webhook cutover approval.
 
+The report also verifies the migration write lock. Final migration still requires the explicit typed command from `docs/DATA_MIGRATION_PLAN.md` and `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`:
+
+```powershell
+npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN
+```
+
 Use `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md` to record evidence for the manual gates. The production webhook should not be moved from GAS to Firebase until every manual gate is marked `pass`.
 
 Use `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md` for the final webhook switch and rollback procedure after data migration and dashboard parity are verified.

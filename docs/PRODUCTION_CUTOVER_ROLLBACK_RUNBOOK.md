@@ -33,13 +33,21 @@ Record these values in the cutover notes before changing anything:
 3. Confirm production GAS remains healthy.
 4. Confirm Firebase health endpoint is healthy.
 5. Confirm `appConfig/runtime.productionLineWebhookReady` is still `false` before the final switch.
-6. Complete final Google Sheet to Firestore migration using the locked write command only inside the approved window.
-7. Run dashboard parity checks for sampled users.
-8. Run real LINE staging media and LIFF auth tests one final time.
-9. In LINE Developers Console, change the production webhook URL to Firebase.
-10. Send a production canary message from an internal LINE user.
-11. Watch Firestore `lineEvents`, `lineEventDedup`, `adminAuditLogs`, `aiRuns`, `mealLogs`, and `paymentReviews` for unexpected errors.
-12. Keep the old GAS webhook URL ready for immediate rollback.
+6. Complete final Google Sheet to Firestore migration using the locked write command only inside the approved window:
+
+```powershell
+npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN
+```
+
+This command is intentionally wordy. Do not shorten it; the typed confirmation prevents accidental writes before the final migration window.
+
+7. Run the pre-cutover report again with `--smoke-write`.
+8. Run dashboard parity checks for sampled users.
+9. Run real LINE staging media and LIFF auth tests one final time.
+10. In LINE Developers Console, change the production webhook URL to Firebase.
+11. Send a production canary message from an internal LINE user.
+12. Watch Firestore `lineEvents`, `lineEventDedup`, `adminAuditLogs`, `aiRuns`, `mealLogs`, and `paymentReviews` for unexpected errors.
+13. Keep the old GAS webhook URL ready for immediate rollback.
 
 ## Canary Tests After Switch
 
