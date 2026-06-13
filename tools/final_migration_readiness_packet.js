@@ -112,6 +112,7 @@ function main() {
     migrationSnapshot: {
       totalPlannedDocuments: migrationSnapshot.totalPlannedDocuments ?? null,
       countByCollection: migrationSnapshot.countByCollection || null,
+      importManifest: migrationSnapshot.importManifest || null,
       dataQuality: migrationSnapshot.dataQuality || null,
       sourceFingerprint: migrationSnapshot.sourceFingerprint || null,
       firestoreTargetSnapshot: firestoreSnapshot,

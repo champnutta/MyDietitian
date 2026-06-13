@@ -65,6 +65,7 @@ function main() {
     migrationSnapshot: {
       totalPlannedDocuments: migration.json?.total ?? null,
       countByCollection: migration.json?.countByCollection || null,
+      importManifest: migration.json?.importManifest || null,
       dataQuality: migrationReadiness.dataQuality || null,
       sourceFingerprint: migrationReadiness.sourceFingerprint || null,
       sourceSummary: migrationReadiness.sourceSummary || null,

@@ -21,7 +21,8 @@
     "report:pre-cutover": "node tools/pre_cutover_report.js",
     "migration:readiness-packet": "node tools/final_migration_readiness_packet.js",
     "uat:evidence-check": "node tools/manual_uat_evidence_check.js",
-    "firestore:target-snapshot": "node tools/firestore_target_snapshot.js"
+    "firestore:target-snapshot": "node tools/firestore_target_snapshot.js",
+    "migration:verify-import": "node tools/verify_migration_import.js"
   },
   "devDependencies": {
     "jose": "^4.15.9"

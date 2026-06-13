@@ -101,6 +101,12 @@ The output includes:
 
 Use `--sampleLimit 20` if you want more example rows in the warning output.
 
+After the final write migration, verify the import manifest and per-collection legacy provenance before dashboard parity:
+
+```powershell
+npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
+```
+
 ## Verification checklist
 
 - Imported user count matches `Users` non-empty row count.
