@@ -32,7 +32,7 @@ The Firebase `lineWebhook` must not replace the production GAS webhook until thi
 - Signature verification: done.
 - Event logging: done.
 - Text and image food analysis/reply: staging only.
-- Signed LINE webhook test: pending.
+- Signed LINE webhook test: contract dry-run supported with `--webhook-dry-run`; requires the real LINE channel secret to verify the deployed endpoint.
 - Signed LINE text test tooling: local script added in `tools/signed_line_webhook_test.js`; media flows still require real LINE image/file messages.
 - Known legacy command guard: quick setup, subscription request, redeem code, contact-admin, menu recommendation, coach consultation, payment-slip queue, BIA analysis/confirm, and admin approve/reject now have partial staging handlers.
 - Text command parity: help, profile/status, dashboard link, daily summary, manual weight log, undo latest meal, latest-meal correction, and portion adjustment are implemented for Firestore staging data.

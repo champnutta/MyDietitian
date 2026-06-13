@@ -7,6 +7,7 @@ const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
 const serviceAccount = args.serviceAccount;
 const smokeWrite = Boolean(args.smokeWrite);
+const lineChannelSecret = args.lineChannelSecret || args["line-channel-secret"] || process.env.LINE_CHANNEL_SECRET;
 
 const HOSTING_ORIGIN = "https://mydietitian.web.app";
 const FUNCTIONS_BASE = "https://asia-southeast1-mydietitian.cloudfunctions.net";
@@ -43,6 +44,7 @@ async function main() {
   await checkAiAgents();
   await checkSubscriptionPlans();
   checkLineUatDryRunReport();
+  checkSignedLineWebhookContract();
   checkMigrationDryRunMapping();
   checkMigrationWriteLock();
 
@@ -382,6 +384,39 @@ function checkLineUatDryRunReport() {
     "LINE UAT dry-run report",
     ok ? "pass" : "fail",
     `textPassed=${passed}; textFailed=${failed}; realLineRequired=${realLineRequired}`
+  );
+}
+
+function checkSignedLineWebhookContract() {
+  if (!lineChannelSecret) {
+    record("signed LINE webhook contract", "skip", "Pass --lineChannelSecret or set LINE_CHANNEL_SECRET to verify the deployed endpoint signature contract.");
+    return;
+  }
+
+  const result = spawnSync(process.execPath, [
+    "tools/signed_line_webhook_test.js",
+    "--scenario", "text",
+    "--user", "U_READINESS_CONTRACT_TEST",
+    "--secret", lineChannelSecret,
+    "--webhook-dry-run"
+  ], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+
+  const json = parseFirstJsonObject(result.stdout || "");
+  const ok = result.status === 0 &&
+    json?.ok === true &&
+    json?.mode === "line-webhook-contract-dry-run" &&
+    json?.response?.mode === "line-webhook-contract-dry-run" &&
+    json?.response?.received === 1;
+
+  record(
+    "signed LINE webhook contract",
+    ok ? "pass" : "fail",
+    ok
+      ? `status=${json.status}; received=${json.response.received}`
+      : `status=${result.status}; ${result.stderr || result.stdout}`
   );
 }
 

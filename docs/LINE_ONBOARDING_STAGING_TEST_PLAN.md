@@ -25,6 +25,14 @@ Optional Markdown report:
 npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md
 ```
 
+Contract dry-run against the deployed Firebase webhook:
+
+```powershell
+npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --secret "<LINE_CHANNEL_SECRET>" --webhook-dry-run
+```
+
+This verifies the LINE signature and payload shape on the real `lineWebhook`, then returns before Firestore writes or LINE replies. The response should include `mode=line-webhook-contract-dry-run`.
+
 PowerShell example:
 
 ```powershell

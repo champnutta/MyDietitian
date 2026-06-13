@@ -12,6 +12,12 @@ Optional smoke write with a test user:
 npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
 ```
 
+Optional signed LINE webhook contract check against the deployed Firebase endpoint:
+
+```bash
+npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --lineChannelSecret "<LINE_CHANNEL_SECRET>"
+```
+
 The audit checks:
 
 - `health` Function.
@@ -26,6 +32,7 @@ The audit checks:
 - Firestore `aiAgents/*`.
 - Firestore `subscriptionPlans/*`.
 - LINE staging UAT dry-run report for signed text webhook payload generation.
+- Signed LINE webhook contract dry-run when `--lineChannelSecret` or `LINE_CHANNEL_SECRET` is provided.
 - Google Sheet migration dry-run mapping for users, profiles, subscriptions, LINE links, meals, exercises, weights, redeem codes, and data-quality warnings.
 - Migration write lock still refuses `--commit` without `--confirmFinalMigration` and typed `--confirmText FINAL_MIGRATION_MYDIETITIAN`.
 

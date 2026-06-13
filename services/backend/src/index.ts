@@ -740,6 +740,12 @@ export const lineWebhook = onRequest(
   }
 
   const payload = request.body as LineWebhookEvent;
+  if (isLineWebhookContractDryRun(request)) {
+    const contract = buildLineWebhookContractDryRun(payload);
+    response.status(contract.ok ? 200 : 400).json(contract);
+    return;
+  }
+
   const now = Timestamp.now();
   const results = [];
 
@@ -773,6 +779,72 @@ export const lineWebhook = onRequest(
     warning: "This endpoint is still staging and is not a full production GAS replacement."
   });
 });
+
+function isLineWebhookContractDryRun(request: Parameters<Parameters<typeof onRequest>[0]>[0]): boolean {
+  return /^(1|true|yes)$/i.test(String(request.get("x-mydietitian-line-dry-run") ?? ""));
+}
+
+function buildLineWebhookContractDryRun(payload: LineWebhookEvent) {
+  const events = Array.isArray(payload?.events) ? payload.events : [];
+  const failures: string[] = [];
+
+  if (!Array.isArray(payload?.events)) {
+    failures.push("events must be an array");
+  }
+  if (events.length === 0) {
+    failures.push("events must include at least one event");
+  }
+
+  const eventResults = events.map((event, index) => {
+    const eventFailures: string[] = [];
+    const messageType = event.message?.type ?? null;
+
+    if (!event.type) eventFailures.push("event.type is required");
+    if (!event.source?.userId) eventFailures.push("event.source.userId is required");
+    if ((event.type === "follow" || event.type === "message") && !event.replyToken) {
+      eventFailures.push("replyToken is required for follow/message events");
+    }
+    if (event.type === "message") {
+      if (!event.message?.id) eventFailures.push("message.id is required");
+      if (!messageType) eventFailures.push("message.type is required");
+      if (messageType === "text" && !event.message?.text) {
+        eventFailures.push("message.text is required for text messages");
+      }
+      if (messageType && !["text", "image", "file"].includes(messageType)) {
+        eventFailures.push(`unsupported message.type for staging contract: ${messageType}`);
+      }
+    }
+
+    if (event.type && !["follow", "message"].includes(event.type)) {
+      eventFailures.push(`unsupported event.type for staging contract: ${event.type}`);
+    }
+
+    for (const failure of eventFailures) {
+      failures.push(`events[${index}]: ${failure}`);
+    }
+
+    return {
+      index,
+      ok: eventFailures.length === 0,
+      eventType: event.type ?? null,
+      messageType,
+      sourceType: event.source?.type ?? null,
+      hasUserId: Boolean(event.source?.userId),
+      hasReplyToken: Boolean(event.replyToken),
+      failures: eventFailures
+    };
+  });
+
+  return {
+    ok: failures.length === 0,
+    mode: "line-webhook-contract-dry-run",
+    received: events.length,
+    results: eventResults,
+    failures,
+    status: "signature-and-payload-contract-verified",
+    warning: "Dry-run mode verifies the LINE signature and payload shape only; it does not write Firestore data or send LINE replies."
+  };
+}
 
 function verifyLineSignature(rawBody: Buffer, signature: string): boolean {
   if (!signature) return false;

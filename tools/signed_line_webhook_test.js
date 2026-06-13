@@ -7,6 +7,7 @@ const endpoint = args.endpoint || "https://asia-southeast1-mydietitian.cloudfunc
 const channelSecret = args.secret || process.env.LINE_CHANNEL_SECRET;
 const lineUserId = args.user || "U_STAGING_TEST_USER";
 const dryRun = Boolean(args.dryRun);
+const webhookDryRun = Boolean(args.webhookDryRun || args.contractDryRun || args["webhook-dry-run"] || args["contract-dry-run"]);
 const scenario = args.scenario || "text";
 
 const SCENARIOS = [
@@ -61,18 +62,22 @@ async function main() {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "x-line-signature": signature
+      "x-line-signature": signature,
+      ...(webhookDryRun ? { "x-mydietitian-line-dry-run": "true" } : {})
     },
     body
   });
   const text = await response.text();
+  const parsed = parseMaybeJson(text);
+  const ok = response.ok && (!webhookDryRun || parsed?.ok === true);
   console.log(JSON.stringify({
     status: response.status,
-    ok: response.ok,
-    response: parseMaybeJson(text)
+    ok,
+    mode: webhookDryRun ? "line-webhook-contract-dry-run" : "live-webhook",
+    response: parsed
   }, null, 2));
 
-  if (!response.ok) {
+  if (!ok) {
     process.exit(1);
   }
 }
