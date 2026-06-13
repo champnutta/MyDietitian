@@ -21,6 +21,7 @@ The audit checks:
 - Dashboard API contract shape and array-length consistency.
 - Optional test profile save and dashboard API read.
 - Firestore `appConfig/runtime`.
+- Dashboard bridge guard: `legacyGasDashboardUrl` must still point to the GAS dashboard before data migration and dashboard parity.
 - Firestore `aiAgents/*`.
 - Firestore `subscriptionPlans/*`.
 - LINE staging UAT dry-run report for signed text webhook payload generation.

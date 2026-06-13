@@ -29,7 +29,7 @@ Record the latest output summary:
 | Check | Expected | Actual |
 | --- | --- | --- |
 | Pre-cutover report | `ok=true` |  |
-| Pre-migration audit | `14 passed / 0 failed / 0 skipped` with `--smoke-write` |  |
+| Pre-migration audit | all checks pass with `--smoke-write` |  |
 | LINE text dry-run | `13/13` text scenarios pass |  |
 | Dashboard contract | `ok=true` |  |
 | Migration dry-run | `okToPreviewImport=true` |  |

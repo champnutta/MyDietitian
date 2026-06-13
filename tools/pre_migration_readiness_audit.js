@@ -38,6 +38,7 @@ async function main() {
   }
 
   await checkFirestoreConfig();
+  await checkDashboardBridgeGuard();
   await checkAiAgents();
   await checkSubscriptionPlans();
   checkLineUatDryRunReport();
@@ -223,6 +224,27 @@ async function checkFirestoreConfig() {
   const invalid = requiredUrls.filter((key) => !isHttpsUrl(data[key]));
   const readyFlag = data.productionLineWebhookReady === false;
   record("appConfig/runtime", invalid.length === 0 && readyFlag ? "pass" : "fail", invalid.length ? `invalid=${invalid.join(",")}` : "productionLineWebhookReady=false");
+}
+
+async function checkDashboardBridgeGuard() {
+  const db = admin.firestore();
+  const snap = await db.collection("appConfig").doc("runtime").get();
+  if (!snap.exists) {
+    record("dashboard bridge guard", "fail", "appConfig/runtime missing");
+    return;
+  }
+
+  const data = snap.data() || {};
+  const dashboardUrl = String(data.legacyGasDashboardUrl || "");
+  const pointsToGas = dashboardUrl.includes("script.google.com/macros/");
+  const pointsToFirestorePreview = dashboardUrl.includes("mydietitian.web.app/dashboard");
+  record(
+    "dashboard bridge guard",
+    pointsToGas && !pointsToFirestorePreview ? "pass" : "fail",
+    pointsToGas
+      ? "legacyGasDashboardUrl still points to GAS before migration"
+      : `legacyGasDashboardUrl must remain GAS before data migration; current=${dashboardUrl || "missing"}`
+  );
 }
 
 async function checkAiAgents() {
