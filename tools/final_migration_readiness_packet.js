@@ -53,7 +53,7 @@ function main() {
 
   const preCutover = runNodeJson("pre-cutover report", preCutoverArgs);
   const evidenceCheck = evidenceFile
-    ? runNodeJson("manual UAT evidence check", ["tools/manual_uat_evidence_check.js", "--file", evidenceFile])
+    ? runNodeJson("manual UAT evidence check", ["tools/manual_uat_evidence_check.js", "--file", evidenceFile, "--phase", "pre-migration"])
     : null;
   const manualGates = MANUAL_GATE_FLAGS.map((gate) => ({
     label: gate.label,
@@ -119,12 +119,18 @@ function main() {
       sampleUsersForDashboardParity: migrationSnapshot.sampleUsersForDashboardParity || []
     },
     lockedFinalMigrationCommand: "npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json",
+    postMigrationVerificationCommands: [
+      "npm run migration:verify-import -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json",
+      "npm run report:pre-cutover -- --project mydietitian --serviceAccount \"C:\\Users\\champ\\AppData\\Roaming\\firebase\\znak_iiz_gmail.com_application_default_credentials.json\" --smoke-write",
+      "npm run dashboard:parity-plan -- --out docs/DASHBOARD_PARITY_PLAN_OUTPUT.md",
+      "npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover"
+    ],
     nextActions: readyForDataMigrationWindow
       ? [
         "Open the approved migration window.",
         "Run the locked final migration command exactly once.",
-        "Run pre-cutover report again with --smoke-write.",
-        "Run dashboard parity plan and record sampled user comparisons before any production webhook switch."
+        "Run every postMigrationVerificationCommands entry.",
+        "Do not switch the production LINE webhook until import verification, dashboard parity, cutover evidence, and owner approval all pass."
       ]
       : [
         "Do not run the final migration command yet.",
@@ -341,6 +347,21 @@ function renderMarkdown(report) {
     "```powershell",
     report.lockedFinalMigrationCommand,
     "```",
+    "",
+    "Post-migration verification commands:",
+    ""
+  );
+
+  for (const command of report.postMigrationVerificationCommands || []) {
+    lines.push(
+      "```powershell",
+      command,
+      "```",
+      ""
+    );
+  }
+
+  lines.push(
     "",
     "## Next Actions",
     ""
