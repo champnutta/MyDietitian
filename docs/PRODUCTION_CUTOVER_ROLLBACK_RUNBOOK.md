@@ -57,10 +57,16 @@ npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Us
 
 9. Run dashboard parity checks for sampled users.
 10. Run real LINE staging media and LIFF auth tests one final time.
-11. In LINE Developers Console, change the production webhook URL to Firebase.
-12. Send a production canary message from an internal LINE user.
-13. Watch Firestore `lineEvents`, `lineEventDedup`, `adminAuditLogs`, `aiRuns`, `mealLogs`, and `paymentReviews` for unexpected errors.
-14. Keep the old GAS webhook URL ready for immediate rollback.
+11. Validate final cutover evidence:
+
+```powershell
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover
+```
+
+12. In LINE Developers Console, change the production webhook URL to Firebase.
+13. Send a production canary message from an internal LINE user.
+14. Watch Firestore `lineEvents`, `lineEventDedup`, `adminAuditLogs`, `aiRuns`, `mealLogs`, and `paymentReviews` for unexpected errors.
+15. Keep the old GAS webhook URL ready for immediate rollback.
 
 ## Canary Tests After Switch
 

@@ -28,10 +28,18 @@ npm run dashboard:contract
 When this file is copied and filled with real evidence, validate it before using readiness flags:
 
 ```powershell
-npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
 ```
 
-The evidence checker requires every pre-run `Actual` field to contain a passing result, every Real LINE Media and Real LIFF case to have `Result=pass`, evidence notes filled, rollback/cutover values filled, and each required Cutover Decision row to have owner sign-off.
+The pre-migration evidence checker requires every pre-run `Actual` field to contain a passing result, every Real LINE Media and Real LIFF case to have `Result=pass`, evidence notes filled, rollback/cutover values filled, and the required pre-migration Cutover Decision rows to have owner sign-off.
+
+After the approved import completes, validate the final cutover evidence before changing the production LINE webhook:
+
+```powershell
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover
+```
+
+The cutover phase additionally requires completed dashboard parity rows and production webhook cutover approval.
 
 Record the latest output summary:
 

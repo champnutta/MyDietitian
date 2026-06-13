@@ -5,6 +5,7 @@ const path = require("node:path");
 
 const args = parseArgs(process.argv.slice(2));
 const evidenceFile = path.resolve(args.file || "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md");
+const phase = args.phase || "pre-migration";
 
 if (args.help || args.h) {
   printHelp();
@@ -14,25 +15,31 @@ if (args.help || args.h) {
 main();
 
 function main() {
+  if (!["pre-migration", "cutover"].includes(phase)) {
+    throw new Error("Invalid --phase. Use pre-migration or cutover.");
+  }
+
   const text = fs.readFileSync(evidenceFile, "utf8");
-  const report = buildReport(text);
+  const report = buildReport(text, phase);
   console.log(JSON.stringify(report, null, 2));
   if (!report.ok) process.exit(1);
 }
 
-function buildReport(text) {
+function buildReport(text, validationPhase) {
   const session = checkSessionFields(text);
   const preRun = checkPreRunCommands(text);
   const lineMedia = checkLineMediaEvidence(text);
   const liffAuth = checkLiffEvidence(text);
   const rollbackValues = checkRollbackValues(text);
-  const decisions = checkCutoverDecision(text);
+  const dashboardParity = validationPhase === "cutover" ? checkDashboardParityEvidence(text) : [];
+  const decisions = checkCutoverDecision(text, validationPhase);
   const failures = [
     ...session.filter((item) => !item.ok).map((item) => item.message),
     ...preRun.filter((item) => !item.ok).map((item) => item.message),
     ...lineMedia.filter((item) => !item.ok).map((item) => item.message),
     ...liffAuth.filter((item) => !item.ok).map((item) => item.message),
     ...rollbackValues.filter((item) => !item.ok).map((item) => item.message),
+    ...dashboardParity.filter((item) => !item.ok).map((item) => item.message),
     ...decisions.filter((item) => !item.ok).map((item) => item.message)
   ];
 
@@ -40,11 +47,13 @@ function buildReport(text) {
     ok: failures.length === 0,
     generatedAt: new Date().toISOString(),
     evidenceFile,
+    phase: validationPhase,
     session,
     preRun,
     lineMedia,
     liffAuth,
     rollbackValues,
+    dashboardParity,
     decisions,
     failures
   };
@@ -70,7 +79,7 @@ function checkSessionFields(text) {
   });
 }
 
-function checkCutoverDecision(text) {
+function checkCutoverDecision(text, validationPhase) {
   const required = [
     "Automated pre-cutover report",
     "Real LINE media UAT",
@@ -78,6 +87,9 @@ function checkCutoverDecision(text) {
     "Rollback plan reviewed",
     "Final data migration window approved"
   ];
+  if (validationPhase === "cutover") {
+    required.push("Dashboard parity after import", "Production webhook cutover approved");
+  }
   const table = extractTableRows(text, "## Cutover Decision");
   return required.map((gate) => {
     const row = table.find((item) => normalize(item[0]) === normalize(gate));
@@ -95,6 +107,47 @@ function checkCutoverDecision(text) {
         : `${gate} row is missing from Cutover Decision.`
     };
   });
+}
+
+function checkDashboardParityEvidence(text) {
+  const table = extractTableRows(text, "## Dashboard Parity After Preview/Final Import");
+  const rows = table.filter((row) => stripMarkdown(row[0]) && normalize(row[0]) !== "user id");
+  const checks = [];
+
+  if (!rows.length) {
+    return [{
+      section: "Dashboard Parity After Preview/Final Import",
+      ok: false,
+      message: "Dashboard parity requires at least one completed sampled-user row before production webhook cutover."
+    }];
+  }
+
+  rows.forEach((row, index) => {
+    const userId = row[0]?.trim() || "";
+    const dateRange = row[1]?.trim() || "";
+    const gasCalories = row[2]?.trim() || "";
+    const firestoreCalories = row[3]?.trim() || "";
+    const gasMacros = row[4]?.trim() || "";
+    const firestoreMacros = row[5]?.trim() || "";
+    const result = row[row.length - 2]?.trim() || "";
+    const notes = row[row.length - 1]?.trim() || "";
+    const resultPass = /^pass\b/i.test(stripMarkdown(result));
+    const hasCoreEvidence = [userId, dateRange, gasCalories, firestoreCalories, gasMacros, firestoreMacros, notes]
+      .every((value) => Boolean(stripMarkdown(value)));
+
+    checks.push({
+      section: "Dashboard Parity After Preview/Final Import",
+      row: index + 1,
+      userId,
+      dateRange,
+      ok: hasCoreEvidence && resultPass,
+      result,
+      notes,
+      message: `Dashboard parity row ${index + 1} must include user, range, GAS/Firestore calorie+macro evidence, Result pass, and notes.`
+    });
+  });
+
+  return checks;
 }
 
 function checkPreRunCommands(text) {
@@ -269,8 +322,10 @@ function printHelp() {
     "Manual UAT evidence check",
     "",
     "Usage:",
-    "  npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md",
+    "  npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration",
+    "  npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover",
     "",
-    "The evidence file must have Test Session fields filled and required Cutover Decision rows set to pass with owner sign-off."
+    "pre-migration validates gates needed before the final Google Sheet import window.",
+    "cutover additionally requires dashboard parity evidence and production webhook cutover approval."
   ].join("\n"));
 }
