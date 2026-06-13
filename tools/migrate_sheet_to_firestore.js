@@ -21,6 +21,7 @@ const requiredReadinessCheckNames = [
   "dashboard contract",
   "dashboard parity plan",
   "LINE UAT dry-run",
+  "runtime cutover guard",
   "Firestore target snapshot"
 ];
 const requiredManualGateLabels = [

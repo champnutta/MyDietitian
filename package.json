@@ -22,7 +22,8 @@
     "migration:readiness-packet": "node tools/final_migration_readiness_packet.js",
     "uat:evidence-check": "node tools/manual_uat_evidence_check.js",
     "firestore:target-snapshot": "node tools/firestore_target_snapshot.js",
-    "migration:verify-import": "node tools/verify_migration_import.js"
+    "migration:verify-import": "node tools/verify_migration_import.js",
+    "runtime:cutover-guard": "node tools/runtime_cutover_guard.js"
   },
   "devDependencies": {
     "jose": "^4.15.9"

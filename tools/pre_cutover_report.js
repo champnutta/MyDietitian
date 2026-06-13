@@ -50,11 +50,14 @@ function main() {
   const dashboard = runNodeJson("dashboard contract", ["tools/dashboard_contract_check.js"]);
   const dashboardParityPlan = runNodeJson("dashboard parity plan", ["tools/dashboard_parity_plan.js", "--sampleLimit", "5"]);
   const lineUat = runNodeJson("LINE UAT dry-run", ["tools/line_staging_uat_report.js"]);
+  const runtimeGuardArgs = ["tools/runtime_cutover_guard.js", "--project", projectId];
+  if (serviceAccount) runtimeGuardArgs.push("--serviceAccount", serviceAccount);
+  const runtimeGuard = runNodeJson("runtime cutover guard", runtimeGuardArgs);
   const firestoreSnapshotArgs = ["tools/firestore_target_snapshot.js", "--project", projectId];
   if (serviceAccount) firestoreSnapshotArgs.push("--serviceAccount", serviceAccount);
   const firestoreSnapshot = runNodeJson("Firestore target snapshot", firestoreSnapshotArgs);
 
-  const automatedChecks = [audit, migration, dashboard, dashboardParityPlan, lineUat, firestoreSnapshot];
+  const automatedChecks = [audit, migration, dashboard, dashboardParityPlan, lineUat, runtimeGuard, firestoreSnapshot];
   const failed = automatedChecks.filter((check) => !check.ok);
   const migrationReadiness = migration.json?.migrationReadiness || {};
   const report = {
@@ -146,6 +149,9 @@ function summarizeJson(name, json) {
     };
   }
   if (name === "LINE UAT dry-run") {
+    return json.summary;
+  }
+  if (name === "runtime cutover guard") {
     return json.summary;
   }
   if (name === "Firestore target snapshot") {

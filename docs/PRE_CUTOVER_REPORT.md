@@ -18,6 +18,12 @@ Optional smoke-write test user:
 npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
 ```
 
+Runtime cutover guard only:
+
+```powershell
+npm run runtime:cutover-guard -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json"
+```
+
 Final migration readiness packet:
 
 ```powershell
@@ -37,6 +43,7 @@ The report combines:
 - Google Sheet source fingerprint for detecting Sheet changes after readiness generation.
 - Dashboard API contract check.
 - LINE staging UAT dry-run report.
+- Runtime cutover guard confirming `productionLineWebhookReady=false`, the dashboard bridge still points to GAS, and hosted settings/payment URLs are valid.
 - Firestore target collection snapshot before migration.
 - Suggested sample users for dashboard parity.
 - Manual gates that still require real LINE OA or final cutover action.
