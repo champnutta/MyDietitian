@@ -17,7 +17,8 @@
     "test:line-webhook": "node tools/signed_line_webhook_test.js",
     "line:uat-report": "node tools/line_staging_uat_report.js",
     "dashboard:contract": "node tools/dashboard_contract_check.js",
-    "report:pre-cutover": "node tools/pre_cutover_report.js"
+    "report:pre-cutover": "node tools/pre_cutover_report.js",
+    "firestore:target-snapshot": "node tools/firestore_target_snapshot.js"
   },
   "devDependencies": {
     "jose": "^4.15.9"

@@ -24,6 +24,7 @@ The report combines:
 - Google Sheet migration dry-run and data-quality report.
 - Dashboard API contract check.
 - LINE staging UAT dry-run report.
+- Firestore target collection snapshot before migration.
 - Suggested sample users for dashboard parity.
 - Manual gates that still require real LINE OA or final cutover action.
 

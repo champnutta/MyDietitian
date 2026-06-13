@@ -49,8 +49,11 @@ function main() {
   const migration = runNodeJson("migration dry-run", ["tools/migrate_sheet_to_firestore.js", "--sampleLimit", "5"]);
   const dashboard = runNodeJson("dashboard contract", ["tools/dashboard_contract_check.js"]);
   const lineUat = runNodeJson("LINE UAT dry-run", ["tools/line_staging_uat_report.js"]);
+  const firestoreSnapshotArgs = ["tools/firestore_target_snapshot.js", "--project", projectId];
+  if (serviceAccount) firestoreSnapshotArgs.push("--serviceAccount", serviceAccount);
+  const firestoreSnapshot = runNodeJson("Firestore target snapshot", firestoreSnapshotArgs);
 
-  const automatedChecks = [audit, migration, dashboard, lineUat];
+  const automatedChecks = [audit, migration, dashboard, lineUat, firestoreSnapshot];
   const failed = automatedChecks.filter((check) => !check.ok);
   const migrationReadiness = migration.json?.migrationReadiness || {};
   const report = {
@@ -63,7 +66,8 @@ function main() {
       countByCollection: migration.json?.countByCollection || null,
       dataQuality: migrationReadiness.dataQuality || null,
       sourceSummary: migrationReadiness.sourceSummary || null,
-      sampleUsersForDashboardParity: migrationReadiness.sampleUsersForDashboardParity || []
+      sampleUsersForDashboardParity: migrationReadiness.sampleUsersForDashboardParity || [],
+      firestoreTargetSnapshot: firestoreSnapshot.json?.summary || null
     },
     manualGatesRemaining: REQUIRED_MANUAL_GATES
   };
@@ -133,6 +137,9 @@ function summarizeJson(name, json) {
   if (name === "LINE UAT dry-run") {
     return json.summary;
   }
+  if (name === "Firestore target snapshot") {
+    return json.summary;
+  }
   return null;
 }
 
@@ -158,6 +165,8 @@ function renderMarkdown(report) {
     "## Migration Snapshot",
     "",
     `Total planned documents: ${report.migrationSnapshot.totalPlannedDocuments ?? "-"}`,
+    `Firestore tracked documents before migration: ${report.migrationSnapshot.firestoreTargetSnapshot?.totalDocumentsInTrackedCollections ?? "-"}`,
+    `Existing legacy imported documents: ${report.migrationSnapshot.firestoreTargetSnapshot?.legacyImportedDocuments ?? "-"}`,
     "",
     "Suggested sample users for dashboard parity:"
   );
