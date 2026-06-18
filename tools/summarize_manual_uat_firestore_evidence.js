@@ -30,7 +30,7 @@ const COLLECTIONS = [
     name: "paymentReviews",
     fields: ["canonicalUserId", "userId", "lineUserId"],
     timeFields: ["createdAt", "updatedAt", "reviewedAt"],
-    pick: ["status", "amount", "planId", "adminDecision", "lineMessageId"]
+    pick: ["status", "amount", "days", "planId", "adminDecision", "lineMessageId", "reviewedBy", "reason"]
   },
   {
     name: "biaReports",
@@ -42,13 +42,25 @@ const COLLECTIONS = [
     name: "subscriptionEvents",
     fields: ["canonicalUserId", "userId", "lineUserId"],
     timeFields: ["createdAt"],
-    pick: ["type", "planId", "days", "expiresAt", "adminLineUserId"]
+    pick: ["type", "planId", "days", "expiresAt", "adminLineUserId", "reason"]
+  },
+  {
+    name: "subscriptions",
+    fields: ["canonicalUserId", "userId"],
+    timeFields: ["createdAt", "updatedAt", "lastApprovedAt"],
+    pick: ["status", "entitlementType", "lifetime", "expiresAt", "lastApprovedDays", "lastApprovedPlanId", "lastApprovedBy"]
+  },
+  {
+    name: "profiles",
+    fields: ["canonicalUserId", "userId", "lineUserId"],
+    timeFields: ["createdAt", "updatedAt"],
+    pick: ["target", "expiresAt", "lifetime", "authVerified", "weightKg"]
   },
   {
     name: "profileEvents",
     fields: ["canonicalUserId", "userId", "lineUserId"],
     timeFields: ["createdAt"],
-    pick: ["type", "status", "source"]
+    pick: ["type", "status", "source", "target", "biaReportId"]
   },
   {
     name: "profileAuthEvents",
@@ -61,6 +73,12 @@ const COLLECTIONS = [
     fields: ["canonicalUserId", "userId"],
     timeFields: ["createdAt", "loggedAt"],
     pick: ["source", "activityName", "caloriesBurned", "ai"]
+  },
+  {
+    name: "weightLogs",
+    fields: ["canonicalUserId", "userId"],
+    timeFields: ["createdAt", "loggedAt", "updatedAt"],
+    pick: ["source", "weightKg", "bodyFatPct", "muscleMassKg", "deviceName"]
   }
 ];
 
@@ -167,12 +185,15 @@ function formatDoc(doc, spec) {
 function buildChecklistHints(summary) {
   const count = (collection) => summary.find((item) => item.collection === collection)?.count || 0;
   return [
-    checklist("Food image / text food", count("mealLogs") > 0 && count("aiRuns") > 0, "present", "missing mealLogs or aiRuns"),
-    checklist("Leftover image", hasMealAdjustment(summary), "present", "missing leftover adjustment in mealLogs.adjustments[]"),
-    checklist("Payment slip/admin review", count("paymentReviews") > 0, "present", "missing paymentReviews"),
-    checklist("Admin approve/reject", count("subscriptionEvents") > 0, "present", "missing subscriptionEvents"),
-    checklist("BIA image/PDF", count("biaReports") > 0, "present", "missing biaReports"),
-    checklist("LIFF auth", count("profileAuthEvents") > 0, "present", "missing profileAuthEvents")
+    checklist("Food image", hasMealImageEvidence(summary), evidenceIds(summary, ["mealLogs", "aiRuns"]), "missing image mealLogs or completed image aiRuns"),
+    checklist("Leftover image", hasMealAdjustment(summary), evidenceIds(summary, ["mealLogs", "aiRuns"]), "missing leftover adjustment in mealLogs.adjustments[]"),
+    checklist("Payment slip image", hasPaymentReview(summary, "pending-admin-review"), evidenceIds(summary, ["paymentReviews", "subscriptionEvents"]), "missing pending paymentReviews evidence"),
+    checklist("Admin approve", hasSubscriptionEvent(summary, "admin-approve") && count("subscriptions") > 0, evidenceIds(summary, ["subscriptionEvents", "subscriptions", "paymentReviews"]), "missing admin-approve subscriptionEvents or subscriptions update"),
+    checklist("Admin reject", hasSubscriptionEvent(summary, "admin-reject") && hasPaymentReview(summary, "rejected"), evidenceIds(summary, ["subscriptionEvents", "paymentReviews"]), "missing admin-reject subscriptionEvents or rejected paymentReviews"),
+    checklist("BIA image/PDF", count("biaReports") > 0 && (hasProfileEvent(summary, "bia-analysis") || count("weightLogs") > 0), evidenceIds(summary, ["biaReports", "profileEvents", "weightLogs"]), "missing biaReports plus bia-analysis/weight evidence"),
+    checklist("BIA confirm", hasProfileEvent(summary, "target-update-confirmed") && hasProfileTarget(summary), evidenceIds(summary, ["profileEvents", "profiles"]), "missing target-update-confirmed profileEvents or profiles.target"),
+    checklist("LIFF settings opens", count("profiles") > 0, evidenceIds(summary, ["profiles"]), "missing profile/settings write evidence"),
+    checklist("LINE ID token sent", count("profileAuthEvents") > 0, evidenceIds(summary, ["profileAuthEvents"]), "missing profileAuthEvents")
   ];
 }
 
@@ -184,9 +205,52 @@ function checklist(testCase, ok, presentText, missingText) {
   };
 }
 
+function latestFor(summary, collection) {
+  return summary.find((item) => item.collection === collection)?.latest || [];
+}
+
+function hasMealImageEvidence(summary) {
+  const mealLogs = latestFor(summary, "mealLogs");
+  const aiRuns = latestFor(summary, "aiRuns");
+  return mealLogs.some((item) => item.fields.inputType === "image") &&
+    aiRuns.some((item) => item.fields.inputType === "image" && item.fields.status === "completed");
+}
+
 function hasMealAdjustment(summary) {
-  const mealLogs = summary.find((item) => item.collection === "mealLogs")?.latest || [];
+  const mealLogs = latestFor(summary, "mealLogs");
   return mealLogs.some((item) => Array.isArray(item.fields.adjustments) && item.fields.adjustments.length > 0);
+}
+
+function hasPaymentReview(summary, status) {
+  return latestFor(summary, "paymentReviews").some((item) => item.fields.status === status);
+}
+
+function hasSubscriptionEvent(summary, type) {
+  return latestFor(summary, "subscriptionEvents").some((item) => item.fields.type === type);
+}
+
+function hasProfileEvent(summary, type) {
+  return latestFor(summary, "profileEvents").some((item) => item.fields.type === type);
+}
+
+function hasProfileTarget(summary) {
+  return latestFor(summary, "profiles").some((item) => {
+    const target = item.fields.target;
+    return target && typeof target === "object" && Object.keys(target).length > 0;
+  });
+}
+
+function evidenceIds(summary, collections) {
+  return collections
+    .map((collection) => {
+      const ids = latestFor(summary, collection)
+        .map((doc) => doc.id)
+        .filter(Boolean)
+        .slice(0, 3);
+      return ids.length ? `${collection}: ${ids.join(", ")}` : null;
+    })
+    .filter(Boolean)
+    .join("; ") || "present";
 }
 
 function renderMarkdown(report) {
@@ -253,6 +317,10 @@ function formatEvidenceNote(doc) {
     fields.inputType ? `inputType=${stringifyBrief(fields.inputType)}` : null,
     fields.provider ? `provider=${stringifyBrief(fields.provider)}` : null,
     fields.model ? `model=${stringifyBrief(fields.model)}` : null,
+    fields.planId ? `planId=${stringifyBrief(fields.planId)}` : null,
+    fields.expiresAt ? `expiresAt=${stringifyBrief(fields.expiresAt)}` : null,
+    fields.target ? `target=${stringifyBrief(fields.target)}` : null,
+    fields.biaReportId ? `biaReportId=${stringifyBrief(fields.biaReportId)}` : null,
     typeof fields.fallbackUsed === "boolean" ? `fallbackUsed=${fields.fallbackUsed}` : null,
     Array.isArray(fields.adjustments) && fields.adjustments.length ? `adjustments=${fields.adjustments.length}` : null
   ].filter(Boolean);

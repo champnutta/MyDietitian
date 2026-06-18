@@ -51,7 +51,7 @@ After each group, summarize evidence:
 npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all --out docs\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\UAT_FIRESTORE_EVIDENCE.md
 ```
 
-`--require-all` is expected to fail until every tracked category is present. Use the successful or partially successful Markdown output to copy document IDs and checklist hints into `docs/MANUAL_UAT_EVIDENCE.md`. Keep generated evidence files local if they contain LINE IDs or sensitive operational notes.
+`--require-all` is expected to fail until every tracked category is present. The checklist now maps directly to the manual evidence rows: Food image, Leftover image, Payment slip image, Admin approve, Admin reject, BIA image/PDF, BIA confirm, LIFF settings opens, and LINE ID token sent. Use the successful or partially successful Markdown output to copy document IDs and checklist hints into `docs/MANUAL_UAT_EVIDENCE.md`. Keep generated evidence files local if they contain LINE IDs or sensitive operational notes.
 
 ## 3. Real LIFF Auth Test Sequence
 
