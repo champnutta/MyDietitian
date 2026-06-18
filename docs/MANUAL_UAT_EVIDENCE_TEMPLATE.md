@@ -20,6 +20,8 @@ Run these before manual UAT:
 
 ```powershell
 npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
+node tools/check_ai_fallback_readiness.js --project mydietitian
+node tools/check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback
 npm run line:uat-report
 npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --secret "<LINE_CHANNEL_SECRET>" --webhook-dry-run
 npm run dashboard:contract
@@ -47,6 +49,8 @@ Record the latest output summary:
 | --- | --- | --- |
 | Pre-cutover report | `ok=true` |  |
 | Pre-migration audit | all checks pass with `--smoke-write` |  |
+| AI fallback readiness | both Gemini and Anthropic secrets ready |  |
+| AI agent runtime config | `gemini-3.5-flash` primary and `claude-sonnet-4-6` fallback |  |
 | LINE text dry-run | `13/13` text scenarios pass |  |
 | Signed LINE webhook contract | `mode=line-webhook-contract-dry-run` |  |
 | Dashboard contract | `ok=true` |  |

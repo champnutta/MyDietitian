@@ -15,6 +15,8 @@ const lineChannelSecret = args.lineChannelSecret || args["line-channel-secret"] 
 const HOSTING_ORIGIN = "https://mydietitian.web.app";
 const FUNCTIONS_BASE = "https://asia-southeast1-mydietitian.cloudfunctions.net";
 const REQUIRED_AI_AGENTS = ["mealAnalysis", "exerciseAnalysis", "biaAnalysis", "coachConsultation"];
+const EXPECTED_GEMINI_MODEL = "gemini-3.5-flash";
+const EXPECTED_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 const REQUIRED_PLANS = ["30d", "90d", "lifetime"];
 
 const checks = [];
@@ -287,6 +289,7 @@ async function checkAiAgents() {
   const db = admin.firestore();
   const missing = [];
   const disabled = [];
+  const misconfigured = [];
   const models = {};
   for (const id of REQUIRED_AI_AGENTS) {
     const snap = await db.collection("aiAgents").doc(id).get();
@@ -297,8 +300,22 @@ async function checkAiAgents() {
     const data = snap.data() || {};
     if (data.enabled !== true) disabled.push(id);
     models[id] = `${data.provider || "unknown"}/${data.model || "unknown"}`;
+    const fallback = Array.isArray(data.fallbacks)
+      ? data.fallbacks.find((item) => item?.provider === "anthropic")
+      : null;
+    const primaryOk = data.provider === "gemini" &&
+      data.model === EXPECTED_GEMINI_MODEL &&
+      Number(data.maxAttempts) === 1;
+    const fallbackOk = Boolean(fallback) &&
+      fallback.model === EXPECTED_ANTHROPIC_MODEL &&
+      Number(fallback.maxAttempts) === 1;
+    if (!primaryOk || !fallbackOk) misconfigured.push(id);
   }
-  record("aiAgents config", missing.length === 0 && disabled.length === 0 ? "pass" : "fail", `models=${JSON.stringify(models)} missing=${missing.join(",")} disabled=${disabled.join(",")}`);
+  record(
+    "aiAgents config",
+    missing.length === 0 && disabled.length === 0 && misconfigured.length === 0 ? "pass" : "fail",
+    `models=${JSON.stringify(models)} expectedPrimary=gemini/${EXPECTED_GEMINI_MODEL} expectedFallback=anthropic/${EXPECTED_ANTHROPIC_MODEL} missing=${missing.join(",")} disabled=${disabled.join(",")} misconfigured=${misconfigured.join(",")}`
+  );
 }
 
 async function checkSubscriptionPlans() {

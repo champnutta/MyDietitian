@@ -1,15 +1,27 @@
-# Next Actions For You
+# Next Actions Before Data Migration
 
-## Required account actions
+Current safe state:
 
-1. Upgrade Firebase project `mydietitian` to the Blaze plan so Cloud Functions can deploy
-2. Decide whether store accounts will start as individual/personal or organization
-3. Create Apple Developer and Google Play Console accounts
-4. Prepare app branding assets, privacy policy, and store metadata
+- Firebase Functions are deployed.
+- Gemini and Anthropic secrets are configured in project `mydietitian`.
+- AI agents use `gemini-3.5-flash` primary with `claude-sonnet-4-6` fallback.
+- Production LINE webhook remains on GAS.
+- Google Sheet remains the source of truth until final migration.
 
-## After that, we can do next
+## Required manual gates
 
-1. Add environment secrets
-2. Install dependencies
-3. Start implementing the webhook and AI migration
-4. Connect Git remote and create the first commit
+1. Complete real LINE media UAT using `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md`.
+2. Complete real LIFF auth UAT using a real LINE LIFF session.
+3. Review rollback values and record the current GAS webhook URL.
+4. Explicitly approve the final migration window only after UAT evidence passes.
+
+## Commands to run before approval
+
+```powershell
+npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
+node tools/check_ai_fallback_readiness.js --project mydietitian
+node tools/check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback
+npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
+```
+
+Do not run final data migration or switch production LINE webhook until every manual gate is recorded as `pass`.

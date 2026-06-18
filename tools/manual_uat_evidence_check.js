@@ -196,6 +196,8 @@ function checkPreRunCommands(text) {
   const required = [
     "Pre-cutover report",
     "Pre-migration audit",
+    "AI fallback readiness",
+    "AI agent runtime config",
     "LINE text dry-run",
     "Signed LINE webhook contract",
     "Dashboard contract",
