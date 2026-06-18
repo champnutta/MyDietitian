@@ -27,6 +27,14 @@ npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --se
 npm run dashboard:contract
 ```
 
+You can generate a local working evidence file and prefill non-secret session/rollback values:
+
+```powershell
+npm run uat:prepare-evidence -- --project mydietitian --force --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
+This command does not migrate data and does not print secrets. The generated `docs/MANUAL_UAT_EVIDENCE.md` is intentionally ignored by Git because it may contain LINE IDs and operational notes.
+
 When this file is copied and filled with real evidence, validate it before using readiness flags:
 
 ```powershell

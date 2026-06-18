@@ -65,4 +65,10 @@ node tools\check_ai_agent_runtime_config.js --project mydietitian --serviceAccou
 npm run uat:remaining -- --file docs\MANUAL_UAT_EVIDENCE.md --phase pre-migration
 ```
 
+Prefill local manual evidence after copying the current GAS webhook URL from LINE Developers Console:
+
+```powershell
+npm run uat:prepare-evidence -- --project mydietitian --force --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
 Do not run the final migration write command until the readiness packet has no blockers and the migration window is approved.
