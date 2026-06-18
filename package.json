@@ -23,6 +23,7 @@
     "uat:evidence-check": "node tools/manual_uat_evidence_check.js",
     "uat:prepare-evidence": "node tools/prepare_manual_uat_evidence.js",
     "uat:remaining": "node tools/summarize_manual_uat_remaining.js",
+    "uat:firestore-evidence": "node tools/summarize_manual_uat_firestore_evidence.js",
     "firestore:target-snapshot": "node tools/firestore_target_snapshot.js",
     "migration:verify-import": "node tools/verify_migration_import.js",
     "runtime:cutover-guard": "node tools/runtime_cutover_guard.js",

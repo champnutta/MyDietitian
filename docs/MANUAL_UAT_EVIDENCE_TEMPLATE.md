@@ -58,6 +58,14 @@ Record the latest output summary:
 
 Tip: `npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md` now lists the Firestore collections to inspect for each real LINE media/LIFF case.
 
+After sending real LINE/LIFF test messages, summarize recent Firestore evidence for the staging user:
+
+```powershell
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24
+```
+
+Use the returned document IDs and checklist hints as the `Evidence link/notes` values below.
+
 ## Real LINE Media UAT
 
 These tests must use a real LINE message because Firebase downloads content from LINE by `messageId`.
