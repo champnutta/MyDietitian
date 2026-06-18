@@ -86,6 +86,8 @@ Compact gate summary for day-to-day checks:
 npm run gate:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs\MANUAL_UAT_EVIDENCE.md
 ```
 
+This summary also includes operator checklist hints such as stale commit evidence and suggested next commands.
+
 ```powershell
 node tools\check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback
 ```

@@ -38,9 +38,17 @@ function main() {
     "--phase",
     "pre-migration"
   ]);
+  const operatorChecklist = runNodeJson("operator-checklist", [
+    "tools/pre_migration_operator_checklist.js",
+    "--file",
+    evidenceFile,
+    "--phase",
+    "pre-migration",
+    "--json"
+  ]);
   const gitStatus = run("git", ["status", "--short", "--branch"]);
 
-  const report = buildSummary({ readiness, remaining, gitStatus });
+  const report = buildSummary({ readiness, remaining, operatorChecklist, gitStatus });
   if (jsonOnly) {
     console.log(JSON.stringify(report, null, 2));
   } else {
@@ -50,7 +58,7 @@ function main() {
   if (!report.readyForDataMigrationWindow) process.exit(1);
 }
 
-function buildSummary({ readiness, remaining, gitStatus }) {
+function buildSummary({ readiness, remaining, operatorChecklist, gitStatus }) {
   const packet = readiness.json || {};
   const decision = packet.decision || {};
   const migrationSnapshot = packet.migrationSnapshot || {};
@@ -81,6 +89,14 @@ function buildSummary({ readiness, remaining, gitStatus }) {
         sample: Array.isArray(group.missing) ? group.missing.slice(0, 3) : []
       }))
     },
+    operatorChecklist: {
+      ok: Boolean(operatorChecklist.json?.ok),
+      freshnessChecks: operatorChecklist.json?.freshnessChecks || [],
+      actionCount: Array.isArray(operatorChecklist.json?.actions) ? operatorChecklist.json.actions.length : null,
+      nextActions: Array.isArray(operatorChecklist.json?.actions)
+        ? operatorChecklist.json.actions.slice(0, 5).map((item) => item.title)
+        : []
+    },
     migrationSnapshot: {
       totalPlannedDocuments: migrationSnapshot.totalPlannedDocuments ?? null,
       sourceTreeClean: Boolean(migrationSnapshot.sourceTreeClean),
@@ -94,8 +110,8 @@ function buildSummary({ readiness, remaining, gitStatus }) {
       ok: gitStatus.status === 0,
       status: gitStatus.stdout.trim().split(/\r?\n/).filter(Boolean)
     },
-    commandErrors: [readiness, remaining, gitStatus]
-      .filter((item) => item.status !== 0 && item.name !== "uat-remaining")
+    commandErrors: [readiness, remaining, operatorChecklist, gitStatus]
+      .filter((item) => item.status !== 0 && !["uat-remaining", "operator-checklist"].includes(item.name))
       .map((item) => truncate(`${item.name}: ${item.stderr || item.stdout || item.error || "failed"}`.trim(), 800))
   };
 }
@@ -132,6 +148,16 @@ function renderText(report) {
   if (report.blockerSample.length) {
     lines.push("", "Top blockers");
     for (const blocker of report.blockerSample) lines.push(`- ${blocker}`);
+  }
+
+  if (report.operatorChecklist.freshnessChecks.length || report.operatorChecklist.nextActions.length) {
+    lines.push("", "Operator checklist");
+    for (const check of report.operatorChecklist.freshnessChecks) {
+      lines.push(`- ${check.item}: ${check.ok ? "pass" : "stale"}${check.ok ? "" : ` (actual=${check.actual || "-"} expected=${check.expected || "-"})`}`);
+    }
+    for (const action of report.operatorChecklist.nextActions) {
+      lines.push(`- next: ${action}`);
+    }
   }
 
   if (report.commandErrors.length) {
