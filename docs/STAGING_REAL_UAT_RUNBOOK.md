@@ -78,13 +78,21 @@ Because a previous local terminal output exposed the old LINE channel secret, ro
 1. Rotate `LINE_CHANNEL_SECRET` in LINE Developers Console.
 2. Add the new value as a new enabled Secret Manager version in project `mydietitian`.
 3. Redeploy or confirm Firebase Functions can read the new secret version.
-4. Re-run the signed webhook checks through Secret Manager:
+4. Generate Secret Manager metadata and signed webhook evidence without printing the secret value:
+
+```powershell
+npm run uat:line-secret-evidence -- --project mydietitian --markdown-out docs\LINE_SECRET_ROTATION_EVIDENCE.md --out docs\LINE_SECRET_ROTATION_EVIDENCE.json
+```
+
+5. Re-run the full signed webhook checks through Secret Manager:
 
 ```powershell
 npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
 ```
 
-Record the new Secret Manager version evidence and the passing audit result in `docs/MANUAL_UAT_EVIDENCE.md`.
+Record the new Secret Manager version evidence, `secretValuePrinted=false`, and the passing audit result in `docs/MANUAL_UAT_EVIDENCE.md`. Keep generated `docs\LINE_SECRET_ROTATION_EVIDENCE.*` local.
+
+Important: if the latest enabled version was created before the known terminal exposure, do not mark this row `pass` yet. Rotate the LINE channel secret first, add a new Secret Manager version, then rerun the command so the evidence shows the post-rotation version.
 
 ## 5. Validate Before Requesting Migration Approval
 
