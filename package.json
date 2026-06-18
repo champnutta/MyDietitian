@@ -16,6 +16,7 @@
     "seed:subscription-plans": "node tools/seed_subscription_plans.js",
     "test:line-webhook": "node tools/signed_line_webhook_test.js",
     "line:uat-report": "node tools/line_staging_uat_report.js",
+    "test:portion-adjustment": "node tools/portion_adjustment_contract_check.js",
     "dashboard:contract": "node tools/dashboard_contract_check.js",
     "dashboard:parity-plan": "node tools/dashboard_parity_plan.js",
     "report:pre-cutover": "node tools/pre_cutover_report.js",

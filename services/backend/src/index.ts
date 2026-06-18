@@ -38,6 +38,7 @@ import {
   LINE_CHANNEL_SECRET
 } from "./runtime.js";
 import { ProfileAuthError, verifyProfileOwnership, writeProfileAuthAudit } from "./profile-auth.js";
+import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
 const DEFAULT_APP_RUNTIME_CONFIG: AppRuntimeConfig = {
   legacyGasDashboardUrl: "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec",
   liffSettingsUrl: "https://liff.line.me/2009365288-Ux31tFWT?page=form",
@@ -1949,7 +1950,7 @@ async function handleLineTextCommand(
     return { status: "exercise-guide-replied" };
   }
 
-  const portionAdjustment = parsePortionAdjustment(text);
+  const portionAdjustment = parsePortionAdjustmentCommand(text);
   if (portionAdjustment) {
     const readiness = await getUserReadiness(canonicalUserId);
     if (!readiness.profileComplete) {
