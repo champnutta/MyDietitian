@@ -25,6 +25,7 @@
     "uat:remaining": "node tools/summarize_manual_uat_remaining.js",
     "uat:firestore-evidence": "node tools/summarize_manual_uat_firestore_evidence.js",
     "uat:rollback-values": "node tools/check_rollback_values.js",
+    "gate:pre-migration": "node tools/pre_migration_gate_summary.js",
     "firestore:target-snapshot": "node tools/firestore_target_snapshot.js",
     "migration:verify-import": "node tools/verify_migration_import.js",
     "runtime:cutover-guard": "node tools/runtime_cutover_guard.js",
