@@ -30,6 +30,7 @@ node tools/check_ai_fallback_readiness.js --project mydietitian
 node tools/check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback
 npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
 npm run uat:remaining -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
+npm run uat:rollback-values -- --file docs/MANUAL_UAT_EVIDENCE.md
 ```
 
 Do not run final data migration or switch production LINE webhook until every manual gate is recorded as `pass`.
