@@ -55,7 +55,15 @@ Run these inside the LINE app, not a normal desktop browser.
 | --- | --- | --- | --- |
 | LIFF settings opens | Tap the settings/onboarding card from staging LINE. | Settings page opens inside LINE. | Note the LIFF URL/session and timestamp. |
 | LINE ID token sent | Submit settings from the real LIFF session. | `saveSettingsFromWeb` returns `authVerified=true`. | `profileAuthEvents` latest ID and `profiles.authVerified=true`. |
-| Invalid token rejected | Use the controlled invalid-token test only. | Endpoint returns `401 profile-auth-failed`. | Response status/message and no unauthorized profile mutation. |
+| Invalid token rejected | Run the controlled invalid-token command below. | Endpoint returns `401 profile-auth-failed`. | Copy the command JSON `evidenceText`. |
+
+Controlled invalid-token command:
+
+```powershell
+npm run uat:liff-invalid-token -- --user "<TEST_LINE_USER_ID>"
+```
+
+This command intentionally sends a fake `X-Line-Id-Token` with a safe settings payload. Passing evidence is `401 profile-auth-failed`, which proves the endpoint rejects forged LIFF identity before writing profile data.
 
 Summarize the Firestore evidence again:
 
