@@ -43,6 +43,8 @@ The audit checks:
 
 Passing this audit does not mean production cutover is complete. It only proves the pre-migration technical surfaces are reachable and guarded. Real LINE OA media/file/slip/BIA UAT and dashboard data verification are still required before the final migration window.
 
+The manual evidence checker also requires Security Preflight evidence. Because `LINE_CHANNEL_SECRET` was previously exposed in local terminal output, rotate it in LINE Developers Console, add the new Secret Manager version, rerun the signed webhook contract, and record the result before approving a migration window.
+
 For a single consolidated pre-cutover report, use:
 
 ```powershell

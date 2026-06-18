@@ -104,6 +104,14 @@ These tests must use a real LINE message because Firebase downloads content from
 | LINE ID token sent | Submit settings from real LIFF session. | `saveSettingsFromWeb` returns `authVerified=true`; `profileAuthEvents` written. |  |  |
 | Invalid token rejected | Submit with invalid token through controlled test only. | Endpoint returns `401 profile-auth-failed`. |  |  |
 
+## Security Preflight
+
+Complete these before approving the final migration window.
+
+| Case | Steps | Expected evidence | Result | Evidence link/notes |
+| --- | --- | --- | --- | --- |
+| LINE channel secret rotated after exposure | Rotate `LINE_CHANNEL_SECRET` in LINE Developers Console and update Secret Manager version in project `mydietitian`. | New Secret Manager version enabled; old secret no longer used by staging tests. |  |  |
+
 ## Dashboard Parity After Preview/Final Import
 
 Do not run this section until data has been imported into Firestore in an approved preview/final migration window.

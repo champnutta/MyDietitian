@@ -26,6 +26,7 @@ const groups = [
   ["Pre-run commands", report.preRun],
   ["Real LINE media UAT", report.lineMedia],
   ["Real LIFF auth UAT", report.liffAuth],
+  ["Security preflight", report.securityPreflight],
   ["Rollback values", report.rollbackValues],
   ["Dashboard parity", report.dashboardParity],
   ["Cutover decision", report.decisions]

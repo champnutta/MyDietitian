@@ -44,6 +44,7 @@ This project is ready for continued staging UAT, but it is not ready for final G
 - Real LINE media/file UAT: food image, leftover image, payment slip, BIA image/PDF/file.
 - Real LINE text UAT: exercise, coach/menu, subscription/redeem/admin flows as needed.
 - Real LIFF settings and identity/auth verification from inside LINE.
+- Security preflight: rotate `LINE_CHANNEL_SECRET` after the local terminal exposure and record the new Secret Manager version evidence.
 - Rollback values: current GAS webhook URL, Firebase webhook URL, LINE channel, operator, latest commit SHA, and current Google Sheet fingerprint.
 - Owner approval for the final migration window.
 - Dashboard parity after imported Firestore data exists.

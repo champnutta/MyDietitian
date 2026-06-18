@@ -12,8 +12,9 @@ Current safe state:
 
 1. Complete real LINE media UAT using `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md`.
 2. Complete real LIFF auth UAT using a real LINE LIFF session.
-3. Review rollback values and record the current GAS webhook URL.
-4. Explicitly approve the final migration window only after UAT evidence passes.
+3. Rotate `LINE_CHANNEL_SECRET` and record the Security Preflight evidence because the previous secret was exposed in local terminal output.
+4. Review rollback values and record the current GAS webhook URL.
+5. Explicitly approve the final migration window only after UAT evidence passes.
 
 ## Commands to run before approval
 

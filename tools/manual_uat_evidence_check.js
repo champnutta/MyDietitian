@@ -33,6 +33,7 @@ function buildReport(text, validationPhase, parityPlan) {
   const preRun = checkPreRunCommands(text);
   const lineMedia = checkLineMediaEvidence(text);
   const liffAuth = checkLiffEvidence(text);
+  const securityPreflight = checkSecurityPreflight(text);
   const rollbackValues = checkRollbackValues(text);
   const dashboardParity = validationPhase === "cutover" ? checkDashboardParityEvidence(text, parityPlan) : [];
   const decisions = checkCutoverDecision(text, validationPhase);
@@ -41,6 +42,7 @@ function buildReport(text, validationPhase, parityPlan) {
     ...preRun.filter((item) => !item.ok).map((item) => item.message),
     ...lineMedia.filter((item) => !item.ok).map((item) => item.message),
     ...liffAuth.filter((item) => !item.ok).map((item) => item.message),
+    ...securityPreflight.filter((item) => !item.ok).map((item) => item.message),
     ...rollbackValues.filter((item) => !item.ok).map((item) => item.message),
     ...dashboardParity.filter((item) => !item.ok).map((item) => item.message),
     ...decisions.filter((item) => !item.ok).map((item) => item.message)
@@ -55,6 +57,7 @@ function buildReport(text, validationPhase, parityPlan) {
     preRun,
     lineMedia,
     liffAuth,
+    securityPreflight,
     rollbackValues,
     dashboardParity,
     parityPlanJson: parityPlanJsonPath,
@@ -241,6 +244,14 @@ function checkLiffEvidence(text) {
   ];
   const table = extractTableRows(text, "## Real LIFF Auth UAT");
   return required.map((testCase) => checkEvidenceCase(table, testCase, "Real LIFF Auth UAT"));
+}
+
+function checkSecurityPreflight(text) {
+  const required = [
+    "LINE channel secret rotated after exposure"
+  ];
+  const table = extractTableRows(text, "## Security Preflight");
+  return required.map((testCase) => checkEvidenceCase(table, testCase, "Security Preflight"));
 }
 
 function checkRollbackValues(text) {

@@ -101,6 +101,7 @@ function main() {
       ...(testLineUserId ? [] : ["Test LINE user ID"]),
       "Real LINE media UAT rows",
       "Real LIFF auth UAT rows",
+      "Security Preflight secret rotation row",
       ...(currentGasWebhookUrl ? [] : ["Rollback Current GAS webhook URL"]),
       ...(operator ? [] : ["Operator"]),
       "Owner sign-off rows"
