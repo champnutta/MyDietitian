@@ -96,6 +96,12 @@ Important: if the latest enabled version was created before the known terminal e
 
 ## 5. Validate Before Requesting Migration Approval
 
+Generate an operator checklist from the same evidence rules used by the migration gate:
+
+```powershell
+npm run uat:operator-checklist -- --file docs\MANUAL_UAT_EVIDENCE.md --out docs\PRE_MIGRATION_OPERATOR_CHECKLIST.md
+```
+
 Run the evidence checker:
 
 ```powershell
