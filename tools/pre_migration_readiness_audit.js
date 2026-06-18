@@ -404,6 +404,8 @@ function buildStaleReadyPacket() {
     },
     automated: {
       preCutoverOk: true,
+      noSkippedChecks: true,
+      skippedChecks: [],
       checks: [
         "pre-migration audit",
         "migration dry-run",

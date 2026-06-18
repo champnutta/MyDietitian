@@ -81,8 +81,10 @@ function main() {
     ? buildEvidenceConsistency(evidenceCheck.json, migrationSnapshot)
     : { ok: !anyManualFlagProvided, checks: [], failures: anyManualFlagProvided ? ["Manual gate flags require --evidence-file."] : [] };
   const evidenceConsistent = evidenceConsistency.ok;
-  const readyForDataMigrationWindow = automatedOk && evidenceOk && evidenceConsistent && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
-  const blockers = buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
+  const automatedSkipped = buildAutomatedSkippedChecks(preCutover.json?.automatedChecks || []);
+  const automatedNoSkipped = automatedSkipped.length === 0;
+  const readyForDataMigrationWindow = automatedOk && automatedNoSkipped && evidenceOk && evidenceConsistent && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
+  const blockers = buildBlockers({ automatedOk, automatedSkipped, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
 
   const report = {
     packetType: "final-migration-readiness-packet",
@@ -97,6 +99,8 @@ function main() {
     },
     automated: {
       preCutoverOk: automatedOk,
+      noSkippedChecks: automatedNoSkipped,
+      skippedChecks: automatedSkipped,
       checks: preCutover.json?.automatedChecks || [],
       error: preCutover.error
     },
@@ -217,9 +221,21 @@ function stripMarkdown(value) {
   return String(value || "").replace(/`/g, "").trim();
 }
 
-function buildBlockers({ automatedOk, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
+function buildAutomatedSkippedChecks(automatedChecks) {
+  return automatedChecks
+    .filter((check) => Number(check?.summary?.skipped || 0) > 0)
+    .map((check) => ({
+      name: check.name,
+      skipped: Number(check.summary.skipped)
+    }));
+}
+
+function buildBlockers({ automatedOk, automatedSkipped, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
   const blockers = [];
   if (!automatedOk) blockers.push(`Automated pre-cutover report failed: ${preCutover.error || "unknown error"}`);
+  for (const skipped of automatedSkipped || []) {
+    blockers.push(`Automated check has skipped items: ${skipped.name} skipped=${skipped.skipped}. Re-run with required secret/env inputs before migration.`);
+  }
   if (anyManualFlagProvided && !evidenceFile) blockers.push("Manual gate flags require --evidence-file pointing to a completed UAT evidence file.");
   if (evidenceFile && !evidenceOk) {
     const failures = evidenceCheck?.json?.failures || [evidenceCheck?.error || "unknown evidence check failure"];
@@ -297,6 +313,8 @@ function renderMarkdown(report) {
   lines.push(
     "",
     "## Automated Checks",
+    "",
+    `Skipped automated checks: ${report.automated.noSkippedChecks ? "none" : JSON.stringify(report.automated.skippedChecks)}`,
     "",
     "| Check | Status | Summary |",
     "| --- | --- | --- |"

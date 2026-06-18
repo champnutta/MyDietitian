@@ -30,6 +30,12 @@ const REQUIRED_MANUAL_GATES = [
     template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
   },
   {
+    gate: "Security Preflight",
+    status: "manual-required",
+    evidence: "Rotate LINE_CHANNEL_SECRET after local exposure, update Secret Manager, and rerun the signed webhook contract.",
+    template: "docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md"
+  },
+  {
     gate: "Production webhook cutover approval",
     status: "manual-final-step",
     evidence: "Keep production LINE OA on GAS until all UAT and data parity checks pass.",

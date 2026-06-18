@@ -124,6 +124,9 @@ function validateFinalMigrationReadinessPacket(readinessPacketPath, expectedProj
     manualGates.every((gate) => gate.pass === true) &&
     hasPostMigrationCommands &&
     packet?.automated?.preCutoverOk === true &&
+    packet?.automated?.noSkippedChecks === true &&
+    Array.isArray(packet?.automated?.skippedChecks) &&
+    packet.automated.skippedChecks.length === 0 &&
     requiredReadinessCheckNames.every((name) => automatedCheckNames.includes(name)) &&
     automatedChecks.every((check) => check.ok === true) &&
     packet?.migrationSnapshot?.dataQuality?.okToPreviewImport === true &&
