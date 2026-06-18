@@ -1,5 +1,13 @@
 export type SourceChannel = "app" | "line" | "admin";
-export type AiProvider = "gemini" | "anthropic";
+export type AiProvider = "gemini" | "anthropic" | "openai";
+
+export interface AiAgentFallbackConfig {
+  provider: AiProvider;
+  model: string;
+  temperature?: number;
+  timeoutMs?: number;
+  maxAttempts?: number;
+}
 
 export interface AiAgentConfig {
   agentId: string;
@@ -8,6 +16,9 @@ export interface AiAgentConfig {
   promptVersion: string;
   temperature: number;
   enabled: boolean;
+  timeoutMs?: number;
+  maxAttempts?: number;
+  fallbacks?: AiAgentFallbackConfig[];
 }
 
 export interface UpdateProfileRequest {

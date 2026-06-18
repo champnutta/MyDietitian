@@ -30,6 +30,7 @@ import {
   showLoadingAnimation
 } from "./line-client.js";
 import {
+  ANTHROPIC_API_KEY,
   ADMIN_LINE_USER_ID,
   db,
   GEMINI_API_KEY,
@@ -46,6 +47,8 @@ const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   { planId: "30d", labelTh: "30 วัน", days: 30, priceThb: 59, active: true, visible: true, sortOrder: 10 },
   { planId: "90d", labelTh: "90 วัน", days: 90, priceThb: 150, active: true, visible: true, sortOrder: 20 }
 ] as const;
+
+const AI_PROVIDER_SECRETS = [GEMINI_API_KEY, ANTHROPIC_API_KEY];
 
 type SavedMealAnalysis = {
   runId: string;
@@ -664,7 +667,7 @@ export const getDashboardData = onRequest(async (request, response) => {
   });
 });
 
-export const analyzeMeal = onRequest({ secrets: [GEMINI_API_KEY] }, async (request, response) => {
+export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;
@@ -695,7 +698,7 @@ export const analyzeMeal = onRequest({ secrets: [GEMINI_API_KEY] }, async (reque
   }
 });
 
-export const analyzeExercise = onRequest({ secrets: [GEMINI_API_KEY] }, async (request, response) => {
+export const analyzeExercise = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;
@@ -727,7 +730,7 @@ export const analyzeExercise = onRequest({ secrets: [GEMINI_API_KEY] }, async (r
 });
 
 export const lineWebhook = onRequest(
-  { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID, GEMINI_API_KEY] },
+  { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID, ...AI_PROVIDER_SECRETS] },
   async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
@@ -858,15 +861,19 @@ function verifyLineSignature(rawBody: Buffer, signature: string): boolean {
   return expected.length === actual.length && timingSafeEqual(expected, actual);
 }
 
+function getAiProviderApiKeys() {
+  return {
+    gemini: GEMINI_API_KEY.value(),
+    anthropic: ANTHROPIC_API_KEY.value()
+  };
+}
+
 async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMealAnalysis> {
   const now = Timestamp.now();
   const aiRunRef = db.collection("aiRuns").doc();
   const agent = await getAiAgentConfig("mealAnalysis");
   if (!agent.enabled) {
     throw new Error("AI mealAnalysis agent is disabled");
-  }
-  if (agent.provider !== "gemini") {
-    throw new Error(`Unsupported mealAnalysis provider: ${agent.provider}`);
   }
 
   await aiRunRef.set({
@@ -886,7 +893,7 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
   });
 
   try {
-    const analysis = await callGeminiMealAnalysis(request, GEMINI_API_KEY.value(), agent);
+    const analysis = await callGeminiMealAnalysis(request, getAiProviderApiKeys(), agent);
     const mealLogRef = db.collection("mealLogs").doc();
     const savedAt = Timestamp.now();
 
@@ -1019,9 +1026,6 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
   if (!agent.enabled) {
     throw new Error("AI exerciseAnalysis agent is disabled");
   }
-  if (agent.provider !== "gemini") {
-    throw new Error(`Unsupported exerciseAnalysis provider: ${agent.provider}`);
-  }
 
   await aiRunRef.set({
     runId: aiRunRef.id,
@@ -1039,7 +1043,7 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
   });
 
   try {
-    const analysis = await callGeminiExerciseAnalysis(request, GEMINI_API_KEY.value(), agent);
+    const analysis = await callGeminiExerciseAnalysis(request, getAiProviderApiKeys(), agent);
     const exerciseLogRef = db.collection("exerciseLogs").doc();
     const savedAt = Timestamp.now();
     const rawCaloriesBurned = Math.max(0, Math.round(Number(analysis.calories_burned) || 0));
@@ -1140,9 +1144,6 @@ async function analyzeAndSaveCoachConsultation(
   if (!agent.enabled) {
     throw new Error("AI coachConsultation agent is disabled");
   }
-  if (agent.provider !== "gemini") {
-    throw new Error(`Unsupported coachConsultation provider: ${agent.provider}`);
-  }
 
   await aiRunRef.set({
     runId: aiRunRef.id,
@@ -1161,7 +1162,7 @@ async function analyzeAndSaveCoachConsultation(
   });
 
   try {
-    const answer = await callGeminiCoachConsultation(request, GEMINI_API_KEY.value(), agent);
+    const answer = await callGeminiCoachConsultation(request, getAiProviderApiKeys(), agent);
     const consultationRef = db.collection("coachConsultations").doc();
     const savedAt = Timestamp.now();
     await consultationRef.set({
@@ -1654,16 +1655,13 @@ async function analyzeBiaReport(base64: string, mimeType: string, profile: UserP
   if (!agent.enabled) {
     throw new Error("AI biaAnalysis agent is disabled");
   }
-  if (agent.provider !== "gemini") {
-    throw new Error(`Unsupported BIA provider: ${agent.provider}`);
-  }
 
   return callGeminiBiaAnalysis({
     base64,
     mimeType,
     displayName: profile.name,
     currentTargetCal: profile.target.cal
-  }, GEMINI_API_KEY.value(), agent);
+  }, getAiProviderApiKeys(), agent);
 }
 
 async function saveWeightLogFromBia(
@@ -1698,12 +1696,12 @@ async function saveWeightLogFromBia(
 
 async function classifyLineImage(base64: string, mimeType: string) {
   const agent = await getAiAgentConfig("mealAnalysis");
-  if (!agent.enabled || agent.provider !== "gemini") {
+  if (!agent.enabled) {
     return { type: "food" as const, confidence: 0 };
   }
 
   try {
-    return await callGeminiImageClassification(base64, mimeType, GEMINI_API_KEY.value(), agent);
+    return await callGeminiImageClassification(base64, mimeType, getAiProviderApiKeys(), agent);
   } catch (error) {
     await db.collection("adminAuditLogs").add({
       type: "image-classification-failed",
@@ -3167,9 +3165,6 @@ async function subtractLatestMealLeftover(input: {
   if (!agent.enabled) {
     throw new Error("AI mealAnalysis agent is disabled");
   }
-  if (agent.provider !== "gemini") {
-    throw new Error(`Unsupported mealAnalysis provider for leftover analysis: ${agent.provider}`);
-  }
 
   const aiRunRef = db.collection("aiRuns").doc();
   const now = Timestamp.now();
@@ -3196,7 +3191,7 @@ async function subtractLatestMealLeftover(input: {
         mimeType: input.mimeType,
         latestMealName
       },
-      GEMINI_API_KEY.value(),
+      getAiProviderApiKeys(),
       agent
     );
     const nutrients = data.nutrients ?? {};

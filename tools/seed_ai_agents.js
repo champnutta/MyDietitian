@@ -13,7 +13,10 @@ const AI_AGENT_CONFIGS = [
     model: "gemini-3-flash-preview",
     promptVersion: "meal-v1",
     temperature: 0.2,
-    enabled: true
+    enabled: true,
+    timeoutMs: 20000,
+    maxAttempts: 2,
+    fallbacks: []
   },
   {
     agentId: "exerciseAnalysis",
@@ -21,7 +24,10 @@ const AI_AGENT_CONFIGS = [
     model: "gemini-3-flash-preview",
     promptVersion: "exercise-v1",
     temperature: 0.2,
-    enabled: true
+    enabled: true,
+    timeoutMs: 20000,
+    maxAttempts: 2,
+    fallbacks: []
   },
   {
     agentId: "biaAnalysis",
@@ -29,7 +35,10 @@ const AI_AGENT_CONFIGS = [
     model: "gemini-3-flash-preview",
     promptVersion: "bia-v1",
     temperature: 0.1,
-    enabled: true
+    enabled: true,
+    timeoutMs: 20000,
+    maxAttempts: 2,
+    fallbacks: []
   },
   {
     agentId: "coachConsultation",
@@ -37,7 +46,10 @@ const AI_AGENT_CONFIGS = [
     model: "gemini-3-flash-preview",
     promptVersion: "coach-v1",
     temperature: 0.4,
-    enabled: true
+    enabled: true,
+    timeoutMs: 20000,
+    maxAttempts: 2,
+    fallbacks: []
   }
 ];
 

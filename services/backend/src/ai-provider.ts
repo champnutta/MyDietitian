@@ -1,4 +1,5 @@
 import type {
+  AiAgentFallbackConfig,
   AiAgentConfig,
   AnalyzeExerciseRequest,
   AnalyzeMealRequest,
@@ -14,8 +15,29 @@ const DEFAULT_AGENT_BASE = {
   provider: "gemini",
   model: "gemini-3-flash-preview",
   temperature: 0.2,
-  enabled: true
+  enabled: true,
+  timeoutMs: 20_000,
+  maxAttempts: 2
 } satisfies Omit<AiAgentConfig, "agentId" | "promptVersion">;
+
+type GeminiPart = {
+  text?: string;
+  inline_data?: {
+    mime_type: string;
+    data: string;
+  };
+};
+
+type GeminiGenerationConfig = {
+  temperature?: number;
+  response_mime_type?: "application/json";
+};
+
+type AiProviderApiKeys = {
+  gemini?: string;
+  anthropic?: string;
+  openai?: string;
+};
 
 const DEFAULT_AGENT_PROMPT_VERSION: Record<string, string> = {
   mealAnalysis: "meal-v1",
@@ -38,13 +60,16 @@ export async function getAiAgentConfig(agentId: string): Promise<AiAgentConfig> 
     model: String(data.model ?? defaultAgent.model),
     promptVersion: String(data.promptVersion ?? defaultAgent.promptVersion),
     temperature: Number(data.temperature ?? defaultAgent.temperature),
-    enabled: data.enabled !== false
+    enabled: data.enabled !== false,
+    timeoutMs: normalizePositiveNumber(data.timeoutMs, defaultAgent.timeoutMs),
+    maxAttempts: normalizeAttempts(data.maxAttempts, defaultAgent.maxAttempts),
+    fallbacks: normalizeFallbacks(data.fallbacks)
   };
 }
 
 export async function callGeminiMealAnalysis(
   request: AnalyzeMealRequest,
-  apiKey: string,
+  apiKeys: AiProviderApiKeys,
   agent: AiAgentConfig
 ): Promise<MealAnalysisResult> {
   const prompt = buildMealPrompt(request);
@@ -59,32 +84,17 @@ export async function callGeminiMealAnalysis(
     });
   }
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: agent.temperature,
-          response_mime_type: "application/json"
-        }
-      })
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini API failed: ${res.status} ${text}`);
-  }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no text output");
+  const text = await callGeminiWithFallback({
+    apiKeys,
+    agent,
+    parts,
+    anthropicPrompt: prompt,
+    generationConfig: {
+      temperature: agent.temperature,
+      response_mime_type: "application/json"
+    },
+    errorPrefix: "Gemini meal analysis"
+  });
 
   return parseJsonOutput(text);
 }
@@ -95,40 +105,25 @@ export async function callGeminiLeftoverAnalysis(
     mimeType: string;
     latestMealName: string;
   },
-  apiKey: string,
+  apiKeys: AiProviderApiKeys,
   agent: AiAgentConfig
 ): Promise<MealAnalysisResult> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: buildLeftoverPrompt(input.latestMealName) },
-            { inline_data: { mime_type: input.mimeType || "image/jpeg", data: input.imageBase64 } }
-          ]
-        }],
-        generationConfig: {
-          temperature: Math.min(agent.temperature, 0.2),
-          response_mime_type: "application/json"
-        }
-      })
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini leftover analysis failed: ${res.status} ${text}`);
-  }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no leftover analysis output");
+  const prompt = buildLeftoverPrompt(input.latestMealName);
+  const text = await callGeminiWithFallback({
+    apiKeys,
+    agent,
+    parts: [
+      { text: prompt },
+      { inline_data: { mime_type: input.mimeType || "image/jpeg", data: input.imageBase64 } }
+    ],
+    anthropicPrompt: prompt,
+    anthropicImage: { base64: input.imageBase64, mimeType: input.mimeType || "image/jpeg" },
+    generationConfig: {
+      temperature: Math.min(agent.temperature, 0.2),
+      response_mime_type: "application/json"
+    },
+    errorPrefix: "Gemini leftover analysis"
+  });
 
   return parseJsonOutput(text);
 }
@@ -136,40 +131,25 @@ export async function callGeminiLeftoverAnalysis(
 export async function callGeminiImageClassification(
   imageBase64: string,
   mimeType: string,
-  apiKey: string,
+  apiKeys: AiProviderApiKeys,
   agent: AiAgentConfig
 ): Promise<ImageClassificationResult> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: buildImageClassificationPrompt() },
-            { inline_data: { mime_type: mimeType || "image/jpeg", data: imageBase64 } }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0,
-          response_mime_type: "application/json"
-        }
-      })
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini image classification failed: ${res.status} ${text}`);
-  }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no image classification output");
+  const prompt = buildImageClassificationPrompt();
+  const text = await callGeminiWithFallback({
+    apiKeys,
+    agent,
+    parts: [
+      { text: prompt },
+      { inline_data: { mime_type: mimeType || "image/jpeg", data: imageBase64 } }
+    ],
+    anthropicPrompt: prompt,
+    anthropicImage: { base64: imageBase64, mimeType: mimeType || "image/jpeg" },
+    generationConfig: {
+      temperature: 0,
+      response_mime_type: "application/json"
+    },
+    errorPrefix: "Gemini image classification"
+  });
 
   const parsed = parseJsonOutput<ImageClassificationResult>(text);
   return {
@@ -185,110 +165,67 @@ export async function callGeminiBiaAnalysis(
     displayName: string;
     currentTargetCal: number;
   },
-  apiKey: string,
+  apiKeys: AiProviderApiKeys,
   agent: AiAgentConfig
 ): Promise<BiaAnalysisResult> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: buildBiaPrompt(input.displayName, input.currentTargetCal) },
-            { inline_data: { mime_type: input.mimeType || "image/jpeg", data: input.base64 } }
-          ]
-        }],
-        generationConfig: {
-          temperature: 0.1,
-          response_mime_type: "application/json"
-        }
-      })
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini BIA analysis failed: ${res.status} ${text}`);
-  }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no BIA analysis output");
+  const prompt = buildBiaPrompt(input.displayName, input.currentTargetCal);
+  const text = await callGeminiWithFallback({
+    apiKeys,
+    agent,
+    parts: [
+      { text: prompt },
+      { inline_data: { mime_type: input.mimeType || "image/jpeg", data: input.base64 } }
+    ],
+    anthropicPrompt: prompt,
+    anthropicImage: { base64: input.base64, mimeType: input.mimeType || "image/jpeg" },
+    generationConfig: {
+      temperature: 0.1,
+      response_mime_type: "application/json"
+    },
+    errorPrefix: "Gemini BIA analysis"
+  });
 
   return parseJsonOutput(text);
 }
 
 export async function callGeminiCoachConsultation(
   request: CoachConsultationRequest,
-  apiKey: string,
+  apiKeys: AiProviderApiKeys,
   agent: AiAgentConfig
 ): Promise<string> {
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: buildCoachConsultationPrompt(request) }] }],
-        generationConfig: {
-          temperature: agent.temperature
-        }
-      })
-    }
-  );
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Gemini coach consultation failed: ${res.status} ${text}`);
-  }
-
-  const json = await res.json() as {
-    candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-  };
-
-  const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error("Gemini returned no coach consultation output");
+  const prompt = buildCoachConsultationPrompt(request);
+  const text = await callGeminiWithFallback({
+    apiKeys,
+    agent,
+    parts: [{ text: prompt }],
+    anthropicPrompt: prompt,
+    generationConfig: {
+      temperature: agent.temperature
+    },
+    errorPrefix: "Gemini coach consultation"
+  });
 
   return text.trim();
 }
 
 export async function callGeminiExerciseAnalysis(
   request: AnalyzeExerciseRequest,
-  apiKey: string,
+  apiKeys: AiProviderApiKeys,
   agent: AiAgentConfig
 ): Promise<ExerciseAnalysisResult> {
   try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${agent.model}:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: buildExercisePrompt(request) }] }],
-          generationConfig: {
-            temperature: agent.temperature,
-            response_mime_type: "application/json"
-          }
-        })
-      }
-    );
-
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Gemini exercise API failed: ${res.status} ${text}`);
-    }
-
-    const json = await res.json() as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) throw new Error("Gemini returned no exercise text output");
+    const prompt = buildExercisePrompt(request);
+    const text = await callGeminiWithFallback({
+      apiKeys,
+      agent,
+      parts: [{ text: prompt }],
+      anthropicPrompt: prompt,
+      generationConfig: {
+        temperature: agent.temperature,
+        response_mime_type: "application/json"
+      },
+      errorPrefix: "Gemini exercise analysis"
+    });
 
     return parseJsonOutput(text);
   } catch (error) {
@@ -306,7 +243,317 @@ function getDefaultAgent(agentId: string): AiAgentConfig {
 }
 
 function normalizeAiProvider(provider: unknown): AiAgentConfig["provider"] {
-  return provider === "anthropic" ? "anthropic" : "gemini";
+  if (provider === "anthropic" || provider === "openai") return provider;
+  return "gemini";
+}
+
+function normalizeFallbacks(fallbacks: unknown): AiAgentFallbackConfig[] {
+  if (!Array.isArray(fallbacks)) return [];
+  const normalized: AiAgentFallbackConfig[] = [];
+  for (const fallback of fallbacks) {
+    if (!fallback || typeof fallback !== "object") continue;
+    const data = fallback as Record<string, unknown>;
+    const model = String(data.model ?? "").trim();
+    if (!model) continue;
+    normalized.push({
+      provider: normalizeAiProvider(data.provider),
+      model,
+      temperature: normalizeOptionalNumber(data.temperature),
+      timeoutMs: normalizeOptionalNumber(data.timeoutMs),
+      maxAttempts: normalizeOptionalAttempts(data.maxAttempts)
+    });
+  }
+  return normalized;
+}
+
+function normalizePositiveNumber(value: unknown, fallback: number | undefined): number | undefined {
+  const normalized = normalizeOptionalNumber(value);
+  return normalized ?? fallback;
+}
+
+function normalizeOptionalNumber(value: unknown): number | undefined {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+}
+
+function normalizeAttempts(value: unknown, fallback: number | undefined): number | undefined {
+  return normalizeOptionalAttempts(value) ?? fallback;
+}
+
+function normalizeOptionalAttempts(value: unknown): number | undefined {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric < 1) return undefined;
+  return Math.min(Math.floor(numeric), 4);
+}
+
+function expandGeminiCandidates(agent: AiAgentConfig): AiAgentConfig[] {
+  const candidates: AiAgentConfig[] = [agent];
+  for (const fallback of agent.fallbacks ?? []) {
+    candidates.push({
+      ...agent,
+      provider: fallback.provider,
+      model: fallback.model,
+      temperature: fallback.temperature ?? agent.temperature,
+      timeoutMs: fallback.timeoutMs ?? agent.timeoutMs,
+      maxAttempts: fallback.maxAttempts ?? agent.maxAttempts,
+      fallbacks: []
+    });
+  }
+  return candidates;
+}
+
+async function callGeminiWithFallback(input: {
+  apiKeys: AiProviderApiKeys;
+  agent: AiAgentConfig;
+  parts: GeminiPart[];
+  anthropicPrompt: string;
+  anthropicImage?: { base64: string; mimeType: string };
+  generationConfig: GeminiGenerationConfig;
+  errorPrefix: string;
+}): Promise<string> {
+  const errors: string[] = [];
+  for (const candidate of expandGeminiCandidates(input.agent)) {
+    try {
+      let text: string;
+      if (candidate.provider === "anthropic") {
+        text = await callAnthropicWithRetry({
+          apiKey: requireProviderKey(input.apiKeys.anthropic, "ANTHROPIC_API_KEY"),
+          agent: candidate,
+          prompt: input.anthropicPrompt,
+          image: input.anthropicImage,
+          wantsJson: input.generationConfig.response_mime_type === "application/json",
+          errorPrefix: input.errorPrefix
+        });
+      } else if (candidate.provider === "gemini") {
+        text = await callGeminiWithRetry({
+          apiKey: requireProviderKey(input.apiKeys.gemini, "GEMINI_API_KEY"),
+          agent: candidate,
+          parts: input.parts,
+          generationConfig: {
+            ...input.generationConfig,
+            temperature: input.generationConfig.temperature ?? candidate.temperature
+          },
+          errorPrefix: input.errorPrefix
+        });
+      } else {
+        throw new Error(`Provider adapter is not implemented: ${candidate.provider}`);
+      }
+      if (candidate.provider !== input.agent.provider || candidate.model !== input.agent.model) {
+        console.warn(`${input.errorPrefix} recovered with fallback ${candidate.provider}/${candidate.model}`);
+      }
+      input.agent.provider = candidate.provider;
+      input.agent.model = candidate.model;
+      input.agent.temperature = candidate.temperature;
+      return text;
+    } catch (error) {
+      errors.push(`${candidate.provider}/${candidate.model}: ${error instanceof Error ? error.message : String(error)}`);
+      console.warn(`${input.errorPrefix} candidate failed`, {
+        provider: candidate.provider,
+        model: candidate.model,
+        error
+      });
+    }
+  }
+
+  throw new Error(`${input.errorPrefix} failed for all candidates: ${errors.join(" | ")}`);
+}
+
+async function callGeminiWithRetry(input: {
+  apiKey: string;
+  agent: AiAgentConfig;
+  parts: GeminiPart[];
+  generationConfig: GeminiGenerationConfig;
+  errorPrefix: string;
+}): Promise<string> {
+  const maxAttempts = input.agent.maxAttempts ?? 2;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await callGeminiOnce(input);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts || !isTransientGeminiError(error)) break;
+      await delay(250 * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function callAnthropicWithRetry(input: {
+  apiKey: string;
+  agent: AiAgentConfig;
+  prompt: string;
+  image?: { base64: string; mimeType: string };
+  wantsJson: boolean;
+  errorPrefix: string;
+}): Promise<string> {
+  const maxAttempts = input.agent.maxAttempts ?? 2;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      return await callAnthropicOnce(input);
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxAttempts || !isTransientProviderError(error)) break;
+      await delay(250 * attempt);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+async function callAnthropicOnce(input: {
+  apiKey: string;
+  agent: AiAgentConfig;
+  prompt: string;
+  image?: { base64: string; mimeType: string };
+  wantsJson: boolean;
+  errorPrefix: string;
+}): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), input.agent.timeoutMs ?? 20_000);
+  const content: Array<Record<string, unknown>> = [];
+  if (input.image) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: input.image.mimeType,
+        data: input.image.base64
+      }
+    });
+  }
+  content.push({
+    type: "text",
+    text: input.wantsJson ? `${input.prompt}\n\nReturn only valid JSON. Do not wrap it in markdown.` : input.prompt
+  });
+
+  try {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": input.apiKey,
+        "anthropic-version": "2023-06-01"
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: input.agent.model,
+        max_tokens: input.wantsJson ? 2048 : 1024,
+        temperature: input.agent.temperature,
+        messages: [{ role: "user", content }]
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new ProviderHttpError(`${input.errorPrefix} Anthropic failed: ${res.status} ${text}`, res.status);
+    }
+
+    const json = await res.json() as {
+      content?: Array<{ type?: string; text?: string }>;
+    };
+    const text = json.content?.find((part) => part.type === "text" && part.text)?.text;
+    if (!text) throw new Error(`${input.errorPrefix} Anthropic returned no text output`);
+    return text.trim();
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`${input.errorPrefix} Anthropic timed out after ${input.agent.timeoutMs ?? 20_000}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function callGeminiOnce(input: {
+  apiKey: string;
+  agent: AiAgentConfig;
+  parts: GeminiPart[];
+  generationConfig: GeminiGenerationConfig;
+  errorPrefix: string;
+}): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), input.agent.timeoutMs ?? 20_000);
+
+  try {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${input.agent.model}:generateContent?key=${input.apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: controller.signal,
+        body: JSON.stringify({
+          contents: [{ parts: input.parts }],
+          generationConfig: input.generationConfig
+        })
+      }
+    );
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new GeminiHttpError(`${input.errorPrefix} failed: ${res.status} ${text}`, res.status);
+    }
+
+    const json = await res.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+
+    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!text) throw new Error(`${input.errorPrefix} returned no text output`);
+
+    return text;
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`${input.errorPrefix} timed out after ${input.agent.timeoutMs ?? 20_000}ms`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+class GeminiHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "GeminiHttpError";
+  }
+}
+
+class ProviderHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
+    this.name = "ProviderHttpError";
+  }
+}
+
+function isTransientGeminiError(error: unknown): boolean {
+  return isTransientProviderError(error);
+}
+
+function isTransientProviderError(error: unknown): boolean {
+  if (error instanceof GeminiHttpError) {
+    return error.status === 408 || error.status === 429 || error.status >= 500;
+  }
+  if (error instanceof ProviderHttpError) {
+    return error.status === 408 || error.status === 409 || error.status === 429 || error.status >= 500;
+  }
+  const message = error instanceof Error ? error.message : String(error);
+  return /timed out|ECONNRESET|ETIMEDOUT|ENOTFOUND|fetch failed/i.test(message);
+}
+
+function requireProviderKey(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(`${name} is not configured`);
+  }
+  return value;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildMealPrompt(request: AnalyzeMealRequest): string {
