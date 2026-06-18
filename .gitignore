@@ -9,6 +9,8 @@ services/backend/lib/
 Thumbs.db
 *.log
 docs/FINAL_MIGRATION_READINESS_PACKET.latest.*
+docs/MANUAL_UAT_EVIDENCE.md
+docs/DASHBOARD_PARITY_PLAN_OUTPUT.*
 .env
 .env.*
 !.env.example

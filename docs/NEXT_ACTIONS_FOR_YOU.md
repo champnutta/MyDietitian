@@ -17,6 +17,13 @@ Current safe state:
 
 ## Commands to run before approval
 
+Prepare a local evidence working copy. This file is ignored by Git because it can contain LINE IDs and customer evidence:
+
+```powershell
+$env:LINE_CHANNEL_SECRET="<staging-or-production-line-channel-secret>"
+npm run uat:prepare-evidence -- --project mydietitian --force
+```
+
 ```powershell
 npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
 node tools/check_ai_fallback_readiness.js --project mydietitian
