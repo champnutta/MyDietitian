@@ -57,6 +57,7 @@ function buildStatusPack() {
   const lineUat = runNodeJson("LINE text UAT", ["tools/line_staging_uat_report.js", "--json"]);
   const portionAdjustment = runNodeJson("portion adjustment contract", ["tools/portion_adjustment_contract_check.js"]);
   const subscription = runNodeJson("subscription contract", ["tools/subscription_contract_check.js"]);
+  const targetConfirmation = runNodeJson("target confirmation contract", ["tools/target_confirmation_contract_check.js"]);
   const dryRun = runNodeJson("Google Sheet migration dry-run", [
     "tools/migrate_sheet_to_firestore.js",
     "--project",
@@ -81,12 +82,13 @@ function buildStatusPack() {
   const migrationSnapshot = dryRun.json?.importManifest || {};
   const gateReport = gate.json || {};
   const blockers = buildBlockers({
-    commands: [functionsList, aiConfig, lineUat, portionAdjustment, subscription, dryRun, gate],
+    commands: [functionsList, aiConfig, lineUat, portionAdjustment, subscription, targetConfirmation, dryRun, gate],
     missingFunctions,
     aiConfig: aiConfig.json,
     lineUat: lineUat.json,
     portionAdjustment: portionAdjustment.json,
     subscription: subscription.json,
+    targetConfirmation: targetConfirmation.json,
     dryRun: dryRun.json,
     gateReport
   });
@@ -121,6 +123,11 @@ function buildStatusPack() {
       passed: subscription.json?.summary?.passed ?? null,
       failed: subscription.json?.summary?.failed ?? null
     },
+    targetConfirmation: {
+      ok: Boolean(targetConfirmation.json?.ok),
+      passed: targetConfirmation.json?.summary?.passed ?? null,
+      failed: targetConfirmation.json?.summary?.failed ?? null
+    },
     migrationDryRun: {
       ok: Boolean(dryRun.json?.migrationReadiness?.dataQuality?.okToPreviewImport),
       totalPlannedDocuments: migrationSnapshot.totalPlannedDocuments ?? dryRun.json?.total ?? null,
@@ -138,7 +145,7 @@ function buildStatusPack() {
       nextActions: gateReport.operatorChecklist?.nextActions || []
     },
     blockers,
-    commandStatus: [functionsList, aiConfig, lineUat, portionAdjustment, subscription, dryRun, gate].map((item) => ({
+    commandStatus: [functionsList, aiConfig, lineUat, portionAdjustment, subscription, targetConfirmation, dryRun, gate].map((item) => ({
       name: item.name,
       ok: item.ok,
       status: item.status,
@@ -148,7 +155,7 @@ function buildStatusPack() {
   };
 }
 
-function buildBlockers({ commands, missingFunctions, aiConfig, lineUat, portionAdjustment, subscription, dryRun, gateReport }) {
+function buildBlockers({ commands, missingFunctions, aiConfig, lineUat, portionAdjustment, subscription, targetConfirmation, dryRun, gateReport }) {
   const critical = [];
   const beforeMigration = [];
 
@@ -160,6 +167,7 @@ function buildBlockers({ commands, missingFunctions, aiConfig, lineUat, portionA
   if (!lineUat?.ok) critical.push("LINE text UAT dry-run is not passing.");
   if (!portionAdjustment?.ok) critical.push("Portion adjustment contract is not passing.");
   if (!subscription?.ok) critical.push("Subscription/admin contract is not passing.");
+  if (!targetConfirmation?.ok) critical.push("Target confirmation contract is not passing.");
   if (!dryRun?.migrationReadiness?.dataQuality?.okToPreviewImport) critical.push("Google Sheet migration dry-run is not safe to preview/import.");
 
   if (!gateReport.readyForDataMigrationWindow) {
@@ -244,6 +252,7 @@ function renderMarkdown(report) {
     `LINE text UAT: ${report.lineTextUat.ok ? "pass" : "fail"} (${report.lineTextUat.passed}/${Number(report.lineTextUat.passed || 0) + Number(report.lineTextUat.failed || 0)} text scenarios, ${report.lineTextUat.realLineRequiredCount} real LINE/LIFF cases still require manual evidence)`,
     `Portion adjustment contract: ${report.portionAdjustment.ok ? "pass" : "fail"} (${report.portionAdjustment.passed}/${Number(report.portionAdjustment.passed || 0) + Number(report.portionAdjustment.failed || 0)} cases)`,
     `Subscription/admin contract: ${report.subscription.ok ? "pass" : "fail"} (${report.subscription.passed}/${Number(report.subscription.passed || 0) + Number(report.subscription.failed || 0)} cases)`,
+    `Target confirmation contract: ${report.targetConfirmation.ok ? "pass" : "fail"} (${report.targetConfirmation.passed}/${Number(report.targetConfirmation.passed || 0) + Number(report.targetConfirmation.failed || 0)} cases)`,
     `Migration dry-run: ${report.migrationDryRun.ok ? "pass" : "fail"} (${report.migrationDryRun.totalPlannedDocuments} planned docs, importRunId=${report.migrationDryRun.importRunId || "-"})`,
     `Source fingerprint: ${report.migrationDryRun.sourceFingerprint || "-"}`,
     `Pre-migration gate: ${report.preMigrationGate.status} (${report.preMigrationGate.blockerCount ?? "-"} blockers)`,

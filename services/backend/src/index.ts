@@ -50,6 +50,7 @@ import {
   type SubscriptionGrant,
   type SubscriptionPlan
 } from "./subscription-utils.js";
+import { parseConfirmUpdateTargetCommand } from "./target-confirmation.js";
 const DEFAULT_APP_RUNTIME_CONFIG: AppRuntimeConfig = {
   legacyGasDashboardUrl: "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec",
   liffSettingsUrl: "https://liff.line.me/2009365288-Ux31tFWT?page=form",
@@ -2132,23 +2133,13 @@ async function handleConfirmUpdateTarget(
   canonicalUserId: string,
   lineUserId: string
 ): Promise<Record<string, unknown>> {
-  const parts = text.split(/\s+/);
-  const calories = Number(parts[1]);
-  const macros = parts[2]?.split("-").map((part) => Number(part)) ?? [];
-  if (!Number.isFinite(calories) || calories < 800 || calories > 6000 || macros.length !== 3 || macros.some((value) => !Number.isFinite(value) || value <= 0)) {
+  const target = parseConfirmUpdateTargetCommand(text);
+  if (!target) {
     await replyToLine(replyToken, "รูปแบบยืนยันเป้าหมายไม่ถูกต้องครับ เช่น `CONFIRM_UPDATE_TARGET 2200 150-200-60`");
     return { updated: false, reason: "invalid-target-confirmation" };
   }
 
-  const [proteinG, carbsG, fatG] = macros;
   const now = Timestamp.now();
-  const target = {
-    calories: Math.round(calories),
-    proteinG: Math.round(proteinG),
-    carbsG: Math.round(carbsG),
-    fatG: Math.round(fatG),
-    fiberG: 25
-  };
   await Promise.all([
     db.collection("profiles").doc(canonicalUserId).set({
       target,

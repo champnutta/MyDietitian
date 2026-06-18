@@ -18,6 +18,7 @@
     "line:uat-report": "node tools/line_staging_uat_report.js",
     "test:portion-adjustment": "node tools/portion_adjustment_contract_check.js",
     "test:subscription": "node tools/subscription_contract_check.js",
+    "test:target-confirmation": "node tools/target_confirmation_contract_check.js",
     "dashboard:contract": "node tools/dashboard_contract_check.js",
     "dashboard:parity-plan": "node tools/dashboard_parity_plan.js",
     "report:pre-cutover": "node tools/pre_cutover_report.js",
