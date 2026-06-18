@@ -7,7 +7,8 @@ const projectId = args.project || "mydietitian";
 const commit = Boolean(args.commit);
 const serviceAccount = args.serviceAccount;
 const anthropicModel = String(args.anthropicModel || "").trim();
-const agents = String(args.agents || "mealAnalysis,biaAnalysis,coachConsultation")
+const geminiModel = String(args.geminiModel || "gemini-3.5-flash").trim();
+const agents = String(args.agents || "mealAnalysis,exerciseAnalysis,biaAnalysis,coachConsultation")
   .split(",")
   .map((agent) => agent.trim())
   .filter(Boolean);
@@ -24,6 +25,9 @@ main().catch((error) => {
 async function main() {
   if (!anthropicModel) {
     throw new Error("Missing --anthropicModel. Pass the exact Anthropic model ID from the Anthropic Console/API docs.");
+  }
+  if (!geminiModel) {
+    throw new Error("Missing --geminiModel.");
   }
   if (!agents.length) {
     throw new Error("Missing agents. Pass --agents mealAnalysis,biaAnalysis,coachConsultation");
@@ -42,7 +46,7 @@ async function main() {
     const temperature = Number(current.temperature ?? defaultTemperature(agentId));
     const update = {
       provider: String(current.provider || "gemini"),
-      model: String(current.model || "gemini-3.5-flash"),
+      model: geminiModel,
       promptVersion: String(current.promptVersion || `${agentId}-v1`),
       temperature,
       enabled: current.enabled !== false,

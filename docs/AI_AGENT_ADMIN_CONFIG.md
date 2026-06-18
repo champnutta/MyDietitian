@@ -93,13 +93,13 @@ node tools/check_ai_fallback_readiness.js --project mydietitian
 ```
 
 ```bash
-node tools/configure_ai_provider_fallbacks.js --project mydietitian --anthropicModel claude-sonnet-4-6
+node tools/configure_ai_provider_fallbacks.js --project mydietitian --geminiModel gemini-3.5-flash --anthropicModel claude-sonnet-4-6
 ```
 
 The fallback tool is dry-run by default. Add `--commit` only after reviewing the printed diff:
 
 ```bash
-node tools/configure_ai_provider_fallbacks.js --project mydietitian --anthropicModel claude-sonnet-4-6 --commit
+node tools/configure_ai_provider_fallbacks.js --project mydietitian --geminiModel gemini-3.5-flash --anthropicModel claude-sonnet-4-6 --commit
 ```
 
 ## Default fallback
