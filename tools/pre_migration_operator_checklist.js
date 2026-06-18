@@ -101,6 +101,10 @@ function buildActions(groups, rollbackChecks, freshnessChecks) {
       title: "Run staging real LINE/LIFF UAT and collect Firestore evidence",
       command: "npm run uat:firestore-evidence -- --user \"<TEST_LINE_USER_ID>\" --since-hours 24 --require-all --out docs\\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\\UAT_FIRESTORE_EVIDENCE.md"
     });
+    actions.push({
+      title: "Apply passing Firestore UAT evidence rows",
+      command: "npm run uat:apply-firestore-evidence -- --firestore-report docs\\UAT_FIRESTORE_EVIDENCE.json --evidence-file docs\\MANUAL_UAT_EVIDENCE.md"
+    });
   }
   if (/Invalid token rejected/i.test(missingText)) {
     actions.push({
@@ -112,6 +116,10 @@ function buildActions(groups, rollbackChecks, freshnessChecks) {
     actions.push({
       title: "After rotating LINE channel secret, collect safe secret metadata evidence",
       command: "npm run uat:line-secret-evidence -- --project mydietitian --markdown-out docs\\LINE_SECRET_ROTATION_EVIDENCE.md --out docs\\LINE_SECRET_ROTATION_EVIDENCE.json"
+    });
+    actions.push({
+      title: "Apply passing LINE secret rotation evidence",
+      command: "npm run uat:apply-line-secret-evidence -- --secret-report docs\\LINE_SECRET_ROTATION_EVIDENCE.json --evidence-file docs\\MANUAL_UAT_EVIDENCE.md"
     });
   }
   if (rollbackChecks.some((check) => !check.ok) || freshnessChecks.some((check) => !check.ok)) {
