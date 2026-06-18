@@ -39,15 +39,22 @@ import {
 } from "./runtime.js";
 import { ProfileAuthError, verifyProfileOwnership, writeProfileAuthAudit } from "./profile-auth.js";
 import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
+import {
+  DEFAULT_SUBSCRIPTION_PLANS,
+  formatSubscriptionPlanLine,
+  normalizeSubscriptionPlan,
+  parseAdminSubscriptionCommand,
+  subscriptionGrantFromPlan,
+  subscriptionGrantFromRawInput,
+  type AdminSubscriptionCommand,
+  type SubscriptionGrant,
+  type SubscriptionPlan
+} from "./subscription-utils.js";
 const DEFAULT_APP_RUNTIME_CONFIG: AppRuntimeConfig = {
   legacyGasDashboardUrl: "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec",
   liffSettingsUrl: "https://liff.line.me/2009365288-Ux31tFWT?page=form",
   paymentQrImage: "https://img2.pic.in.th/1613478.jpg"
 };
-const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
-  { planId: "30d", labelTh: "30 วัน", days: 30, priceThb: 59, active: true, visible: true, sortOrder: 10 },
-  { planId: "90d", labelTh: "90 วัน", days: 90, priceThb: 150, active: true, visible: true, sortOrder: 20 }
-] as const;
 
 const AI_PROVIDER_SECRETS = [GEMINI_API_KEY, ANTHROPIC_API_KEY];
 
@@ -108,25 +115,6 @@ type SubscriptionTarget = {
   lineUserId: string | null;
 };
 
-type SubscriptionPlan = {
-  planId: string;
-  labelTh: string;
-  days: number | null;
-  priceThb: number | null;
-  active: boolean;
-  visible: boolean;
-  sortOrder: number;
-  promoTag?: string | null;
-};
-
-type SubscriptionGrant = {
-  planId: string | null;
-  labelTh: string;
-  days: number | null;
-  priceThb: number | null;
-  lifetime: boolean;
-};
-
 type SubscriptionState = {
   active: boolean;
   lifetime: boolean;
@@ -139,10 +127,6 @@ type AppRuntimeConfig = {
   liffSettingsUrl: string;
   paymentQrImage: string;
 };
-
-type AdminSubscriptionCommand =
-  | { action: "approve"; target: string; grantInput: string | null }
-  | { action: "reject"; target: string; reason: string | null };
 
 type UserReadiness = {
   profileComplete: boolean;
@@ -2448,28 +2432,6 @@ async function handleRedeemCode(
   };
 }
 
-function parseAdminSubscriptionCommand(text: string): AdminSubscriptionCommand | null {
-  const approve = text.match(/^(?:approve|อนุมัติ)\s+(\S+)(?:\s+(\S+))?/i);
-  if (approve) {
-    return {
-      action: "approve",
-      target: approve[1],
-      grantInput: approve[2]?.trim() || null
-    };
-  }
-
-  const reject = text.match(/^(?:reject|ปฏิเสธ|ไม่อนุมัติ)\s+(\S+)(?:\s+(.+))?/i);
-  if (reject) {
-    return {
-      action: "reject",
-      target: reject[1],
-      reason: reject[2]?.trim() || null
-    };
-  }
-
-  return null;
-}
-
 async function handleAdminSubscriptionCommand(
   command: AdminSubscriptionCommand,
   replyToken: string,
@@ -2711,64 +2673,15 @@ async function getVisibleSubscriptionPlans(): Promise<SubscriptionPlan[]> {
 
 async function resolveSubscriptionGrant(input: string | null): Promise<SubscriptionGrant | null> {
   const token = (input ?? DEFAULT_SUBSCRIPTION_PLANS[0].planId).trim().toLowerCase();
-  if (isLifetimeSubscriptionToken(token)) {
-    return { planId: "lifetime", labelTh: "lifetime", days: null, priceThb: null, lifetime: true };
-  }
-
-  if (/^\d+$/.test(token)) {
-    const days = Number(token);
-    if (!Number.isFinite(days) || days <= 0 || days > 3660) return null;
-    return { planId: null, labelTh: `${days} วัน`, days, priceThb: null, lifetime: false };
-  }
+  const rawGrant = subscriptionGrantFromRawInput(token);
+  if (rawGrant) return rawGrant;
 
   const planSnap = await db.collection("subscriptionPlans").doc(token).get();
-  if (!planSnap.exists) {
-    const fallbackPlan = DEFAULT_SUBSCRIPTION_PLANS.find((plan) => plan.planId.toLowerCase() === token);
-    return fallbackPlan ? subscriptionGrantFromPlan(fallbackPlan) : null;
-  }
+  if (!planSnap.exists) return null;
 
   const plan = normalizeSubscriptionPlan(planSnap.id, planSnap.data() ?? {});
   if (!plan.active) return null;
   return subscriptionGrantFromPlan(plan);
-}
-
-function normalizeSubscriptionPlan(planId: string, data: Record<string, unknown>): SubscriptionPlan {
-  const days = data.days === null || data.entitlementType === "lifetime" || data.lifetime === true
-    ? null
-    : Number(data.days ?? 0);
-  return {
-    planId,
-    labelTh: String(data.labelTh ?? data.label ?? planId),
-    days: days && Number.isFinite(days) ? days : null,
-    priceThb: data.priceThb === null || data.priceThb === undefined ? null : Number(data.priceThb),
-    active: data.active !== false,
-    visible: data.visible !== false,
-    sortOrder: Number(data.sortOrder ?? 999),
-    promoTag: data.promoTag === undefined ? null : String(data.promoTag)
-  };
-}
-
-function subscriptionGrantFromPlan(plan: SubscriptionPlan): SubscriptionGrant | null {
-  const lifetime = plan.days === null;
-  if (!lifetime && (!plan.days || plan.days <= 0 || plan.days > 3660)) return null;
-  return {
-    planId: plan.planId,
-    labelTh: plan.labelTh,
-    days: plan.days,
-    priceThb: plan.priceThb,
-    lifetime
-  };
-}
-
-function isLifetimeSubscriptionToken(token: string) {
-  return ["lifetime", "infinite", "forever", "free", "vip"].includes(token);
-}
-
-function formatSubscriptionPlanLine(plan: SubscriptionPlan) {
-  const duration = plan.days === null ? "lifetime" : `${plan.days} วัน`;
-  const price = plan.priceThb === null ? "free" : `${plan.priceThb} บาท`;
-  const promo = plan.promoTag ? ` (${plan.promoTag})` : "";
-  return `- ${plan.labelTh || duration}${promo} = ${price}`;
 }
 
 function formatSubscriptionStatus(expiresAt: Timestamp | null, lifetime = false) {
