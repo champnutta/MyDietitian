@@ -37,11 +37,11 @@
 - Firebase Hosting now also serves a Firestore dashboard preview at `https://mydietitian.web.app/dashboard?uid={LINE_USER_ID}`. It reads `getDashboardData` directly and is ready for staging verification before switching `appConfig/runtime.legacyGasDashboardUrl`.
 - `tools/pre_migration_readiness_audit.js` verifies Functions, Hosting, CORS, Firestore runtime config, AI agents, subscription plans, dashboard API contract, LINE UAT dry-run payload generation, migration dry-run mapping, optional settings smoke-write, and the migration write lock before any final Google Sheet migration window.
 - `saveSettingsFromWeb` staging endpoint now accepts LIFF-style auto/custom settings, validates safe IDs and sensible nutrition ranges, verifies Firebase/LINE identity tokens when provided, calculates TDEE/macros, saves `profiles`, `users`, optional `weightLogs`, `profileEvents`, links LINE/Auth IDs when provided, and grants a 3-day trial if no subscription expiry exists.
-- `analyzeMeal` model is set to `gemini-3-flash-preview` to match the GAS source.
-- `aiAgents/mealAnalysis` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `meal-v1`, and temperature `0.2`.
-- `aiAgents/coachConsultation` is seeded in Firestore with provider `gemini`, model `gemini-3-flash-preview`, prompt version `coach-v1`, and temperature `0.4`.
+- AI agents are configured in Firestore with provider `gemini`, primary model `gemini-3.5-flash`, `maxAttempts=1`, and Anthropic fallback `claude-sonnet-4-6`.
+- Gemini and Anthropic secrets are configured in Firebase project `mydietitian`; Functions were deployed with access to both secrets.
+- AI fallback smoke test succeeded: `analyzeMeal` used `gemini-3.5-flash` as primary and recovered through `claude-sonnet-4-6` with `fallbackUsed=true`.
 - Backend now resolves canonical users through `lineLinks` and `authLinks`, so LINE OA and the future native app can share the same Firestore data after account linking.
-- `lineWebhook` is staging only. It verifies signatures, deduplicates text message IDs, can analyze/reply to text food messages, and defers known legacy commands to GAS.
+- `lineWebhook` remains staging/pre-production only. It verifies signatures, deduplicates events, supports the migrated Firestore flows below, and must not replace the production GAS webhook until real LINE/LIFF UAT, data migration, dashboard parity, and owner approval pass.
 - `lineWebhook` staging text commands now support help, profile/status, legacy dashboard link, daily summary from Firestore, manual weight logging, and undo latest Firestore meal log.
 - `lineWebhook` staging correction flow now supports latest-meal text correction and flexible portion adjustment commands such as `ไม่ใช่...เป็น...`, `กินครึ่งเดียว`, `กิน 2/3`, `เหลือ 1/4`, and `กินไป 70%` against Firestore meal logs.
 - `lineWebhook` staging onboarding now handles follow events, creates/updates LINE-linked users, replies with a Flex onboarding card, supports quick manual setup with `ตั้งค่า ชื่อ 2000 40-30-30`, grants a 3-day trial for newly configured users, and gates food/image/exercise analysis until profile and subscription readiness pass.
@@ -60,11 +60,12 @@
   - `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
 - Secrets are configured and attached to Functions:
   - `GEMINI_API_KEY`
+  - `ANTHROPIC_API_KEY`
   - `LINE_CHANNEL_ACCESS_TOKEN`
   - `LINE_CHANNEL_SECRET`
   - `ADMIN_LINE_USER_ID`
 - `analyzeMeal` was deployed with Gemini integration and successfully created test `aiRuns` and `mealLogs` records.
-- `analyzeMeal` was rechecked after the canonical identity and AI agent config refactor and still returns `gemini-3-flash-preview` results from `aiAgents/mealAnalysis`.
+- `analyzeMeal` was rechecked after the AI fallback config refactor and records `primaryModel=gemini-3.5-flash`, `model=claude-sonnet-4-6`, and `fallbackUsed=true` when Gemini overloads/fails over.
 - Note: the first Windows PowerShell inline JSON test garbled Thai input text, so app/LINE clients should send UTF-8 JSON bodies.
 - The failed leftover `health(us-central1)` function from the first deployment attempt was deleted.
 - Google Sheet data migration is intentionally deferred until the final pre-production cutover window.

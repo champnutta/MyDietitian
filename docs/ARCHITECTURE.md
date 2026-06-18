@@ -14,7 +14,7 @@ Keep `LINE OA` as the familiar user channel during migration, but move the real 
 - `services/backend`
   - Region: `asia-southeast1 (Singapore)` for Firebase Functions
   - LINE webhook endpoint
-  - AI orchestration endpoint for Gemini
+  - AI provider orchestration for Gemini primary plus Claude/Anthropic fallback
   - Firestore read/write logic
   - Notification triggers
 - `Firestore`
@@ -50,6 +50,6 @@ Keep `LINE OA` as the familiar user channel during migration, but move the real 
 ## Migration principle
 
 1. Move auth and data ownership into Firebase.
-2. Move Gemini calls into backend-only code.
+2. Move AI provider calls into backend-only code with provider fallback and audit metadata.
 3. Keep GAS live only as a temporary bridge.
 4. Retire spreadsheet-as-database gradually, not all at once.

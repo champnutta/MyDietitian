@@ -40,4 +40,18 @@ The current LIFF/web flow relies on `uid` from URL state. The new system must de
 
 ## Production LINE OA status
 
-Do not move the production LINE OA webhook to Firebase yet. The Firebase `lineWebhook` currently verifies signatures, logs events, and supports limited staging text food replies only. It does not yet implement the full GAS `doPost` behavior, image download, subscription checks, admin/payment flows, or full LINE reply parity.
+Do not move the production LINE OA webhook to Firebase yet.
+
+Current Firebase `lineWebhook` status:
+
+- Verifies LINE signatures and deduplicates events.
+- Supports staging onboarding, profile/status, dashboard link, food text/image, leftovers, correction/portion adjustment, exercise, coach/menu consultation, weight logging, contact-admin, subscription/redeem, payment slip review, BIA file/image flow, and admin approve/reject flows.
+- Uses Firestore data and the configured AI agents with Gemini primary plus Claude fallback.
+
+Remaining before production replacement:
+
+- Real LINE media/file UAT must pass and be recorded in `docs/MANUAL_UAT_EVIDENCE.md`.
+- Real LIFF auth UAT must pass.
+- Final Google Sheet to Firestore migration must complete and verify.
+- Dashboard parity against GAS must pass for sampled users/date ranges.
+- Owner must approve the production webhook cutover with rollback values recorded.

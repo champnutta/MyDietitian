@@ -151,9 +151,12 @@ Leftover image subtraction stores an additional `adjustments[]` entry with `type
   },
   "ai": {
     "agentId": "mealAnalysis",
-    "provider": "gemini",
-    "model": "gemini-3-flash-preview",
-    "promptVersion": "meal-v1"
+    "primaryProvider": "gemini",
+    "primaryModel": "gemini-3.5-flash",
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "promptVersion": "meal-v1",
+    "fallbackUsed": true
   },
   "adjustments": [
     {
@@ -610,16 +613,27 @@ Admin-configurable AI agent settings. Backend reads this before calling the prov
 {
   "agentId": "mealAnalysis",
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "promptVersion": "meal-v1",
   "temperature": 0.2,
+  "timeoutMs": 12000,
+  "maxAttempts": 1,
+  "fallbacks": [
+    {
+      "provider": "anthropic",
+      "model": "claude-sonnet-4-6",
+      "temperature": 0.2,
+      "timeoutMs": 20000,
+      "maxAttempts": 1
+    }
+  ],
   "enabled": true,
   "updatedBy": "admin-user-id",
   "updatedAt": "timestamp"
 }
 ```
 
-To switch models, update `model`. To switch providers later, create the new provider implementation and set `provider` to the supported provider name.
+To switch models, update `model` or ordered `fallbacks`. Runtime currently supports Gemini primary/candidates and Anthropic fallback/candidates.
 
 ### `coachConsultations/{consultationId}`
 
@@ -652,9 +666,12 @@ Stores LINE AI coach/menu recommendation answers separately from food logs.
   "ai": {
     "runId": "aiRuns-id",
     "agentId": "coachConsultation",
+    "primaryProvider": "gemini",
+    "primaryModel": "gemini-3.5-flash",
     "provider": "gemini",
-    "model": "gemini-3-flash-preview",
-    "promptVersion": "coach-v1"
+    "model": "gemini-3.5-flash",
+    "promptVersion": "coach-v1",
+    "fallbackUsed": false
   },
   "createdAt": "timestamp",
   "updatedAt": "timestamp"
