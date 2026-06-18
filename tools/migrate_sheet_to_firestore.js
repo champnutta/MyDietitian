@@ -71,6 +71,7 @@ async function main() {
   const report = buildReadinessReport(workbook, planned, sampleLimit);
   if (commit) validateCurrentSourceFingerprint(readinessPacket, report);
   if (commit) validateCurrentMigrationCommit(readinessPacket);
+  if (commit) validateCurrentGitTreeClean();
   const importManifest = buildImportManifest(report, planned, readinessPacket);
 
   printSummary(planned, report, importManifest);
@@ -108,6 +109,7 @@ function validateFinalMigrationReadinessPacket(readinessPacketPath, expectedProj
   const sourceFingerprint = packet?.migrationSnapshot?.sourceFingerprint || {};
   const packetImportCommit = packet?.migrationSnapshot?.importManifest?.migrationCommit;
   const packetSourceCommit = packet?.migrationSnapshot?.sourceCommit;
+  const packetSourceTreeClean = packet?.migrationSnapshot?.sourceTreeClean;
   const automatedCheckNames = automatedChecks.map((check) => check.name);
   const manualGateLabels = manualGates.map((gate) => gate.label);
   const hasPostMigrationCommands = requiredPostMigrationCommandFragments.every((fragment) =>
@@ -137,6 +139,7 @@ function validateFinalMigrationReadinessPacket(readinessPacketPath, expectedProj
     typeof packetSourceCommit === "string" &&
     /^[a-f0-9]{40}$/i.test(packetSourceCommit) &&
     packetSourceCommit === packetImportCommit &&
+    packetSourceTreeClean === true &&
     sourceFingerprint.algorithm === "sha256" &&
     typeof sourceFingerprint.value === "string" &&
     sourceFingerprint.value.length === 64 &&
@@ -176,6 +179,33 @@ function validateCurrentMigrationCommit(packet) {
       `Refusing to write. Current Git commit differs from readiness packet. packet=${packetCommit || "missing"} current=${currentCommit || "missing"}. Re-run migration:readiness-packet from the exact source state used for migration.`
     );
   }
+}
+
+function validateCurrentGitTreeClean() {
+  const state = currentGitTreeState();
+  if (!state.clean) {
+    throw new Error(
+      `Refusing to write. Git working tree is not clean: ${state.status.join("; ") || "unknown dirty state"}. Commit/revert local changes and regenerate the readiness packet.`
+    );
+  }
+}
+
+function currentGitTreeState() {
+  const result = spawnSync("git", ["status", "--porcelain"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  if (result.status !== 0) {
+    return {
+      clean: false,
+      status: ["git status failed"]
+    };
+  }
+  const status = result.stdout.split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean);
+  return {
+    clean: status.length === 0,
+    status
+  };
 }
 
 function parseArgs(argv) {

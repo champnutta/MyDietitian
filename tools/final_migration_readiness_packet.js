@@ -74,6 +74,7 @@ function main() {
   const manualOk = manualGates.every((gate) => gate.pass);
   const migrationSnapshot = preCutover.json?.migrationSnapshot || {};
   const sourceCommit = migrationSnapshot.importManifest?.migrationCommit || currentGitCommit();
+  const sourceTree = currentGitTreeState();
   const firestoreSnapshot = migrationSnapshot.firestoreTargetSnapshot || {};
   const noLegacyImportPresent = firestoreSnapshot.legacyImportAlreadyPresent === false;
   const firestoreTargetOk = firestoreSnapshot.okToProceedBeforeMigration === true;
@@ -84,8 +85,8 @@ function main() {
   const evidenceConsistent = evidenceConsistency.ok;
   const automatedSkipped = buildAutomatedSkippedChecks(preCutover.json?.automatedChecks || []);
   const automatedNoSkipped = automatedSkipped.length === 0;
-  const readyForDataMigrationWindow = automatedOk && automatedNoSkipped && evidenceOk && evidenceConsistent && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
-  const blockers = buildBlockers({ automatedOk, automatedSkipped, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
+  const readyForDataMigrationWindow = automatedOk && automatedNoSkipped && sourceTree.clean && evidenceOk && evidenceConsistent && manualOk && noLegacyImportPresent && firestoreTargetOk && dataQualityOk;
+  const blockers = buildBlockers({ automatedOk, automatedSkipped, sourceTree, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover });
 
   const report = {
     packetType: "final-migration-readiness-packet",
@@ -122,6 +123,8 @@ function main() {
     manualGates,
     migrationSnapshot: {
       sourceCommit,
+      sourceTreeClean: sourceTree.clean,
+      sourceTreeStatus: sourceTree.status,
       totalPlannedDocuments: migrationSnapshot.totalPlannedDocuments ?? null,
       countByCollection: migrationSnapshot.countByCollection || null,
       importManifest: migrationSnapshot.importManifest || null,
@@ -219,6 +222,24 @@ function currentGitCommitFromFiles() {
   }
 }
 
+function currentGitTreeState() {
+  const result = spawnSync("git", ["status", "--porcelain"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  if (result.status !== 0) {
+    return {
+      clean: false,
+      status: ["git status failed"]
+    };
+  }
+  const status = result.stdout.split(/\r?\n/).map((line) => line.trimEnd()).filter(Boolean);
+  return {
+    clean: status.length === 0,
+    status
+  };
+}
+
 function stripMarkdown(value) {
   return String(value || "").replace(/`/g, "").trim();
 }
@@ -232,11 +253,14 @@ function buildAutomatedSkippedChecks(automatedChecks) {
     }));
 }
 
-function buildBlockers({ automatedOk, automatedSkipped, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
+function buildBlockers({ automatedOk, automatedSkipped, sourceTree, evidenceOk, evidenceCheck, evidenceConsistency, evidenceFile, anyManualFlagProvided, manualGates, noLegacyImportPresent, firestoreTargetOk, dataQualityOk, preCutover }) {
   const blockers = [];
   if (!automatedOk) blockers.push(`Automated pre-cutover report failed: ${preCutover.error || "unknown error"}`);
   for (const skipped of automatedSkipped || []) {
     blockers.push(`Automated check has skipped items: ${skipped.name} skipped=${skipped.skipped}. Re-run with required secret/env inputs before migration.`);
+  }
+  if (!sourceTree?.clean) {
+    blockers.push(`Git working tree is not clean. Commit/revert local changes before generating final readiness packet: ${(sourceTree?.status || []).join("; ") || "unknown dirty state"}`);
   }
   if (anyManualFlagProvided && !evidenceFile) blockers.push("Manual gate flags require --evidence-file pointing to a completed UAT evidence file.");
   if (evidenceFile && !evidenceOk) {
@@ -366,6 +390,7 @@ function renderMarkdown(report) {
     "",
     `Total planned documents: ${report.migrationSnapshot.totalPlannedDocuments ?? "-"}`,
     `Source commit: ${report.migrationSnapshot.sourceCommit ?? "-"}`,
+    `Source tree clean: ${report.migrationSnapshot.sourceTreeClean ? "yes" : "no"}`,
     `Source fingerprint: ${report.migrationSnapshot.sourceFingerprint?.value ?? "-"}`,
     `Legacy imported documents already present: ${report.migrationSnapshot.firestoreTargetSnapshot?.legacyImportedDocuments ?? "-"}`,
     `Firestore target risk level: ${report.migrationSnapshot.firestoreTargetSnapshot?.riskLevel ?? "-"}`,
