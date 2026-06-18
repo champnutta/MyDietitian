@@ -90,7 +90,7 @@ function buildActions(groups, rollbackChecks, freshnessChecks) {
   if (names.has("Session fields")) {
     actions.push({
       title: "Prepare local evidence session fields",
-      command: "npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretManager --tester \"<YOUR_NAME>\" --lineChannel \"<STAGING_LINE_CHANNEL>\" --testLineUserId \"<TEST_LINE_USER_ID>\" --currentGasWebhookUrl \"<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>\" --operator \"<ROLLBACK_OPERATOR>\""
+      command: "npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester \"<YOUR_NAME>\" --lineChannel \"<STAGING_LINE_CHANNEL>\" --testLineUserId \"<TEST_LINE_USER_ID>\" --currentGasWebhookUrl \"<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>\" --operator \"<ROLLBACK_OPERATOR>\""
     });
   }
   if (names.has("Real LINE media UAT") || names.has("Real LIFF auth UAT")) {

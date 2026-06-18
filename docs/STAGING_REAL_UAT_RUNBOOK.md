@@ -25,6 +25,12 @@ npm run gate:pre-migration -- --project mydietitian --serviceAccount "C:\Users\c
 
 Expected before manual testing: automated checks pass, source tree is clean, and manual evidence rows remain missing.
 
+If `docs\MANUAL_UAT_EVIDENCE.md` already contains real LINE/LIFF notes, refresh automated rows without overwriting manual evidence:
+
+```powershell
+npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
 ## 2. Real LINE Media Test Sequence
 
 Run these from the staging LINE user recorded as `Test LINE user ID`.

@@ -43,6 +43,12 @@ npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretMan
 
 This command does not migrate data and does not print secrets. The generated `docs/MANUAL_UAT_EVIDENCE.md` is intentionally ignored by Git because it may contain LINE IDs and operational notes.
 
+After the file already contains manual notes, use refresh mode instead of `--force` so automated values are updated without overwriting real LINE/LIFF evidence rows:
+
+```powershell
+npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
 When this file is copied and filled with real evidence, validate it before using readiness flags:
 
 ```powershell
