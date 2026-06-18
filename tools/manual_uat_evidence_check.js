@@ -197,27 +197,60 @@ function checkParityPlanCoverage(rows, parityPlan) {
 
 function checkPreRunCommands(text) {
   const required = [
-    "Pre-cutover report",
-    "Pre-migration audit",
-    "AI fallback readiness",
-    "AI agent runtime config",
-    "LINE text dry-run",
-    "Signed LINE webhook contract",
-    "Dashboard contract",
-    "Migration dry-run"
+    {
+      check: "Pre-cutover report",
+      validate: (actual) => /ok=true|pass/i.test(actual),
+      hint: "Actual must include ok=true or pass."
+    },
+    {
+      check: "Pre-migration audit",
+      validate: (actual) => /0\s+failed/i.test(actual) && /0\s+skipped/i.test(actual),
+      hint: "Actual must include 0 failed and 0 skipped."
+    },
+    {
+      check: "AI fallback readiness",
+      validate: (actual) => /ok=true|pass/i.test(actual),
+      hint: "Actual must include ok=true or pass."
+    },
+    {
+      check: "AI agent runtime config",
+      validate: (actual) => /ok=true|pass/i.test(actual),
+      hint: "Actual must include ok=true or pass."
+    },
+    {
+      check: "LINE text dry-run",
+      validate: (actual) => /13\/13|13\s+pass/i.test(actual),
+      hint: "Actual must include 13/13 or 13 pass."
+    },
+    {
+      check: "Signed LINE webhook contract",
+      validate: (actual) => /mode=line-webhook-contract-dry-run|line-webhook-contract-dry-run/i.test(actual),
+      hint: "Actual must include mode=line-webhook-contract-dry-run."
+    },
+    {
+      check: "Dashboard contract",
+      validate: (actual) => /ok=true|pass/i.test(actual),
+      hint: "Actual must include ok=true or pass."
+    },
+    {
+      check: "Migration dry-run",
+      validate: (actual) => /okToPreviewImport=true/i.test(actual),
+      hint: "Actual must include okToPreviewImport=true."
+    }
   ];
   const table = extractTableRows(text, "## Pre-Run Commands");
-  return required.map((check) => {
-    const row = table.find((item) => normalize(item[0]) === normalize(check));
+  return required.map((requirement) => {
+    const row = table.find((item) => normalize(item[0]) === normalize(requirement.check));
     const actual = row?.[2]?.trim() || "";
-    const actualPass = /pass|ok=true|13\/13|mode=line-webhook-contract-dry-run|okToPreviewImport=true/i.test(stripMarkdown(actual));
+    const strippedActual = stripMarkdown(actual);
+    const actualPass = requirement.validate(strippedActual);
     return {
-      check,
+      check: requirement.check,
       ok: Boolean(row) && actualPass,
       actual,
       message: row
-        ? `${check} Actual must include a passing result.`
-        : `${check} row is missing from Pre-Run Commands.`
+        ? `${requirement.check} ${requirement.hint}`
+        : `${requirement.check} row is missing from Pre-Run Commands.`
     };
   });
 }

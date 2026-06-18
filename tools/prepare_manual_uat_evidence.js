@@ -46,11 +46,11 @@ function main() {
   ]);
   const lineUat = runJson("LINE text dry-run", ["npm", "run", "line:uat-report", "--", "--json"]);
   const signedWebhookCommand = [
-      "npm", "run", "test:line-webhook", "--",
-      "--scenario", "text",
-      "--user", "U_STAGING_CONTRACT_TEST",
-      "--webhook-dry-run"
-    ];
+    "npm", "run", "test:line-webhook", "--",
+    "--scenario", "text",
+    "--user", "U_STAGING_CONTRACT_TEST",
+    "--webhook-dry-run"
+  ];
   if (useLineSecretManager) signedWebhookCommand.push("--useLineSecretManager", "--lineSecretName", lineSecretName);
   const signedWebhook = runJson("Signed LINE webhook contract", signedWebhookCommand);
   const dashboard = runJson("Dashboard contract", ["npm", "run", "dashboard:contract"]);
@@ -58,7 +58,11 @@ function main() {
   const commit = currentGitCommit();
   const fingerprint = migration.json?.migrationReadiness?.sourceFingerprint?.value || "";
   const generatedAt = new Date().toLocaleString("sv-SE", { timeZone: "Asia/Bangkok" }).replace(" ", "T");
-  const setupOk = preCutover.ok && aiReadiness.ok && aiRuntime.ok && dashboard.ok && Boolean(commit) && Boolean(fingerprint);
+  const auditSummary = preCutover.json?.automatedChecks?.find((check) => check.name === "pre-migration audit")?.summary || {};
+  const auditNoSkipped = Number(auditSummary.failed ?? 0) === 0 && Number(auditSummary.skipped ?? 0) === 0;
+  const lineUatOk = lineUat.ok && Number(lineUat.json?.summary?.textScenarioFailed ?? 0) === 0 && Number(lineUat.json?.summary?.textScenarioPassed ?? 0) >= 13;
+  const migrationOk = Boolean(migration.json?.migrationReadiness?.dataQuality?.okToPreviewImport);
+  const setupOk = preCutover.ok && auditNoSkipped && aiReadiness.ok && aiRuntime.ok && lineUatOk && signedWebhook.ok && dashboard.ok && migrationOk && Boolean(commit) && Boolean(fingerprint);
 
   let output = template
     .replace("| Date/time (Asia/Bangkok) |  |", `| Date/time (Asia/Bangkok) | ${generatedAt} |`)
@@ -90,9 +94,13 @@ function main() {
     sourceFingerprint: fingerprint,
     setupFailures: [
       ...(preCutover.ok ? [] : [`pre-cutover report failed: ${preCutover.error || "unknown"}`]),
+      ...(auditNoSkipped ? [] : [`pre-migration audit must have 0 failed and 0 skipped; summary=${JSON.stringify(auditSummary)}`]),
       ...(aiReadiness.ok ? [] : [`AI fallback readiness failed: ${aiReadiness.error || "unknown"}`]),
       ...(aiRuntime.ok ? [] : [`AI runtime config failed: ${aiRuntime.error || "unknown"}`]),
+      ...(lineUatOk ? [] : [`LINE text dry-run did not pass all required scenarios: ${lineUat.error || JSON.stringify(lineUat.json?.summary || {})}`]),
+      ...(signedWebhook.ok ? [] : [`signed LINE webhook contract failed: ${signedWebhook.error || "unknown"}`]),
       ...(dashboard.ok ? [] : [`dashboard contract failed: ${dashboard.error || "unknown"}`]),
+      ...(migrationOk ? [] : ["migration dry-run data quality was not okToPreviewImport=true"]),
       ...(commit ? [] : ["git commit SHA was not detected"]),
       ...(fingerprint ? [] : ["migration dry-run source fingerprint was not detected"])
     ],
@@ -108,6 +116,8 @@ function main() {
       "Owner sign-off rows"
     ]
   }, null, 2));
+
+  if (!setupOk) process.exit(1);
 }
 
 function runJson(name, command, env = {}) {

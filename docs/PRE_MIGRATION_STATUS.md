@@ -35,6 +35,7 @@ This project is ready for continued staging UAT, but it is not ready for final G
 - Final migration tooling now requires the readiness packet and the write-time source tree to be clean and commit-matched before any `--commit` import can run.
 - Pre-migration audit passed with smoke-write enabled and Secret Manager-backed LINE signature verification: 18 passed, 0 failed, 0 skipped.
 - The latest readiness packet run still holds before data migration because the manual evidence file is incomplete.
+- Manual evidence validation now rejects pre-migration audit evidence unless it explicitly records `0 failed` and `0 skipped`.
 - AI agent runtime config check passed with Anthropic fallback required.
 - AI fallback smoke test passed: Gemini primary failed over successfully to Claude and recorded `fallbackUsed=true`.
 - Migration dry-run planned 11,955 Firestore documents from the current Google Sheet snapshot.

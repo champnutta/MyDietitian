@@ -47,7 +47,7 @@ When this file is copied and filled with real evidence, validate it before using
 npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
 ```
 
-The pre-migration evidence checker requires every pre-run `Actual` field to contain a passing result, every Real LINE Media and Real LIFF case to have `Result=pass`, evidence notes filled, rollback/cutover values filled, and the required pre-migration Cutover Decision rows to have owner sign-off.
+The pre-migration evidence checker requires every pre-run `Actual` field to contain the expected passing proof. In particular, Pre-migration audit must show `0 failed` and `0 skipped`; every Real LINE Media and Real LIFF case must have `Result=pass`; evidence notes, rollback/cutover values, and required pre-migration Cutover Decision owner sign-offs must be filled.
 
 After the approved import completes, validate the final cutover evidence before changing the production LINE webhook:
 
