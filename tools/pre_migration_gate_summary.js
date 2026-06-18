@@ -113,7 +113,7 @@ function buildSummary({ readiness, remaining, operatorChecklist, gitStatus }) {
       freshnessChecks: operatorChecklist.json?.freshnessChecks || [],
       actionCount: Array.isArray(operatorChecklist.json?.actions) ? operatorChecklist.json.actions.length : null,
       nextActions: Array.isArray(operatorChecklist.json?.actions)
-        ? operatorChecklist.json.actions.slice(0, 5).map((item) => item.title)
+        ? operatorChecklist.json.actions.map((item) => item.title)
         : []
     },
     migrationSnapshot: {

@@ -10,7 +10,7 @@ Current safe state:
 
 ## Required manual gates
 
-1. Complete real LINE media UAT using `docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md`.
+1. Complete real LINE media UAT using `docs/STAGING_REAL_UAT_RUNBOOK.md`.
 2. Complete real LIFF auth UAT using a real LINE LIFF session.
 3. Rotate `LINE_CHANNEL_SECRET` and record the Security Preflight evidence because the previous secret was exposed in local terminal output.
 4. Review rollback values and record the current GAS webhook URL.
@@ -21,7 +21,21 @@ Current safe state:
 Prepare a local evidence working copy. This file is ignored by Git because it can contain LINE IDs and customer evidence:
 
 ```powershell
-npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
+After real LINE/LIFF UAT, collect and apply passing Firestore evidence rows:
+
+```powershell
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all --out docs\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\UAT_FIRESTORE_EVIDENCE.md
+npm run uat:apply-firestore-evidence -- --firestore-report docs\UAT_FIRESTORE_EVIDENCE.json --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
+
+After rotating `LINE_CHANNEL_SECRET`, collect and apply safe secret evidence:
+
+```powershell
+npm run uat:line-secret-evidence -- --project mydietitian --markdown-out docs\LINE_SECRET_ROTATION_EVIDENCE.md --out docs\LINE_SECRET_ROTATION_EVIDENCE.json
+npm run uat:apply-line-secret-evidence -- --secret-report docs\LINE_SECRET_ROTATION_EVIDENCE.json --evidence-file docs\MANUAL_UAT_EVIDENCE.md
 ```
 
 ```powershell
@@ -31,6 +45,7 @@ node tools/check_ai_agent_runtime_config.js --project mydietitian --serviceAccou
 npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
 npm run uat:remaining -- --file docs/MANUAL_UAT_EVIDENCE.md --phase pre-migration
 npm run uat:rollback-values -- --file docs/MANUAL_UAT_EVIDENCE.md
+npm run gate:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs\MANUAL_UAT_EVIDENCE.md
 ```
 
 Do not run final data migration or switch production LINE webhook until every manual gate is recorded as `pass`.
