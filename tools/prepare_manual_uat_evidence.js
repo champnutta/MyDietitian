@@ -73,6 +73,7 @@ function main() {
   const setupOk = preCutover.ok && auditNoSkipped && aiReadiness.ok && aiRuntime.ok && lineUatOk && signedWebhook.ok && invalidToken.ok && dashboard.ok && migrationOk && Boolean(commit) && Boolean(fingerprint);
 
   let output = base;
+  output = ensureSectionFromTemplate(output, template, "## Security Preflight", "## Dashboard Parity After Preview/Final Import");
   output = replaceTwoColumnRow(output, "Date/time (Asia/Bangkok)", generatedAt);
   output = replaceTwoColumnRow(output, "Tester", tester || existingTwoColumnValue(base, "Tester"));
   output = replaceTwoColumnRow(output, "Staging LINE OA/channel", lineChannel || existingTwoColumnValue(base, "Staging LINE OA/channel"));
@@ -142,6 +143,25 @@ function main() {
 
 function replaceTwoColumnRow(text, label, value) {
   return replaceTableRow(text, label, () => [label, value]);
+}
+
+function ensureSectionFromTemplate(text, template, heading, beforeHeading) {
+  if (text.includes(heading)) return text;
+  const section = extractSection(template, heading);
+  if (!section) return text;
+  const insertAt = text.indexOf(beforeHeading);
+  if (insertAt < 0) return `${text.trimEnd()}\n\n${section.trim()}\n`;
+  return `${text.slice(0, insertAt).trimEnd()}\n\n${section.trim()}\n\n${text.slice(insertAt).trimStart()}`;
+}
+
+function extractSection(text, heading) {
+  const start = text.indexOf(heading);
+  if (start < 0) return "";
+  const restStart = start + heading.length;
+  const rest = text.slice(restStart);
+  const nextHeadingRelative = rest.search(/\n##\s+/);
+  const end = nextHeadingRelative >= 0 ? restStart + nextHeadingRelative : text.length;
+  return text.slice(start, end);
 }
 
 function replaceThreeColumnRow(text, label, expected, actual) {

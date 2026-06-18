@@ -30,6 +30,7 @@
     "uat:apply-firestore-evidence": "node tools/apply_firestore_uat_evidence.js",
     "uat:liff-invalid-token": "node tools/liff_invalid_token_test.js",
     "uat:line-secret-evidence": "node tools/line_secret_rotation_evidence.js",
+    "uat:apply-line-secret-evidence": "node tools/apply_line_secret_evidence.js",
     "uat:operator-checklist": "node tools/pre_migration_operator_checklist.js",
     "uat:rollback-values": "node tools/check_rollback_values.js",
     "gate:pre-migration": "node tools/pre_migration_gate_summary.js",

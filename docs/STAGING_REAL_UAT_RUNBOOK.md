@@ -98,6 +98,12 @@ Because a previous local terminal output exposed the old LINE channel secret, ro
 npm run uat:line-secret-evidence -- --project mydietitian --markdown-out docs\LINE_SECRET_ROTATION_EVIDENCE.md --out docs\LINE_SECRET_ROTATION_EVIDENCE.json
 ```
 
+Apply the passing security evidence into the local evidence file:
+
+```powershell
+npm run uat:apply-line-secret-evidence -- --secret-report docs\LINE_SECRET_ROTATION_EVIDENCE.json --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
+
 5. Re-run the full signed webhook checks through Secret Manager:
 
 ```powershell
