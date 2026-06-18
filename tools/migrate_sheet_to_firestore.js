@@ -37,6 +37,7 @@ const requiredManualGateLabels = [
   "Real LINE media UAT",
   "Real LIFF auth UAT",
   "Rollback plan reviewed",
+  "Security Preflight",
   "Owner approval for migration window"
 ];
 const sampleLimit = positiveInteger(args.sampleLimit, 5);

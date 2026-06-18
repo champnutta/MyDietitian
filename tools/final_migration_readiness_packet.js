@@ -32,6 +32,12 @@ const MANUAL_GATE_FLAGS = [
     evidence: "Current GAS webhook URL is recorded and rollback owner/operator are ready."
   },
   {
+    flag: "securityPreflightPass",
+    cli: "--security-preflight-pass",
+    label: "Security Preflight",
+    evidence: "LINE_CHANNEL_SECRET was rotated after local exposure, Secret Manager has the new enabled version, and the signed webhook contract was rerun."
+  },
+  {
     flag: "ownerApproval",
     cli: "--owner-approval",
     label: "Owner approval for migration window",
@@ -242,6 +248,7 @@ function printHelp() {
     "  --manual-line-media-pass",
     "  --manual-liff-auth-pass",
     "  --rollback-reviewed",
+    "  --security-preflight-pass",
     "  --owner-approval",
     "",
     "Optional:",

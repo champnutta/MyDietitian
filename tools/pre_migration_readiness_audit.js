@@ -422,6 +422,7 @@ function buildStaleReadyPacket() {
       "Real LINE media UAT",
       "Real LIFF auth UAT",
       "Rollback plan reviewed",
+      "Security Preflight",
       "Owner approval for migration window"
     ].map((label) => ({ label, pass: true })),
     migrationSnapshot: {
