@@ -36,23 +36,24 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 
 ## Backend progress
 
-- `analyzeMeal` is connected to Gemini through Secret Manager.
-- `analyzeMeal` uses `gemini-3-flash-preview`, matching the current GAS source constants.
-- `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore.
-- `lineWebhook` verifies LINE signatures before accepting events, but it is not a production replacement yet because it only supports a limited staging text-food flow.
-- `lineWebhook` can analyze and reply to staging text food messages, while known legacy commands are explicitly deferred to GAS.
+- AI calls are backend-only and use Secret Manager in the Firebase/GCP project `mydietitian`.
+- `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` must both exist in `mydietitian`; do not rely on a duplicate or AI-Studio-generated project with a similar display name.
+- `aiAgents/{agentId}` in Firestore controls provider/model settings. Current primary is Gemini `gemini-3.5-flash`; current fallback is Anthropic `claude-sonnet-4-6`.
+- `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore, including provider/model audit metadata and whether fallback was used.
+- `lineWebhook` verifies LINE signatures, deduplicates events, and supports the migrated Firestore staging flows for onboarding, subscriptions, text/image food, corrections, portion adjustments, leftovers, exercise, BIA/file, slips, coach/menu, weight, redeem codes, contact-admin, and admin approve/reject.
 - `getDashboardData` is available for post-migration dashboard verification against Firestore data.
 - Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
 - Google Sheet data migration is intentionally deferred until the final pre-production cutover window.
-- AI model/provider settings are prepared through Firestore `aiAgents/{agentId}` config for future admin controls.
+- AI model/provider changes should be made through Firestore `aiAgents/{agentId}` config and then verified with `node tools/check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback`.
 
 ## Production warning
 
-Do not switch the production LINE OA webhook from GAS to this Firebase endpoint until the LINE parity checklist is complete. The current Firebase `lineWebhook` is staging only.
+Do not switch the production LINE OA webhook from GAS to this Firebase endpoint until real LINE/LIFF UAT, Google Sheet data migration, dashboard parity, rollback values, and owner approval are complete. The current Firebase `lineWebhook` is staging/pre-production only.
 
 ## Immediate next steps
 
-1. Add environment secrets.
-2. Start moving core webhook and Gemini logic from GAS into Firebase Functions.
-3. Build the first mobile flow: auth, chat input, image upload, and analysis result.
-4. Connect LINE OA webhook to the deployed backend endpoint.
+1. Finish real LINE media/file/slip/BIA UAT from a staging LINE channel.
+2. Finish real LIFF auth verification from inside LINE.
+3. Record rollback values, including the current GAS webhook URL, LINE channel, and operator.
+4. Generate the final readiness packet immediately before the approved migration window.
+5. Run Google Sheet to Firestore data migration only as the final pre-production step, then verify dashboard parity before switching production LINE OA.

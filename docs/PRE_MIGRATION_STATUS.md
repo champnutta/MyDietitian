@@ -1,0 +1,68 @@
+# Pre-Migration Status
+
+Last updated: 2026-06-18
+
+This project is ready for continued staging UAT, but it is not ready for final Google Sheet data migration or production LINE webhook cutover yet.
+
+## Current Production Boundary
+
+- Production LINE OA remains on GAS.
+- Google Sheet remains the production source of truth.
+- Firestore is ready as the target database, but final import is intentionally deferred.
+- Firebase `lineWebhook` is staging/pre-production only.
+- Native app development remains a later phase after the shared backend is stable for both LINE OA and native clients.
+
+## Backend Status
+
+- Firebase project: `mydietitian`.
+- Firestore database: `(default)` in `asia-southeast3 (Bangkok)`.
+- Firebase Functions region: `asia-southeast1`.
+- Deployed functions: `health`, `updateProfile`, `saveSettingsFromWeb`, `getDashboardData`, `analyzeMeal`, `analyzeExercise`, and `lineWebhook`.
+- Firestore dashboard preview is deployed through Firebase Hosting.
+
+## AI Provider Status
+
+- AI provider configuration lives in Firestore `aiAgents/{agentId}`.
+- Active agents: `mealAnalysis`, `exerciseAnalysis`, `biaAnalysis`, and `coachConsultation`.
+- Primary provider/model: Gemini `gemini-3.5-flash`.
+- Fallback provider/model: Anthropic `claude-sonnet-4-6`.
+- Both `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` must be stored in Secret Manager under the same Firebase/GCP project: `mydietitian`.
+- AI audit metadata is written to `aiRuns` and related logs, including `primaryProvider`, `primaryModel`, `provider`, `model`, and `fallbackUsed`.
+
+## Latest Automated Evidence
+
+- Pre-migration audit passed with smoke-write enabled.
+- AI agent runtime config check passed with Anthropic fallback required.
+- AI fallback smoke test passed: Gemini primary failed over successfully to Claude and recorded `fallbackUsed=true`.
+- Migration dry-run planned 11,955 Firestore documents from the current Google Sheet snapshot.
+- Migration dry-run source fingerprint: `f49487fbc77d405e6b59b62884510bcd0866d7968a655db3e046b72671c918f1`.
+- Expected import run ID from the dry-run fingerprint: `google_sheet_f49487fbc77d`.
+- Firestore target risk was low and no legacy imported documents were detected.
+
+## Remaining Manual Gates
+
+- Real LINE media/file UAT: food image, leftover image, payment slip, BIA image/PDF/file.
+- Real LINE text UAT: exercise, coach/menu, subscription/redeem/admin flows as needed.
+- Real LIFF settings and identity/auth verification from inside LINE.
+- Rollback values: current GAS webhook URL, Firebase webhook URL, LINE channel, operator, latest commit SHA, and current Google Sheet fingerprint.
+- Owner approval for the final migration window.
+- Dashboard parity after imported Firestore data exists.
+- Owner approval for production LINE webhook cutover.
+
+## Safe Commands
+
+Use these commands to recheck readiness without migrating data:
+
+```powershell
+npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
+```
+
+```powershell
+node tools\check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback
+```
+
+```powershell
+npm run uat:remaining -- --file docs\MANUAL_UAT_EVIDENCE.md --phase pre-migration
+```
+
+Do not run the final migration write command until the readiness packet has no blockers and the migration window is approved.
