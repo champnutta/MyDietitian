@@ -56,6 +56,11 @@ function main() {
   ];
   if (useLineSecretManager) signedWebhookCommand.push("--useLineSecretManager", "--lineSecretName", lineSecretName);
   const signedWebhook = runJson("Signed LINE webhook contract", signedWebhookCommand);
+  const invalidTokenUser = testLineUserId || existingTwoColumnValue(base, "Test LINE user ID") || "U_STAGING_INVALID_TOKEN_TEST";
+  const invalidToken = runJson("LIFF invalid token negative test", [
+    "npm", "run", "uat:liff-invalid-token", "--",
+    "--user", invalidTokenUser
+  ]);
   const dashboard = runJson("Dashboard contract", ["npm", "run", "dashboard:contract"]);
   const migration = runJson("Migration dry-run", ["npm", "run", "migrate:sheets:dry-run", "--", "--sampleLimit", "5"]);
   const commit = currentGitCommit();
@@ -65,7 +70,7 @@ function main() {
   const auditNoSkipped = Number(auditSummary.failed ?? 0) === 0 && Number(auditSummary.skipped ?? 0) === 0;
   const lineUatOk = lineUat.ok && Number(lineUat.json?.summary?.textScenarioFailed ?? 0) === 0 && Number(lineUat.json?.summary?.textScenarioPassed ?? 0) >= 13;
   const migrationOk = Boolean(migration.json?.migrationReadiness?.dataQuality?.okToPreviewImport);
-  const setupOk = preCutover.ok && auditNoSkipped && aiReadiness.ok && aiRuntime.ok && lineUatOk && signedWebhook.ok && dashboard.ok && migrationOk && Boolean(commit) && Boolean(fingerprint);
+  const setupOk = preCutover.ok && auditNoSkipped && aiReadiness.ok && aiRuntime.ok && lineUatOk && signedWebhook.ok && invalidToken.ok && dashboard.ok && migrationOk && Boolean(commit) && Boolean(fingerprint);
 
   let output = base;
   output = replaceTwoColumnRow(output, "Date/time (Asia/Bangkok)", generatedAt);
@@ -84,6 +89,12 @@ function main() {
   output = replaceThreeColumnRow(output, "Signed LINE webhook contract", "`mode=line-webhook-contract-dry-run`", signedWebhook.ok ? "`mode=line-webhook-contract-dry-run`" : "pending real `LINE_CHANNEL_SECRET` input");
   output = replaceThreeColumnRow(output, "Dashboard contract", "`ok=true`", dashboard.ok ? "`ok=true`" : "`fail`");
   output = replaceThreeColumnRow(output, "Migration dry-run", "`okToPreviewImport=true`", migration.json?.migrationReadiness?.dataQuality?.okToPreviewImport ? "`okToPreviewImport=true`" : "`fail`");
+  output = replaceResultEvidenceRow(
+    output,
+    "Invalid token rejected",
+    invalidToken.ok ? "pass" : "fail",
+    invalidToken.json?.evidenceText || "Expected 401 profile-auth-failed from controlled invalid token test."
+  );
 
   output = replaceTwoColumnRow(output, "Current GAS webhook URL", currentGasWebhookUrl || existingTwoColumnValue(base, "Current GAS webhook URL"));
   output = replaceTwoColumnRow(output, "LINE channel", lineChannel || existingTwoColumnValue(base, "LINE channel"));
@@ -107,6 +118,7 @@ function main() {
       ...(aiRuntime.ok ? [] : [`AI runtime config failed: ${aiRuntime.error || "unknown"}`]),
       ...(lineUatOk ? [] : [`LINE text dry-run did not pass all required scenarios: ${lineUat.error || JSON.stringify(lineUat.json?.summary || {})}`]),
       ...(signedWebhook.ok ? [] : [`signed LINE webhook contract failed: ${signedWebhook.error || "unknown"}`]),
+      ...(invalidToken.ok ? [] : [`LIFF invalid token negative test failed: ${invalidToken.error || "unknown"}`]),
       ...(dashboard.ok ? [] : [`dashboard contract failed: ${dashboard.error || "unknown"}`]),
       ...(migrationOk ? [] : ["migration dry-run data quality was not okToPreviewImport=true"]),
       ...(commit ? [] : ["git commit SHA was not detected"]),
@@ -117,7 +129,7 @@ function main() {
       ...(lineChannel ? [] : ["Staging LINE OA/channel", "LINE channel"]),
       ...(testLineUserId ? [] : ["Test LINE user ID"]),
       "Real LINE media UAT rows",
-      "Real LIFF auth UAT rows",
+      "Real LIFF auth UAT rows except the automated invalid-token negative test",
       "Security Preflight secret rotation row",
       ...(currentGasWebhookUrl ? [] : ["Rollback Current GAS webhook URL"]),
       ...(operator ? [] : ["Operator"]),
@@ -138,6 +150,16 @@ function replaceThreeColumnRow(text, label, expected, actual) {
 
 function replaceFourColumnRow(text, label, required, actual, signoff) {
   return replaceTableRow(text, label, () => [label, required, actual, signoff || ""]);
+}
+
+function replaceResultEvidenceRow(text, label, result, evidence) {
+  return replaceTableRow(text, label, (cells) => [
+    cells[0],
+    cells[1] || "",
+    cells[2] || "",
+    result,
+    evidence
+  ]);
 }
 
 function replaceTableRow(text, label, buildCells) {

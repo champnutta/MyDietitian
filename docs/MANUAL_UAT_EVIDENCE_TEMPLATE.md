@@ -108,7 +108,7 @@ These tests must use a real LINE message because Firebase downloads content from
 | --- | --- | --- | --- | --- |
 | LIFF settings opens | Open settings from staging LINE onboarding card. | Page opens at `https://mydietitian.web.app/settings` inside LINE. |  |  |
 | LINE ID token sent | Submit settings from real LIFF session. | `saveSettingsFromWeb` returns `authVerified=true`; `profileAuthEvents` written. |  |  |
-| Invalid token rejected | Submit with invalid token through controlled test only. | Endpoint returns `401 profile-auth-failed`. |  |  |
+| Invalid token rejected | Submit with invalid token through controlled test only. | Endpoint returns `401 profile-auth-failed`. | auto-filled by `uat:prepare-evidence --refresh-existing` |  |
 
 ## Security Preflight
 
