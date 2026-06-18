@@ -71,4 +71,6 @@ Prefill local manual evidence after copying the current GAS webhook URL from LIN
 npm run uat:prepare-evidence -- --project mydietitian --force --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
 ```
 
+Add `--useLineSecretManager` if `LINE_CHANNEL_SECRET` exists in Secret Manager and you want the signed webhook contract row prefilled without printing the secret.
+
 Do not run the final migration write command until the readiness packet has no blockers and the migration window is approved.

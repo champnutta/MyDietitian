@@ -5,9 +5,10 @@ Production LINE OA must stay on GAS while this plan is tested on a staging LINE 
 ## Preconditions
 
 - Staging LINE OA webhook points to Firebase `lineWebhook`.
-- Firebase secrets are configured: `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `ADMIN_LINE_USER_ID`, `GEMINI_API_KEY`.
+- Firebase secrets are configured: `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `ADMIN_LINE_USER_ID`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`.
 - Firestore is in project `mydietitian`.
 - Do not run final Google Sheet migration for this test.
+- Do not switch the production LINE OA webhook during this plan.
 
 ## Signed Webhook Test Tool
 
@@ -28,18 +29,23 @@ npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md
 Contract dry-run against the deployed Firebase webhook:
 
 ```powershell
-npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --secret "<LINE_CHANNEL_SECRET>" --webhook-dry-run
+$env:LINE_CHANNEL_SECRET = (gcloud secrets versions access latest --secret=LINE_CHANNEL_SECRET --project=mydietitian)
+npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --webhook-dry-run
+Remove-Item Env:LINE_CHANNEL_SECRET
 ```
 
 This verifies the LINE signature and payload shape on the real `lineWebhook`, then returns before Firestore writes or LINE replies. The response should include `mode=line-webhook-contract-dry-run`.
 
+Do not pass the LINE channel secret as a command-line argument because package runners may echo arguments to logs.
+
 PowerShell example:
 
 ```powershell
-$env:LINE_CHANNEL_SECRET="your-staging-channel-secret"
+$env:LINE_CHANNEL_SECRET = (gcloud secrets versions access latest --secret=LINE_CHANNEL_SECRET --project=mydietitian)
 npm run test:line-webhook -- --scenario follow --user U_STAGING_TEST_USER
 npm run test:line-webhook -- --scenario setup --user U_STAGING_TEST_USER --text "ตั้งค่า Test 2000 40-30-30"
 npm run test:line-webhook -- --scenario food --user U_STAGING_TEST_USER --text "ไข่ต้ม 2 ฟอง"
+Remove-Item Env:LINE_CHANNEL_SECRET
 ```
 
 Dry run without sending:
@@ -180,5 +186,6 @@ docs/MANUAL_UAT_EVIDENCE_TEMPLATE.md
 ## Still Pending After This Plan
 
 - Signed image tests for food, leftover, slip, BIA, and files.
+- Real LIFF auth test from inside LINE.
 - Production data migration and dashboard verification.
 - Production webhook cutover and rollback rehearsal.

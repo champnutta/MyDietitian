@@ -513,7 +513,7 @@ function checkLineUatDryRunReport() {
 
 function checkSignedLineWebhookContract() {
   if (!lineChannelSecret) {
-    record("signed LINE webhook contract", "skip", "Pass --lineChannelSecret or set LINE_CHANNEL_SECRET to verify the deployed endpoint signature contract.");
+    record("signed LINE webhook contract", "skip", "Set LINE_CHANNEL_SECRET in the environment to verify the deployed endpoint signature contract.");
     return;
   }
 
@@ -521,11 +521,14 @@ function checkSignedLineWebhookContract() {
     "tools/signed_line_webhook_test.js",
     "--scenario", "text",
     "--user", "U_READINESS_CONTRACT_TEST",
-    "--secret", lineChannelSecret,
     "--webhook-dry-run"
   ], {
     cwd: process.cwd(),
-    encoding: "utf8"
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      LINE_CHANNEL_SECRET: lineChannelSecret
+    }
   });
 
   const json = parseFirstJsonObject(result.stdout || "");

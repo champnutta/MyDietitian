@@ -23,7 +23,9 @@ npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\c
 node tools/check_ai_fallback_readiness.js --project mydietitian
 node tools/check_ai_agent_runtime_config.js --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --require-anthropic-fallback
 npm run line:uat-report
-npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --secret "<LINE_CHANNEL_SECRET>" --webhook-dry-run
+$env:LINE_CHANNEL_SECRET = (gcloud secrets versions access latest --secret=LINE_CHANNEL_SECRET --project=mydietitian)
+npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --webhook-dry-run
+Remove-Item Env:LINE_CHANNEL_SECRET
 npm run dashboard:contract
 ```
 
@@ -31,6 +33,12 @@ You can generate a local working evidence file and prefill non-secret session/ro
 
 ```powershell
 npm run uat:prepare-evidence -- --project mydietitian --force --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
+If `LINE_CHANNEL_SECRET` is already stored in Secret Manager for project `mydietitian`, add `--useLineSecretManager` to run the signed webhook contract dry-run without printing the secret:
+
+```powershell
+npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
 ```
 
 This command does not migrate data and does not print secrets. The generated `docs/MANUAL_UAT_EVIDENCE.md` is intentionally ignored by Git because it may contain LINE IDs and operational notes.

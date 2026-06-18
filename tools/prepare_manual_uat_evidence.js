@@ -15,6 +15,8 @@ const lineChannel = clean(args.lineChannel || args["line-channel"]);
 const testLineUserId = clean(args.testLineUserId || args["test-line-user-id"]);
 const currentGasWebhookUrl = clean(args.currentGasWebhookUrl || args["current-gas-webhook-url"]);
 const operator = clean(args.operator);
+const useLineSecretManager = Boolean(args.useLineSecretManager || args["use-line-secret-manager"]);
+const lineSecretName = clean(args.lineSecretName || args["line-secret-name"] || "LINE_CHANNEL_SECRET");
 
 main();
 
@@ -41,14 +43,14 @@ function main() {
     "--require-anthropic-fallback"
   ]);
   const lineUat = runJson("LINE text dry-run", ["npm", "run", "line:uat-report", "--", "--json"]);
-  const signedWebhook = process.env.LINE_CHANNEL_SECRET
+  const lineSecret = process.env.LINE_CHANNEL_SECRET || (useLineSecretManager ? accessSecret(lineSecretName) : "");
+  const signedWebhook = lineSecret
     ? runJson("Signed LINE webhook contract", [
       "npm", "run", "test:line-webhook", "--",
       "--scenario", "text",
       "--user", "U_STAGING_CONTRACT_TEST",
-      "--secret", process.env.LINE_CHANNEL_SECRET,
       "--webhook-dry-run"
-    ])
+    ], { LINE_CHANNEL_SECRET: lineSecret })
     : { ok: false, skipped: true };
   const dashboard = runJson("Dashboard contract", ["npm", "run", "dashboard:contract"]);
   const migration = runJson("Migration dry-run", ["npm", "run", "migrate:sheets:dry-run", "--", "--sampleLimit", "5"]);
@@ -106,8 +108,12 @@ function main() {
   }, null, 2));
 }
 
-function runJson(name, command) {
-  const result = spawnCommand(command);
+function runJson(name, command, env = {}) {
+  const result = spawnCommand(command, env);
+  return parseCommandJson(name, result);
+}
+
+function parseCommandJson(name, result) {
   const output = `${result.stdout || ""}\n${result.stderr || ""}`;
   const json = parseLastJsonObject(output);
   const error = result.error ? String(result.error) : null;
@@ -120,13 +126,15 @@ function runJson(name, command) {
   };
 }
 
-function spawnCommand(command) {
+function spawnCommand(command, env = {}) {
+  const mergedEnv = { ...process.env, ...env };
   if (process.platform === "win32" && needsCmdShim(command[0])) {
     const commandLine = command.map(quoteCmdArg).join(" ");
     return spawnSync("cmd.exe", ["/d", "/s", "/c", commandLine], {
       cwd: process.cwd(),
       encoding: "utf8",
       shell: false,
+      env: mergedEnv,
       maxBuffer: 40 * 1024 * 1024
     });
   }
@@ -134,8 +142,19 @@ function spawnCommand(command) {
     cwd: process.cwd(),
     encoding: "utf8",
     shell: false,
+    env: mergedEnv,
     maxBuffer: 40 * 1024 * 1024
   });
+}
+
+function accessSecret(secretName) {
+  const result = spawnCommand([
+    "gcloud", "secrets", "versions", "access", "latest",
+    "--secret", secretName,
+    "--project", projectId
+  ]);
+  if (result.status !== 0) return "";
+  return String(result.stdout || "").trim();
 }
 
 function summarizeLineUat(json) {

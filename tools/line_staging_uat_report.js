@@ -26,6 +26,21 @@ const TEXT_SCENARIOS = [
   "text"
 ];
 
+const DEFAULT_TEXT = {
+  setup: "\u0e15\u0e31\u0e49\u0e07\u0e04\u0e48\u0e32 Test 2000 40-30-30",
+  food: "\u0e44\u0e02\u0e48\u0e15\u0e49\u0e21 2 \u0e1f\u0e2d\u0e07",
+  exercise: "\u0e27\u0e34\u0e48\u0e07 30 \u0e19\u0e32\u0e17\u0e35",
+  menu: "\u0e01\u0e34\u0e19\u0e2d\u0e30\u0e44\u0e23\u0e14\u0e35",
+  portion: "\u0e01\u0e34\u0e19 2/3",
+  correction: "\u0e44\u0e21\u0e48\u0e43\u0e0a\u0e48\u0e44\u0e02\u0e48\u0e15\u0e49\u0e21 \u0e40\u0e1b\u0e47\u0e19\u0e2d\u0e01\u0e44\u0e01\u0e48\u0e22\u0e48\u0e32\u0e07",
+  dashboard: "dashboard",
+  summary: "\u0e2a\u0e23\u0e38\u0e1b",
+  weight: "\u0e2b\u0e19\u0e31\u0e01 70 fat 20 muscle 30",
+  subscribe: "\u0e2a\u0e21\u0e31\u0e04\u0e23",
+  contact: "\u0e15\u0e34\u0e14\u0e15\u0e48\u0e2d admin \u0e02\u0e2d\u0e04\u0e27\u0e32\u0e21\u0e0a\u0e48\u0e27\u0e22\u0e40\u0e2b\u0e25\u0e37\u0e2d",
+  text: "hello"
+};
+
 const REAL_LINE_MEDIA_CASES = [
   {
     scenario: "food-image",
@@ -79,8 +94,7 @@ function main() {
     }
   };
 
-  const json = JSON.stringify(report, null, 2);
-  console.log(json);
+  console.log(JSON.stringify(report, null, 2));
 
   if (outFile) {
     fs.mkdirSync(path.dirname(outFile), { recursive: true });
@@ -121,36 +135,14 @@ function buildSignedDryRunPayload(scenario) {
 }
 
 function buildScenarioEvents(scenario, lineUserId) {
-  switch (scenario) {
-    case "follow":
-      return [baseEvent({ type: "follow", userId: lineUserId })];
-    case "setup":
-      return [textEvent(lineUserId, "ตั้งค่า Test 2000 40-30-30")];
-    case "food":
-      return [textEvent(lineUserId, "ไข่ต้ม 2 ฟอง")];
-    case "exercise":
-      return [textEvent(lineUserId, "วิ่ง 30 นาที")];
-    case "menu":
-      return [textEvent(lineUserId, "กินอะไรดี")];
-    case "portion":
-      return [textEvent(lineUserId, "กิน 2/3")];
-    case "correction":
-      return [textEvent(lineUserId, "ไม่ใช่ไข่ต้ม เป็นอกไก่ย่าง")];
-    case "dashboard":
-      return [textEvent(lineUserId, "dashboard")];
-    case "summary":
-      return [textEvent(lineUserId, "สรุป")];
-    case "weight":
-      return [textEvent(lineUserId, "หนัก 70 fat 20 muscle 30")];
-    case "subscribe":
-      return [textEvent(lineUserId, "สมัคร")];
-    case "contact":
-      return [textEvent(lineUserId, "ติดต่อ admin ขอความช่วยเหลือ")];
-    case "text":
-      return [textEvent(lineUserId, "hello")];
-    default:
-      throw new Error(`Unknown scenario: ${scenario}`);
+  if (scenario === "follow") {
+    return [baseEvent({ type: "follow", userId: lineUserId })];
   }
+  const text = DEFAULT_TEXT[scenario];
+  if (!text) {
+    throw new Error(`Unknown scenario: ${scenario}`);
+  }
+  return [textEvent(lineUserId, text)];
 }
 
 function textEvent(lineUserId, text) {
@@ -225,13 +217,19 @@ function parseArgs(argv) {
       const value = argv[index + 1];
       if (!value || value.startsWith("--")) {
         out[key] = true;
+        out[toCamelCase(key)] = true;
       } else {
         out[key] = value;
+        out[toCamelCase(key)] = value;
         index += 1;
       }
     }
   }
   return out;
+}
+
+function toCamelCase(value) {
+  return value.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
 }
 
 function escapeTable(value) {

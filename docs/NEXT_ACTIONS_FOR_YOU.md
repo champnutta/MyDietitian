@@ -20,8 +20,7 @@ Current safe state:
 Prepare a local evidence working copy. This file is ignored by Git because it can contain LINE IDs and customer evidence:
 
 ```powershell
-$env:LINE_CHANNEL_SECRET="<staging-or-production-line-channel-secret>"
-npm run uat:prepare-evidence -- --project mydietitian --force
+npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
 ```
 
 ```powershell
