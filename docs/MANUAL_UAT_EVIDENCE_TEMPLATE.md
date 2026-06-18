@@ -2,6 +2,8 @@
 
 Use this template for the manual gates that cannot be fully automated before final data migration. Keep production LINE OA on GAS until every required manual gate is marked `pass`.
 
+Use `docs/STAGING_REAL_UAT_RUNBOOK.md` as the step-by-step checklist for collecting the real LINE media, LIFF auth, and security evidence required by this file.
+
 ## Test Session
 
 | Field | Value |

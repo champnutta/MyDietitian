@@ -1,0 +1,106 @@
+# Staging Real LINE/LIFF UAT Runbook
+
+Use this runbook to collect the manual evidence required before the final Google Sheet to Firestore migration window.
+
+Production boundaries:
+
+- Do not run final data migration from this runbook.
+- Do not change the production LINE OA webhook from GAS.
+- Run these tests only on the staging LINE OA/channel that points to Firebase `lineWebhook`.
+- Keep `docs/MANUAL_UAT_EVIDENCE.md` local and uncommitted because it can contain LINE user IDs and operational notes.
+
+## 1. Prepare The Local Evidence File
+
+Copy the current GAS webhook URL from LINE Developers Console first, then run:
+
+```powershell
+npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+```
+
+Then confirm the current gate state:
+
+```powershell
+npm run gate:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
+
+Expected before manual testing: automated checks pass, source tree is clean, and manual evidence rows remain missing.
+
+## 2. Real LINE Media Test Sequence
+
+Run these from the staging LINE user recorded as `Test LINE user ID`.
+
+| Evidence row | What to do in staging LINE | Expected user/admin reply | Firestore evidence to copy |
+| --- | --- | --- | --- |
+| Food image | Send a normal food photo. | User receives meal summary. | `mealLogs` and `aiRuns` latest IDs. |
+| Leftover image | Send a food text/photo first, then send leftover photo. | User receives subtraction summary. | Latest `mealLogs.adjustments[]` plus related `aiRuns`. |
+| Payment slip image | Send a payment slip image. | Admin receives pending review notification. | `paymentReviews` latest ID with `pending-admin-review`. |
+| Admin approve | Admin sends `approve <TEST_LINE_USER_ID> 30d`. | User receives approval/expiry reply. | `subscriptionEvents` latest ID and `subscriptions` expiry. |
+| Admin reject | Send another slip if needed, then admin sends `reject <TEST_LINE_USER_ID> test reason`. | Admin receives rejection confirmation. | `paymentReviews` status rejected and admin audit evidence. |
+| BIA image/PDF | Send a BIA report image or PDF file. | User receives BIA recommendation and confirm command. | `biaReports`, `aiRuns`, optional `weightLogs`. |
+| BIA confirm | Send the exact `CONFIRM_UPDATE_TARGET ...` command from the BIA reply. | User receives target update confirmation. | `profiles.target` updated and `profileEvents` latest ID. |
+
+After each group, summarize evidence:
+
+```powershell
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all
+```
+
+`--require-all` is expected to fail until every tracked category is present. Use the successful or partially successful JSON output to copy document IDs and checklist hints into `docs/MANUAL_UAT_EVIDENCE.md`.
+
+## 3. Real LIFF Auth Test Sequence
+
+Run these inside the LINE app, not a normal desktop browser.
+
+| Evidence row | What to do | Expected result | Firestore evidence to copy |
+| --- | --- | --- | --- |
+| LIFF settings opens | Tap the settings/onboarding card from staging LINE. | Settings page opens inside LINE. | Note the LIFF URL/session and timestamp. |
+| LINE ID token sent | Submit settings from the real LIFF session. | `saveSettingsFromWeb` returns `authVerified=true`. | `profileAuthEvents` latest ID and `profiles.authVerified=true`. |
+| Invalid token rejected | Use the controlled invalid-token test only. | Endpoint returns `401 profile-auth-failed`. | Response status/message and no unauthorized profile mutation. |
+
+Summarize the Firestore evidence again:
+
+```powershell
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24
+```
+
+## 4. Security Preflight
+
+Because a previous local terminal output exposed the old LINE channel secret, rotate it before approving migration.
+
+1. Rotate `LINE_CHANNEL_SECRET` in LINE Developers Console.
+2. Add the new value as a new enabled Secret Manager version in project `mydietitian`.
+3. Redeploy or confirm Firebase Functions can read the new secret version.
+4. Re-run the signed webhook checks through Secret Manager:
+
+```powershell
+npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
+```
+
+Record the new Secret Manager version evidence and the passing audit result in `docs/MANUAL_UAT_EVIDENCE.md`.
+
+## 5. Validate Before Requesting Migration Approval
+
+Run the evidence checker:
+
+```powershell
+npm run uat:evidence-check -- --file docs\MANUAL_UAT_EVIDENCE.md --phase pre-migration
+```
+
+Run the compact gate:
+
+```powershell
+npm run gate:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
+
+Only after both are clean should the final readiness packet be generated with manual gate flags.
+
+## 6. What Still Waits Until After Data Import
+
+Do not complete these from this runbook:
+
+- Final Google Sheet to Firestore write.
+- Dashboard parity against imported Firestore data.
+- Production LINE webhook switch.
+- Production canary and rollback monitoring.
+
+Those steps stay in `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`.

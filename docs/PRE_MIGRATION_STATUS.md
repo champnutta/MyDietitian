@@ -62,6 +62,7 @@ This project is ready for continued staging UAT, but it is not ready for final G
 - Rotate `LINE_CHANNEL_SECRET` and record the new Secret Manager version evidence before approving production migration/cutover.
 - Re-run readiness with `--useLineSecretManager` so the automated pre-migration audit has `skipped=0` without printing `LINE_CHANNEL_SECRET`.
 - Update `docs/MANUAL_UAT_EVIDENCE.md` with the current `git rev-parse HEAD` value after regenerating/preparing evidence.
+- Use `docs/STAGING_REAL_UAT_RUNBOOK.md` for the staging-only real LINE/LIFF evidence sequence before requesting the final migration window.
 
 ## Safe Commands
 
