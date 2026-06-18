@@ -29,21 +29,23 @@ npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\
 npm run dashboard:contract
 ```
 
-You can generate a local working evidence file and prefill non-secret session/rollback values:
+You can generate or refresh a local working evidence file and prefill non-secret session/rollback values:
 
 ```powershell
-npm run uat:prepare-evidence -- --project mydietitian --force --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
 ```
 
 If `LINE_CHANNEL_SECRET` is already stored in Secret Manager for project `mydietitian`, add `--useLineSecretManager` to run the signed webhook contract dry-run without printing the secret:
 
 ```powershell
-npm run uat:prepare-evidence -- --project mydietitian --force --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
+npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
 ```
 
 This command does not migrate data and does not print secrets. The generated `docs/MANUAL_UAT_EVIDENCE.md` is intentionally ignored by Git because it may contain LINE IDs and operational notes.
 
-After the file already contains manual notes, use refresh mode instead of `--force` so automated values are updated without overwriting real LINE/LIFF evidence rows:
+Use `--force` only if you intentionally want to recreate the local evidence file from the template and discard local manual notes.
+
+After the file already contains manual notes, keep using refresh mode so automated values are updated without overwriting real LINE/LIFF evidence rows:
 
 ```powershell
 npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
@@ -88,6 +90,13 @@ npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 
 
 Use the returned document IDs and checklist hints as the `Evidence link/notes` values below. `--require-all` exits non-zero until all tracked Firestore evidence categories are present.
 
+Recommended local report/apply flow:
+
+```powershell
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all --out docs\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\UAT_FIRESTORE_EVIDENCE.md
+npm run uat:apply-firestore-evidence -- --firestore-report docs\UAT_FIRESTORE_EVIDENCE.json --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
+
 ## Real LINE Media UAT
 
 These tests must use a real LINE message because Firebase downloads content from LINE by `messageId`.
@@ -113,6 +122,13 @@ These tests must use a real LINE message because Firebase downloads content from
 ## Security Preflight
 
 Complete these before approving the final migration window.
+
+After rotating `LINE_CHANNEL_SECRET`, generate and apply safe evidence without printing the secret value:
+
+```powershell
+npm run uat:line-secret-evidence -- --project mydietitian --markdown-out docs\LINE_SECRET_ROTATION_EVIDENCE.md --out docs\LINE_SECRET_ROTATION_EVIDENCE.json
+npm run uat:apply-line-secret-evidence -- --secret-report docs\LINE_SECRET_ROTATION_EVIDENCE.json --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
 
 | Case | Steps | Expected evidence | Result | Evidence link/notes |
 | --- | --- | --- | --- | --- |
