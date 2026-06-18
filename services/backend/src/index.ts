@@ -868,6 +868,14 @@ function getAiProviderApiKeys() {
   };
 }
 
+function didUseAiFallback(
+  agent: { provider: string; model: string },
+  primaryProvider: string,
+  primaryModel: string
+): boolean {
+  return agent.provider !== primaryProvider || agent.model !== primaryModel;
+}
+
 async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMealAnalysis> {
   const now = Timestamp.now();
   const aiRunRef = db.collection("aiRuns").doc();
@@ -875,6 +883,8 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
   if (!agent.enabled) {
     throw new Error("AI mealAnalysis agent is disabled");
   }
+  const primaryProvider = agent.provider;
+  const primaryModel = agent.model;
 
   await aiRunRef.set({
     runId: aiRunRef.id,
@@ -894,6 +904,7 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
 
   try {
     const analysis = await callGeminiMealAnalysis(request, getAiProviderApiKeys(), agent);
+    const fallbackUsed = didUseAiFallback(agent, primaryProvider, primaryModel);
     const mealLogRef = db.collection("mealLogs").doc();
     const savedAt = Timestamp.now();
 
@@ -922,9 +933,12 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
       ai: {
         runId: aiRunRef.id,
         agentId: agent.agentId,
+        primaryProvider,
+        primaryModel,
         provider: agent.provider,
         model: agent.model,
-        promptVersion: agent.promptVersion
+        promptVersion: agent.promptVersion,
+        fallbackUsed
       },
       loggedAt: savedAt,
       createdAt: savedAt,
@@ -942,6 +956,11 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
       {
         status: "completed",
         mealLogId: mealLogRef.id,
+        primaryProvider,
+        primaryModel,
+        provider: agent.provider,
+        model: agent.model,
+        fallbackUsed,
         completedAt: savedAt,
         output: analysis
       },
@@ -1026,6 +1045,8 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
   if (!agent.enabled) {
     throw new Error("AI exerciseAnalysis agent is disabled");
   }
+  const primaryProvider = agent.provider;
+  const primaryModel = agent.model;
 
   await aiRunRef.set({
     runId: aiRunRef.id,
@@ -1044,6 +1065,7 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
 
   try {
     const analysis = await callGeminiExerciseAnalysis(request, getAiProviderApiKeys(), agent);
+    const fallbackUsed = didUseAiFallback(agent, primaryProvider, primaryModel);
     const exerciseLogRef = db.collection("exerciseLogs").doc();
     const savedAt = Timestamp.now();
     const rawCaloriesBurned = Math.max(0, Math.round(Number(analysis.calories_burned) || 0));
@@ -1062,9 +1084,12 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
       ai: {
         runId: aiRunRef.id,
         agentId: agent.agentId,
+        primaryProvider,
+        primaryModel,
         provider: agent.provider,
         model: agent.model,
-        promptVersion: agent.promptVersion
+        promptVersion: agent.promptVersion,
+        fallbackUsed
       },
       loggedAt: savedAt,
       createdAt: savedAt,
@@ -1076,6 +1101,11 @@ async function analyzeAndSaveExercise(request: AnalyzeExerciseRequest): Promise<
       {
         status: "completed",
         exerciseLogId: exerciseLogRef.id,
+        primaryProvider,
+        primaryModel,
+        provider: agent.provider,
+        model: agent.model,
+        fallbackUsed,
         completedAt: savedAt,
         output: analysis
       },
@@ -1144,6 +1174,8 @@ async function analyzeAndSaveCoachConsultation(
   if (!agent.enabled) {
     throw new Error("AI coachConsultation agent is disabled");
   }
+  const primaryProvider = agent.provider;
+  const primaryModel = agent.model;
 
   await aiRunRef.set({
     runId: aiRunRef.id,
@@ -1163,6 +1195,7 @@ async function analyzeAndSaveCoachConsultation(
 
   try {
     const answer = await callGeminiCoachConsultation(request, getAiProviderApiKeys(), agent);
+    const fallbackUsed = didUseAiFallback(agent, primaryProvider, primaryModel);
     const consultationRef = db.collection("coachConsultations").doc();
     const savedAt = Timestamp.now();
     await consultationRef.set({
@@ -1180,9 +1213,12 @@ async function analyzeAndSaveCoachConsultation(
       ai: {
         runId: aiRunRef.id,
         agentId: agent.agentId,
+        primaryProvider,
+        primaryModel,
         provider: agent.provider,
         model: agent.model,
-        promptVersion: agent.promptVersion
+        promptVersion: agent.promptVersion,
+        fallbackUsed
       },
       createdAt: savedAt,
       updatedAt: savedAt
@@ -1191,6 +1227,11 @@ async function analyzeAndSaveCoachConsultation(
       {
         status: "completed",
         consultationId: consultationRef.id,
+        primaryProvider,
+        primaryModel,
+        provider: agent.provider,
+        model: agent.model,
+        fallbackUsed,
         completedAt: savedAt,
         output: { answer }
       },
@@ -3165,6 +3206,8 @@ async function subtractLatestMealLeftover(input: {
   if (!agent.enabled) {
     throw new Error("AI mealAnalysis agent is disabled");
   }
+  const primaryProvider = agent.provider;
+  const primaryModel = agent.model;
 
   const aiRunRef = db.collection("aiRuns").doc();
   const now = Timestamp.now();
@@ -3194,6 +3237,7 @@ async function subtractLatestMealLeftover(input: {
       getAiProviderApiKeys(),
       agent
     );
+    const fallbackUsed = didUseAiFallback(agent, primaryProvider, primaryModel);
     const nutrients = data.nutrients ?? {};
     const leftoverNutrients = {
       caloriesKcal: Math.max(0, Math.round(Number(leftover.nutrients?.calories_kcal ?? 0))),
@@ -3240,6 +3284,11 @@ async function subtractLatestMealLeftover(input: {
       {
         status: "completed",
         mealLogId: doc.id,
+        primaryProvider,
+        primaryModel,
+        provider: agent.provider,
+        model: agent.model,
+        fallbackUsed,
         completedAt: savedAt,
         output: leftover
       },

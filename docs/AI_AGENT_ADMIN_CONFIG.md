@@ -206,6 +206,13 @@ firebase functions:secrets:describe ANTHROPIC_API_KEY --project mydietitian
 
 If a key is accidentally printed in logs, rotate that provider key and update the matching Secret Manager value before production deployment.
 
+If the Google Cloud Console shows a secret but CLI checks still return `Secret not found`, verify all of these match:
+
+- Console project ID is `mydietitian`, not only display name `MyDietitian`.
+- Console account is the same account used by CLI, currently `znak.iiz@gmail.com`.
+- The secret has an enabled version, not only a secret container with no value/version.
+- CLI can see it with `gcloud secrets describe ANTHROPIC_API_KEY --project=mydietitian`.
+
 ## Admin UI plan
 
 The admin dashboard should expose:
