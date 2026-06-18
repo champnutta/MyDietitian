@@ -86,6 +86,9 @@ function buildFreshnessChecks(rollbackChecks, currentCommit) {
 function buildActions(groups, rollbackChecks, freshnessChecks) {
   const names = new Set(groups.map((group) => group.name));
   const actions = [];
+  const missingText = groups
+    .flatMap((group) => group.missing || [])
+    .join("\n");
 
   if (names.has("Session fields")) {
     actions.push({
@@ -99,7 +102,7 @@ function buildActions(groups, rollbackChecks, freshnessChecks) {
       command: "npm run uat:firestore-evidence -- --user \"<TEST_LINE_USER_ID>\" --since-hours 24 --require-all --out docs\\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\\UAT_FIRESTORE_EVIDENCE.md"
     });
   }
-  if (names.has("Real LIFF auth UAT")) {
+  if (/Invalid token rejected/i.test(missingText)) {
     actions.push({
       title: "Run controlled LIFF invalid token negative test",
       command: "npm run uat:liff-invalid-token -- --user \"<TEST_LINE_USER_ID>\""
