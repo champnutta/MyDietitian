@@ -6,7 +6,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 - GAS production: still authoritative.
 - Firebase backend: migration/staging only.
-- Firebase `lineWebhook`: verifies signature, logs events, and supports staging onboarding, manual profile setup, subscription gate, text/image food, latest-meal correction/portion adjustment, exercise, coach/menu consultation, weight, contact-admin, subscription request, redeem-code, and admin approve/reject flows.
+- Firebase `lineWebhook`: verifies signature, logs events, and supports staging onboarding, manual profile setup, subscription gate, text/image food, latest-meal correction/portion adjustment, leftover image subtraction, exercise, coach/menu consultation, weight, contact-admin, subscription request, payment slip review, BIA image/PDF/file review, redeem-code, and admin approve/reject flows.
 - Firestore: ready for migrated data.
 - Data migration: deferred until final production cutover.
 
@@ -14,46 +14,46 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 | GAS function area | Purpose | Firebase status |
 | --- | --- | --- |
-| `doPost` | LINE event entry point and routing | partial |
-| `isDuplicate` | Prevent duplicate LINE message processing | partial staging text dedupe |
-| `handleFollowEvent` | Follow/onboarding | partial Firestore staging |
-| `checkUserStatus` | User registration state | partial Firestore profile readiness |
-| `checkSubscription` | Subscription gate | partial Firestore staging gate for food/image/exercise |
-| `handleTextMessage` | Main text command and chat flow | partial staging food text plus help/profile/dashboard/summary/weight/undo/correction/portion/setup/subscription/coach/menu |
-| `handleImageMessage` | LINE image message flow | partial Firestore staging with food/slip/BIA/leftover/other classification |
-| `getLineContent` | Download LINE image/file content | partial image-only staging |
-| `analyzeFoodImage` / food prompt | Image nutrition analysis | partial through `analyzeMeal` staging |
-| `saveToSheetAndGetSummary` | Save meal and return daily summary | partial Firestore write and reply only |
-| `replyToLine` / `pushMessage` | Reply and push messages | partial staging replies only |
-| `showLoadingAnimation` | LINE loading UX | partial best-effort image flow |
-| `handleFileMessage` | PDF/BIA/file routing | partial Firestore staging queue |
-| `handleBIAReport` | Body composition report analysis | partial Firestore staging with AI analysis and target confirm |
-| `handleExerciseLog` | Exercise logging | partial Firestore staging with `exerciseAnalysis` |
-| `handleConsultation` / `handleMenuRecommendation` | AI coach Q&A and menu advice | partial Firestore staging with `coachConsultation` |
-| `handleWeightLog` | Weight logging | partial Firestore staging |
-| `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | partial Firestore staging meal logs |
-| `handlePortionAdjustment` | Scale latest meal when user ate less | partial Firestore staging |
-| `handleLeftoverSubtraction` | Subtract visible leftovers from latest meal | partial Firestore staging |
-| AI router correction | Replace latest meal when user corrects text | partial Firestore staging |
-| `handleSubscriptionRequest` | Payment request flow | partial staging packages/QR response |
-| `handleSlipPayment` | Slip parsing and admin review | partial Firestore staging pending-review flow |
-| `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | partial Firestore staging |
-| `handleContactAdmin` | Customer to admin escalation | partial Firestore staging |
-| Admin chat mode | Temporary admin-to-customer chat | partial Firestore staging |
-| `handleRedeemCode` | Redeem subscription code | partial Firestore staging with `redeemCodes` |
-| `notifyAdminError` | Error reporting | partial Firestore staging |
+| `doPost` | LINE event entry point and routing | staging implemented; pending real LINE UAT |
+| `isDuplicate` | Prevent duplicate LINE message processing | staging implemented with `lineEventDedup`; pending real LINE UAT |
+| `handleFollowEvent` | Follow/onboarding | staging implemented; pending real LINE/LIFF UAT |
+| `checkUserStatus` | User registration state | staging implemented with Firestore profile readiness; pending migrated-data verification |
+| `checkSubscription` | Subscription gate | staging implemented for text/image/file/exercise/coach flows; pending real LINE UAT |
+| `handleTextMessage` | Main text command and chat flow | staging implemented for food/help/profile/dashboard/summary/weight/undo/correction/portion/setup/subscription/coach/menu |
+| `handleImageMessage` | LINE image message flow | staging implemented with food/slip/BIA/leftover/other classification; pending real LINE media UAT |
+| `getLineContent` | Download LINE image/file content | staging implemented for image and file content; pending real LINE media/file UAT |
+| `analyzeFoodImage` / food prompt | Image nutrition analysis | staging implemented through `analyzeMeal`; pending real food-image UAT |
+| `saveToSheetAndGetSummary` | Save meal and return daily summary | replaced by Firestore write/reply; pending migrated-data dashboard parity |
+| `replyToLine` / `pushMessage` | Reply and push messages | staging implemented; pending real LINE UAT |
+| `showLoadingAnimation` | LINE loading UX | staging implemented best-effort for longer media flows |
+| `handleFileMessage` | PDF/BIA/file routing | staging implemented for PDF/image BIA files; pending real BIA file UAT |
+| `handleBIAReport` | Body composition report analysis | staging implemented with AI analysis and target confirm; pending real BIA UAT |
+| `handleExerciseLog` | Exercise logging | staging implemented with `exerciseAnalysis` plus rule fallback |
+| `handleConsultation` / `handleMenuRecommendation` | AI coach Q&A and menu advice | staging implemented with `coachConsultation` |
+| `handleWeightLog` | Weight logging | staging implemented |
+| `handleUndo` / `deleteLastUserLog` | Undo/delete latest log | staging implemented for Firestore meal logs |
+| `handlePortionAdjustment` | Scale latest meal when user ate less | staging implemented with contract coverage for `2/3`, `2 ใน 3`, half, quarter, and percent |
+| `handleLeftoverSubtraction` | Subtract visible leftovers from latest meal | staging implemented; pending real leftover-image UAT |
+| AI router correction | Replace latest meal when user corrects text | staging implemented |
+| `handleSubscriptionRequest` | Payment request flow | staging implemented with configurable plans/QR |
+| `handleSlipPayment` | Slip parsing and admin review | staging implemented with pending `paymentReviews`; pending real slip UAT |
+| `handleAdminApprove` / `handleAdminReject` | Admin subscription approval | staging implemented; pending real admin UAT |
+| `handleContactAdmin` | Customer to admin escalation | staging implemented |
+| Admin chat mode | Temporary admin-to-customer chat | staging implemented |
+| `handleRedeemCode` | Redeem subscription code | staging implemented with Firestore `redeemCodes` |
+| `notifyAdminError` | Error reporting | staging implemented through admin push best-effort |
 
 ## Dashboard and Data Behaviors
 
 | GAS function area | Purpose | Firebase status |
 | --- | --- | --- |
-| `getDashboardData` | Dashboard history API | partial Firestore staging with aggregate series and detailed meal/exercise/weight history |
+| `getDashboardData` | Dashboard history API | staging implemented with aggregate series and detailed meal/exercise/weight history; pending post-import parity |
 | `processLogSheet` | Read main/archive log rows | replaced by Firestore range queries after migration |
-| `getUserProfile` | Profile and target lookup | partial |
-| `getTodaySummary` | Today's nutrition summary | partial Firestore staging |
-| `updateUserStreak` | Streak tracking | partial Firestore staging via `profiles.streak` after meal logs |
+| `getUserProfile` | Profile and target lookup | staging implemented through Firestore `profiles`/`users` reads |
+| `getTodaySummary` | Today's nutrition summary | staging implemented through Firestore daily summary |
+| `updateUserStreak` | Streak tracking | staging implemented via `profiles.streak` after meal logs |
 | `archiveOldLogs` | Move old rows into archive sheets | not needed after Firestore migration |
-| `saveSettingsFromWeb` | LIFF settings save | partial Firestore staging endpoint with auto/custom target calculation and weight log |
+| `saveSettingsFromWeb` | LIFF settings save | staging implemented with auto/custom target calculation, optional identity verification, trial grant, and weight log; pending real LIFF token UAT |
 
 ## Cutover Rule
 

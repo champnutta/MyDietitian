@@ -1305,7 +1305,7 @@ async function handleLineEvent(event: LineEvent) {
   }
 
   if (event.message?.type !== "text") {
-    await replyToLine(replyToken, "ระบบ Firebase staging ตอนนี้รองรับข้อความอาหารและรูปอาหารเท่านั้น ไฟล์/PDF/BIA จะยังใช้ระบบ GAS เดิมจนกว่า parity จะครบครับ");
+    await replyToLine(replyToken, "Firebase staging รองรับข้อความ รูปอาหาร สลิป รูป/ไฟล์ BIA แล้วครับ แต่ข้อความชนิดนี้ยังไม่อยู่ในชุดที่รองรับ กรุณาส่งข้อความ รูปภาพ หรือไฟล์ PDF/Image BIA");
     return { ok: true, type: event.type, status: "unsupported-message-replied" };
   }
 
@@ -2328,7 +2328,7 @@ async function handleSubscriptionRequest(
     "แพ็กเกจเติมวัน",
     ...packageLines,
     "",
-    "โอนเงินแล้วส่งสลิปเข้าระบบเดิมก่อนนะครับ ระหว่างนี้ Firebase staging จะยังไม่รับสลิปจริงจนกว่า parity ครบ",
+    "โอนเงินแล้วส่งรูปสลิปเข้าห้อง staging นี้ได้เลยครับ ระบบจะสร้างรายการรอแอดมินตรวจใน Firestore",
     `QR: ${appConfig.paymentQrImage}`,
     "",
     `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`,
