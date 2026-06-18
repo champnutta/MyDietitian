@@ -68,6 +68,14 @@ This project is ready for continued staging UAT, but it is not ready for final G
 
 Use these commands to recheck readiness without migrating data:
 
+One-page backend migration status pack:
+
+```powershell
+npm run status:backend-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --out docs\BACKEND_MIGRATION_STATUS_PACK.md --json-out docs\BACKEND_MIGRATION_STATUS_PACK.json
+```
+
+This consolidates deployed Firebase Functions, AI provider fallback config, LINE text UAT, Google Sheet dry-run counts, and the pre-migration gate. It does not write migrated data or switch the production LINE webhook.
+
 ```powershell
 npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
 ```
