@@ -29,23 +29,19 @@ npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md
 Contract dry-run against the deployed Firebase webhook:
 
 ```powershell
-$env:LINE_CHANNEL_SECRET = (gcloud secrets versions access latest --secret=LINE_CHANNEL_SECRET --project=mydietitian)
-npm run test:line-webhook -- --scenario text --user U_STAGING_CONTRACT_TEST --webhook-dry-run
-Remove-Item Env:LINE_CHANNEL_SECRET
+npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
 ```
 
 This verifies the LINE signature and payload shape on the real `lineWebhook`, then returns before Firestore writes or LINE replies. The response should include `mode=line-webhook-contract-dry-run`.
 
 Do not pass the LINE channel secret as a command-line argument because package runners may echo arguments to logs.
 
-PowerShell example:
+PowerShell example for individual signed scenarios, only when you intentionally need direct `test:line-webhook` calls:
 
 ```powershell
-$env:LINE_CHANNEL_SECRET = (gcloud secrets versions access latest --secret=LINE_CHANNEL_SECRET --project=mydietitian)
-npm run test:line-webhook -- --scenario follow --user U_STAGING_TEST_USER
-npm run test:line-webhook -- --scenario setup --user U_STAGING_TEST_USER --text "ตั้งค่า Test 2000 40-30-30"
-npm run test:line-webhook -- --scenario food --user U_STAGING_TEST_USER --text "ไข่ต้ม 2 ฟอง"
-Remove-Item Env:LINE_CHANNEL_SECRET
+npm run test:line-webhook -- --scenario follow --user U_STAGING_TEST_USER --useLineSecretManager
+npm run test:line-webhook -- --scenario setup --user U_STAGING_TEST_USER --text "ตั้งค่า Test 2000 40-30-30" --useLineSecretManager
+npm run test:line-webhook -- --scenario food --user U_STAGING_TEST_USER --text "ไข่ต้ม 2 ฟอง" --useLineSecretManager
 ```
 
 Dry run without sending:

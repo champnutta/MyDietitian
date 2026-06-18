@@ -3,19 +3,19 @@
 Use this report before the final Google Sheet migration window. It does not write production customer data and does not switch the production LINE webhook.
 
 ```powershell
-npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json"
+npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --useLineSecretManager
 ```
 
 Optional Markdown output:
 
 ```powershell
-npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --out docs/PRE_CUTOVER_REPORT_OUTPUT.md
+npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --useLineSecretManager --out docs/PRE_CUTOVER_REPORT_OUTPUT.md
 ```
 
 Optional smoke-write test user:
 
 ```powershell
-npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
+npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
 ```
 
 Runtime cutover guard only:
@@ -27,15 +27,13 @@ npm run runtime:cutover-guard -- --project mydietitian --serviceAccount "C:\User
 Final migration readiness packet:
 
 ```powershell
-npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json
+npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
-For the final migration window, set `LINE_CHANNEL_SECRET` in the environment before generating the readiness packet so the signed webhook contract is not skipped:
+For the final migration window, read `LINE_CHANNEL_SECRET` through Secret Manager so the signed webhook contract is not skipped and the secret is not printed:
 
 ```powershell
-$env:LINE_CHANNEL_SECRET = (gcloud secrets versions access latest --secret=LINE_CHANNEL_SECRET --project=mydietitian)
-npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --evidence-file docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --security-preflight-pass --owner-approval --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json
-Remove-Item Env:LINE_CHANNEL_SECRET
+npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --security-preflight-pass --owner-approval --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
 By default, this packet says `hold-before-data-migration` until manual gates are confirmed with explicit flags such as `--manual-line-media-pass`, `--manual-liff-auth-pass`, `--rollback-reviewed`, `--security-preflight-pass`, and `--owner-approval`.

@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
 const crypto = require("node:crypto");
+const { spawnSync } = require("node:child_process");
 
 const args = parseArgs(process.argv.slice(2));
 const endpoint = args.endpoint || "https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook";
-const channelSecret = args.secret || process.env.LINE_CHANNEL_SECRET;
+const projectId = args.project || "mydietitian";
+const useLineSecretManager = Boolean(args.useLineSecretManager || args["use-line-secret-manager"]);
+const lineSecretName = args.lineSecretName || args["line-secret-name"] || "LINE_CHANNEL_SECRET";
+const channelSecret = args.secret || process.env.LINE_CHANNEL_SECRET || (useLineSecretManager ? accessSecret(lineSecretName) : "");
 const lineUserId = args.user || "U_STAGING_TEST_USER";
 const dryRun = Boolean(args.dryRun);
 const webhookDryRun = Boolean(args.webhookDryRun || args.contractDryRun || args["webhook-dry-run"] || args["contract-dry-run"]);
@@ -47,7 +51,7 @@ if (args.list) {
 }
 
 if (!channelSecret) {
-  console.error("Missing LINE channel secret. Set LINE_CHANNEL_SECRET in the environment.");
+  console.error("Missing LINE channel secret. Set LINE_CHANNEL_SECRET in the environment or pass --useLineSecretManager.");
   process.exit(1);
 }
 
@@ -159,6 +163,52 @@ function parseArgs(argv) {
 
 function toCamelCase(value) {
   return value.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
+}
+
+function accessSecret(secretName) {
+  const command = [
+    "gcloud",
+    "secrets",
+    "versions",
+    "access",
+    "latest",
+    "--secret",
+    secretName,
+    "--project",
+    projectId
+  ];
+  const result = spawnCommand(command);
+  if (result.status !== 0) return "";
+  return String(result.stdout || "").trim();
+}
+
+function spawnCommand(command) {
+  if (process.platform === "win32" && needsCmdShim(command[0])) {
+    const commandLine = command.map(quoteCmdArg).join(" ");
+    return spawnSync("cmd.exe", ["/d", "/s", "/c", commandLine], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      shell: false,
+      maxBuffer: 1024 * 1024
+    });
+  }
+  return spawnSync(command[0], command.slice(1), {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    shell: false,
+    maxBuffer: 1024 * 1024
+  });
+}
+
+function needsCmdShim(command) {
+  return ["gcloud"].includes(command) || /\.(cmd|bat)$/i.test(command);
+}
+
+function quoteCmdArg(value) {
+  const text = String(value || "");
+  if (!text) return "\"\"";
+  if (!/[\s"&|<>^]/.test(text)) return text;
+  return `"${text.replace(/"/g, "\"\"")}"`;
 }
 
 function parseMaybeJson(text) {
