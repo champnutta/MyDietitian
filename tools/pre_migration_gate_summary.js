@@ -10,6 +10,8 @@ const includeSmokeWrite = Boolean(args.smokeWrite || args["smoke-write"]);
 const useLineSecretManager = Boolean(args.useLineSecretManager || args["use-line-secret-manager"]);
 const lineSecretName = args.lineSecretName || args["line-secret-name"] || "LINE_CHANNEL_SECRET";
 const jsonOnly = Boolean(args.json);
+const outFile = args.out;
+const jsonOutFile = args.jsonOut || args["json-out"];
 
 if (args.help || args.h) {
   printHelp();
@@ -54,8 +56,25 @@ function main() {
   } else {
     console.log(renderText(report));
   }
+  writeOptionalOutputs(report);
 
   if (!report.readyForDataMigrationWindow) process.exit(1);
+}
+
+function writeOptionalOutputs(report) {
+  if (!outFile && !jsonOutFile) return;
+  const fs = require("node:fs");
+  const path = require("node:path");
+  if (outFile) {
+    const resolved = path.resolve(outFile);
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    fs.writeFileSync(resolved, `${renderMarkdown(report)}\n`, "utf8");
+  }
+  if (jsonOutFile) {
+    const resolved = path.resolve(jsonOutFile);
+    fs.mkdirSync(path.dirname(resolved), { recursive: true });
+    fs.writeFileSync(resolved, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  }
 }
 
 function buildSummary({ readiness, remaining, operatorChecklist, gitStatus }) {
@@ -168,6 +187,66 @@ function renderText(report) {
   return lines.join("\n");
 }
 
+function renderMarkdown(report) {
+  const lines = [
+    "# Pre-Migration Gate Summary",
+    "",
+    `Generated: ${new Date().toISOString()}`,
+    `Status: ${report.status}`,
+    `Ready for data migration window: ${report.readyForDataMigrationWindow ? "yes" : "no"}`,
+    `Blockers: ${report.blockerCount ?? "unknown"}`,
+    "",
+    "## Automated",
+    "",
+    `- Pre-cutover: ${report.automated.preCutoverOk ? "pass" : "fail"}`,
+    `- No skipped checks: ${report.automated.noSkippedChecks ? "yes" : "no"}`,
+    `- Source tree clean: ${report.migrationSnapshot.sourceTreeClean ? "yes" : "no"}`,
+    "",
+    "## Migration Snapshot",
+    "",
+    `- Planned docs: ${report.migrationSnapshot.totalPlannedDocuments ?? "-"}`,
+    `- Firestore risk: ${report.migrationSnapshot.firestoreRisk ?? "-"}`,
+    `- Legacy imported docs: ${report.migrationSnapshot.legacyImportedDocuments ?? "-"}`,
+    `- Source commit: ${report.migrationSnapshot.sourceCommit ?? "-"}`,
+    `- Source fingerprint: ${report.migrationSnapshot.sourceFingerprint ?? "-"}`,
+    "",
+    "## Manual Evidence",
+    "",
+    `- File: ${report.evidence.file}`,
+    `- Evidence ok: ${report.evidence.ok ? "yes" : "no"}`,
+    `- Remaining items: ${report.evidence.remainingCount ?? "-"}`
+  ];
+
+  for (const group of report.evidence.remainingGroups) {
+    lines.push(`- ${group.name}: ${group.missingCount} missing`);
+    for (const item of group.sample) lines.push(`  - sample: ${item}`);
+  }
+
+  lines.push("", "## Operator Checklist", "");
+  for (const check of report.operatorChecklist.freshnessChecks) {
+    lines.push(`- ${check.item}: ${check.ok ? "pass" : "stale"}${check.ok ? "" : ` (actual=${check.actual || "-"} expected=${check.expected || "-"})`}`);
+  }
+  for (const action of report.operatorChecklist.nextActions) {
+    lines.push(`- next: ${action}`);
+  }
+
+  lines.push("", "## Top Blockers", "");
+  if (report.blockerSample.length) {
+    for (const blocker of report.blockerSample) lines.push(`- ${blocker}`);
+  } else {
+    lines.push("- None.");
+  }
+
+  lines.push(
+    "",
+    "## Guardrail",
+    "",
+    "Do not run final data migration and do not switch the production LINE webhook from GAS until this summary says ready and the owner explicitly approves the migration window."
+  );
+
+  return lines.join("\n");
+}
+
 function runNodeJson(name, nodeArgs) {
   const result = spawnSync(process.execPath, nodeArgs, {
     cwd: process.cwd(),
@@ -253,6 +332,8 @@ function printHelp() {
     "  --evidence-file docs/MANUAL_UAT_EVIDENCE.md",
     "  --json",
     "  --useLineSecretManager",
-    "  --lineSecretName LINE_CHANNEL_SECRET"
+    "  --lineSecretName LINE_CHANNEL_SECRET",
+    "  --out docs/PRE_MIGRATION_GATE_SUMMARY.md",
+    "  --json-out docs/PRE_MIGRATION_GATE_SUMMARY.json"
   ].join("\n"));
 }
