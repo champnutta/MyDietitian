@@ -10,7 +10,9 @@ const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
 const serviceAccount = args.serviceAccount;
 const smokeWrite = Boolean(args.smokeWrite);
-const lineChannelSecret = args.lineChannelSecret || args["line-channel-secret"] || process.env.LINE_CHANNEL_SECRET;
+const useLineSecretManager = Boolean(args.useLineSecretManager || args["use-line-secret-manager"]);
+const lineSecretName = args.lineSecretName || args["line-secret-name"] || "LINE_CHANNEL_SECRET";
+const lineChannelSecret = args.lineChannelSecret || args["line-channel-secret"] || process.env.LINE_CHANNEL_SECRET || (useLineSecretManager ? accessSecret(lineSecretName) : "");
 
 const HOSTING_ORIGIN = "https://mydietitian.web.app";
 const FUNCTIONS_BASE = "https://asia-southeast1-mydietitian.cloudfunctions.net";
@@ -530,7 +532,7 @@ function checkLineUatDryRunReport() {
 
 function checkSignedLineWebhookContract() {
   if (!lineChannelSecret) {
-    record("signed LINE webhook contract", "skip", "Set LINE_CHANNEL_SECRET in the environment to verify the deployed endpoint signature contract.");
+    record("signed LINE webhook contract", "skip", "Set LINE_CHANNEL_SECRET in the environment or pass --useLineSecretManager to verify the deployed endpoint signature contract.");
     return;
   }
 
@@ -621,6 +623,52 @@ function record(name, status, details) {
   checks.push({ name, status, details });
   const marker = status === "pass" ? "PASS" : status === "skip" ? "SKIP" : "FAIL";
   console.log(`${marker} ${name}: ${details}`);
+}
+
+function accessSecret(secretName) {
+  const command = [
+    "gcloud",
+    "secrets",
+    "versions",
+    "access",
+    "latest",
+    "--secret",
+    secretName,
+    "--project",
+    projectId
+  ];
+  const result = spawnCommand(command, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    maxBuffer: 1024 * 1024
+  });
+  if (result.status !== 0) return "";
+  return String(result.stdout || "").trim();
+}
+
+function spawnCommand(command, options) {
+  if (process.platform === "win32" && needsCmdShim(command[0])) {
+    const commandLine = command.map(quoteCmdArg).join(" ");
+    return spawnSync("cmd.exe", ["/d", "/s", "/c", commandLine], {
+      ...options,
+      shell: false
+    });
+  }
+  return spawnSync(command[0], command.slice(1), {
+    ...options,
+    shell: false
+  });
+}
+
+function needsCmdShim(command) {
+  return ["gcloud"].includes(command) || /\.(cmd|bat)$/i.test(command);
+}
+
+function quoteCmdArg(value) {
+  const text = String(value || "");
+  if (!text) return "\"\"";
+  if (!/[\s"&|<>^]/.test(text)) return text;
+  return `"${text.replace(/"/g, "\"\"")}"`;
 }
 
 function printSummary() {

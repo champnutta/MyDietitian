@@ -9,6 +9,8 @@ const projectId = args.project || "mydietitian";
 const serviceAccount = args.serviceAccount;
 const outFile = args.out ? path.resolve(args.out) : null;
 const includeSmokeWrite = Boolean(args.smokeWrite || args["smoke-write"]);
+const useLineSecretManager = Boolean(args.useLineSecretManager || args["use-line-secret-manager"]);
+const lineSecretName = args.lineSecretName || args["line-secret-name"] || "LINE_CHANNEL_SECRET";
 
 const REQUIRED_MANUAL_GATES = [
   {
@@ -50,6 +52,7 @@ function main() {
   const auditArgs = ["tools/pre_migration_readiness_audit.js", "--project", projectId];
   if (serviceAccount) auditArgs.push("--serviceAccount", serviceAccount);
   if (includeSmokeWrite) auditArgs.push("--smoke-write");
+  if (useLineSecretManager) auditArgs.push("--useLineSecretManager", "--lineSecretName", lineSecretName);
 
   const audit = runNodeJson("pre-migration audit", auditArgs);
   const migration = runNodeJson("migration dry-run", ["tools/migrate_sheet_to_firestore.js", "--sampleLimit", "5"]);

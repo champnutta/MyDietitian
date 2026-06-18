@@ -31,10 +31,10 @@ This project is ready for continued staging UAT, but it is not ready for final G
 
 ## Latest Automated Evidence
 
-- Latest source commit pushed to GitHub: `08fe5a4552c9556f50a9c404e9214c8868ece0de`.
+- Latest source commit must be read from `git rev-parse HEAD` when generating the final readiness packet.
 - Final migration tooling now requires the readiness packet and the write-time source tree to be clean and commit-matched before any `--commit` import can run.
-- Pre-migration audit passed with smoke-write enabled.
-- The latest readiness packet run still holds before data migration because the evidence file is incomplete and the run skipped the signed LINE secret check when `LINE_CHANNEL_SECRET` was not provided to the command environment.
+- Pre-migration audit passed with smoke-write enabled and Secret Manager-backed LINE signature verification: 18 passed, 0 failed, 0 skipped.
+- The latest readiness packet run still holds before data migration because the manual evidence file is incomplete.
 - AI agent runtime config check passed with Anthropic fallback required.
 - AI fallback smoke test passed: Gemini primary failed over successfully to Claude and recorded `fallbackUsed=true`.
 - Migration dry-run planned 11,955 Firestore documents from the current Google Sheet snapshot.
@@ -58,15 +58,23 @@ This project is ready for continued staging UAT, but it is not ready for final G
 - Do not run final data migration yet: readiness packet status is still `hold-before-data-migration`.
 - Manual UAT evidence is incomplete for real LINE media, real LIFF auth, security preflight, rollback fields, and owner sign-off.
 - Rotate `LINE_CHANNEL_SECRET` and record the new Secret Manager version evidence before approving production migration/cutover.
-- Re-run readiness with `LINE_CHANNEL_SECRET` supplied from Secret Manager so the automated pre-migration audit has `skipped=0`.
-- Update `docs/MANUAL_UAT_EVIDENCE.md` with the current commit SHA `08fe5a4552c9556f50a9c404e9214c8868ece0de` after regenerating/preparing evidence.
+- Re-run readiness with `--useLineSecretManager` so the automated pre-migration audit has `skipped=0` without printing `LINE_CHANNEL_SECRET`.
+- Update `docs/MANUAL_UAT_EVIDENCE.md` with the current `git rev-parse HEAD` value after regenerating/preparing evidence.
 
 ## Safe Commands
 
 Use these commands to recheck readiness without migrating data:
 
 ```powershell
-npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write
+npm run audit:pre-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
+```
+
+```powershell
+npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager
+```
+
+```powershell
+npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs\MANUAL_UAT_EVIDENCE.md
 ```
 
 ```powershell
