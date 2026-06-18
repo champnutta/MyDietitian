@@ -64,6 +64,8 @@ This command is intentionally wordy. Do not shorten it; the typed confirmation p
 npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
+Do not replace this with an `--importRunId`-only check. Final verification must use the readiness packet so commit, fingerprint, readiness timestamp, manual gate evidence, and expected counts are tied to the exact approved migration window.
+
 9. Run dashboard parity checks for sampled users.
 10. Run real LINE staging media and LIFF auth tests one final time.
 11. Validate final cutover evidence:

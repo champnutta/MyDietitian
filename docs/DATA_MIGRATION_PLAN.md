@@ -107,6 +107,8 @@ After the final write migration, verify the import manifest and per-collection l
 npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
 ```
 
+Final verification must use the same readiness packet that unlocked the write. The verifier cross-checks the packet decision, no-skipped automated checks, manual gate evidence, readiness timestamp, source fingerprint, migration commit, manifest counts, written document total, and per-collection `legacy.importRunId` provenance. Use `--allowWithoutReadinessPacket` only for exploratory manifest checks, never as final production verification.
+
 ## Verification checklist
 
 - Imported user count matches `Users` non-empty row count.

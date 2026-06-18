@@ -9,6 +9,7 @@ const projectId = args.project || "mydietitian";
 const serviceAccount = args.serviceAccount;
 const readinessPacketPath = args.readinessPacket ? path.resolve(args.readinessPacket) : null;
 const readinessPacket = readinessPacketPath ? readJson(readinessPacketPath) : null;
+const allowWithoutReadinessPacket = Boolean(args.allowWithoutReadinessPacket || args["allow-without-readiness-packet"]);
 const importRunId = args.importRunId || readinessPacket?.migrationSnapshot?.importManifest?.importRunId ||
   importRunIdFromFingerprint(readinessPacket?.migrationSnapshot?.sourceFingerprint?.value);
 
@@ -18,6 +19,9 @@ main().catch((error) => {
 });
 
 async function main() {
+  if (!readinessPacket && !allowWithoutReadinessPacket) {
+    throw new Error("Pass --readinessPacket for final import verification, or --allowWithoutReadinessPacket for exploratory manifest checks.");
+  }
   if (!importRunId) {
     throw new Error("Pass --importRunId or --readinessPacket with migrationSnapshot.sourceFingerprint.");
   }
@@ -74,6 +78,11 @@ function buildChecks({ manifest, expectedCounts, legacyCounts, readinessPacket }
       details: `written=${manifest?.writtenDocuments ?? "missing"} expected=${totalExpected}`
     },
     {
+      name: "manifest planned total",
+      ok: Number(manifest?.totalPlannedDocuments ?? -1) === totalExpected,
+      details: `manifest=${manifest?.totalPlannedDocuments ?? "missing"} expected=${totalExpected}`
+    },
+    {
       name: "legacy provenance total",
       ok: totalLegacy === totalExpected,
       details: `legacy=${totalLegacy} expected=${totalExpected}`
@@ -81,6 +90,11 @@ function buildChecks({ manifest, expectedCounts, legacyCounts, readinessPacket }
   ];
 
   for (const [collection, expected] of Object.entries(expectedCounts)) {
+    checks.push({
+      name: `manifest count ${collection}`,
+      ok: Number(manifest?.countByCollection?.[collection] ?? -1) === expected,
+      details: `manifest=${manifest?.countByCollection?.[collection] ?? "missing"} expected=${expected}`
+    });
     checks.push({
       name: `legacy count ${collection}`,
       ok: legacyCounts[collection] === expected,
@@ -90,6 +104,49 @@ function buildChecks({ manifest, expectedCounts, legacyCounts, readinessPacket }
 
   if (readinessPacket) {
     const expectedFingerprint = readinessPacket.migrationSnapshot?.sourceFingerprint?.value || "";
+    const expectedCommit = readinessPacket.migrationSnapshot?.sourceCommit ||
+      readinessPacket.migrationSnapshot?.importManifest?.migrationCommit ||
+      "";
+    checks.push({
+      name: "readiness packet is final-approved",
+      ok: readinessPacket.packetType === "final-migration-readiness-packet" &&
+        readinessPacket.projectId === projectId &&
+        readinessPacket.decision?.status === "ready-for-final-data-migration-window" &&
+        readinessPacket.decision?.readyForDataMigrationWindow === true &&
+        Array.isArray(readinessPacket.decision?.blockers) &&
+        readinessPacket.decision.blockers.length === 0,
+      details: `packetType=${readinessPacket.packetType || "missing"} project=${readinessPacket.projectId || "missing"} status=${readinessPacket.decision?.status || "missing"} blockers=${readinessPacket.decision?.blockers?.length ?? "missing"}`
+    });
+    checks.push({
+      name: "readiness packet automated checks had no skips",
+      ok: readinessPacket.automated?.preCutoverOk === true &&
+        readinessPacket.automated?.noSkippedChecks === true &&
+        Array.isArray(readinessPacket.automated?.skippedChecks) &&
+        readinessPacket.automated.skippedChecks.length === 0,
+      details: `preCutoverOk=${String(readinessPacket.automated?.preCutoverOk)} noSkipped=${String(readinessPacket.automated?.noSkippedChecks)} skipped=${readinessPacket.automated?.skippedChecks?.length ?? "missing"}`
+    });
+    checks.push({
+      name: "readiness packet evidence passed",
+      ok: readinessPacket.evidenceCheck?.ok === true &&
+        Array.isArray(readinessPacket.manualGates) &&
+        readinessPacket.manualGates.every((gate) => gate.pass === true),
+      details: `evidenceOk=${String(readinessPacket.evidenceCheck?.ok)} manualGates=${readinessPacket.manualGates?.map((gate) => `${gate.label}:${gate.pass}`).join(",") || "missing"}`
+    });
+    checks.push({
+      name: "manifest readiness packet timestamp matches",
+      ok: Boolean(readinessPacket.generatedAt) && manifest?.readinessPacketGeneratedAt === readinessPacket.generatedAt,
+      details: `manifest=${manifest?.readinessPacketGeneratedAt || "missing"} readiness=${readinessPacket.generatedAt || "missing"}`
+    });
+    checks.push({
+      name: "manifest readiness decision is ready",
+      ok: manifest?.readinessPacketDecision === "ready-for-final-data-migration-window",
+      details: `manifest=${manifest?.readinessPacketDecision || "missing"}`
+    });
+    checks.push({
+      name: "migration commit matches readiness packet",
+      ok: Boolean(expectedCommit) && manifest?.migrationCommit === expectedCommit,
+      details: `manifest=${manifest?.migrationCommit || "missing"} readiness=${expectedCommit || "missing"}`
+    });
     checks.push({
       name: "source fingerprint matches readiness packet",
       ok: Boolean(expectedFingerprint) && manifest?.sourceFingerprint?.value === expectedFingerprint,
@@ -106,7 +163,7 @@ function buildChecks({ manifest, expectedCounts, legacyCounts, readinessPacket }
 }
 
 function expectedCountsFrom(manifest, readinessPacket) {
-  return manifest?.countByCollection || readinessPacket?.migrationSnapshot?.countByCollection || {};
+  return readinessPacket?.migrationSnapshot?.countByCollection || manifest?.countByCollection || {};
 }
 
 function summarizeManifest(manifest) {
