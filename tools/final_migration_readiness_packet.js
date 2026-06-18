@@ -152,8 +152,11 @@ function main() {
       ]
       : [
         "Do not run the final migration command yet.",
-        "Complete the listed manual gate evidence.",
-        "Re-run this packet with the matching manual gate flags only after evidence is recorded."
+        "Run `npm run uat:operator-checklist -- --file docs\\MANUAL_UAT_EVIDENCE.md --out docs\\PRE_MIGRATION_OPERATOR_CHECKLIST.md` for the exact remaining workflow.",
+        "Use `npm run uat:firestore-evidence` followed by `npm run uat:apply-firestore-evidence` after real LINE/LIFF UAT.",
+        "Use `npm run uat:line-secret-evidence` followed by `npm run uat:apply-line-secret-evidence` after rotating LINE_CHANNEL_SECRET.",
+        "Fix rollback values and owner sign-offs in docs\\MANUAL_UAT_EVIDENCE.md.",
+        "Re-run this packet with the matching manual gate flags only after evidence is recorded and the compact gate is ready."
       ]
   };
 
