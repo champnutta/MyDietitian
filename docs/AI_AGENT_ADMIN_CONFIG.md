@@ -14,7 +14,7 @@ The backend reads AI agent settings from Firestore before calling the provider. 
 {
   "agentId": "mealAnalysis",
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "promptVersion": "meal-v1",
   "temperature": 0.2,
   "timeoutMs": 20000,
@@ -32,7 +32,7 @@ The backend reads AI agent settings from Firestore before calling the provider. 
 {
   "agentId": "exerciseAnalysis",
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "promptVersion": "exercise-v1",
   "temperature": 0.2,
   "timeoutMs": 20000,
@@ -50,7 +50,7 @@ The backend reads AI agent settings from Firestore before calling the provider. 
 {
   "agentId": "biaAnalysis",
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "promptVersion": "bia-v1",
   "temperature": 0.1,
   "timeoutMs": 20000,
@@ -68,7 +68,7 @@ The backend reads AI agent settings from Firestore before calling the provider. 
 {
   "agentId": "coachConsultation",
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "promptVersion": "coach-v1",
   "temperature": 0.4,
   "timeoutMs": 20000,
@@ -89,13 +89,17 @@ node tools/seed_ai_agents.js --project mydietitian --commit
 Configure Claude fallback after `ANTHROPIC_API_KEY` is available:
 
 ```bash
-node tools/configure_ai_provider_fallbacks.js --project mydietitian --anthropicModel <anthropic-model-id>
+node tools/check_ai_fallback_readiness.js --project mydietitian
+```
+
+```bash
+node tools/configure_ai_provider_fallbacks.js --project mydietitian --anthropicModel claude-sonnet-4-6
 ```
 
 The fallback tool is dry-run by default. Add `--commit` only after reviewing the printed diff:
 
 ```bash
-node tools/configure_ai_provider_fallbacks.js --project mydietitian --anthropicModel <anthropic-model-id> --commit
+node tools/configure_ai_provider_fallbacks.js --project mydietitian --anthropicModel claude-sonnet-4-6 --commit
 ```
 
 ## Default fallback
@@ -105,7 +109,7 @@ If an `aiAgents/{agentId}` document does not exist, the backend falls back to:
 ```json
 {
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "promptVersion": "agent-specific-v1",
   "temperature": 0.2,
   "timeoutMs": 20000,
@@ -126,7 +130,7 @@ Every Gemini call now has bounded retries and timeout controls:
   "fallbacks": [
     {
       "provider": "anthropic",
-      "model": "<anthropic-model-id>",
+      "model": "claude-sonnet-4-6",
       "temperature": 0.2,
       "timeoutMs": 20000,
       "maxAttempts": 1
@@ -147,22 +151,15 @@ Recommended production pattern:
 ```json
 {
   "provider": "gemini",
-  "model": "gemini-3-flash-preview",
+  "model": "gemini-3.5-flash",
   "timeoutMs": 12000,
   "maxAttempts": 1,
   "fallbacks": [
     {
       "provider": "anthropic",
-      "model": "<fast-anthropic-model-id>",
+      "model": "claude-sonnet-4-6",
       "temperature": 0.2,
-      "timeoutMs": 18000,
-      "maxAttempts": 1
-    },
-    {
-      "provider": "anthropic",
-      "model": "<strong-anthropic-model-id>",
-      "temperature": 0.2,
-      "timeoutMs": 22000,
+      "timeoutMs": 20000,
       "maxAttempts": 1
     }
   ]

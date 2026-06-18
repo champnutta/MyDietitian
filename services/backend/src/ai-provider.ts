@@ -13,7 +13,7 @@ import { db } from "./runtime.js";
 
 const DEFAULT_AGENT_BASE = {
   provider: "gemini",
-  model: "gemini-3-flash-preview",
+  model: "gemini-3.5-flash",
   temperature: 0.2,
   enabled: true,
   timeoutMs: 20_000,

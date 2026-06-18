@@ -10,7 +10,7 @@ const AI_AGENT_CONFIGS = [
   {
     agentId: "mealAnalysis",
     provider: "gemini",
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.5-flash",
     promptVersion: "meal-v1",
     temperature: 0.2,
     enabled: true,
@@ -21,7 +21,7 @@ const AI_AGENT_CONFIGS = [
   {
     agentId: "exerciseAnalysis",
     provider: "gemini",
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.5-flash",
     promptVersion: "exercise-v1",
     temperature: 0.2,
     enabled: true,
@@ -32,7 +32,7 @@ const AI_AGENT_CONFIGS = [
   {
     agentId: "biaAnalysis",
     provider: "gemini",
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.5-flash",
     promptVersion: "bia-v1",
     temperature: 0.1,
     enabled: true,
@@ -43,7 +43,7 @@ const AI_AGENT_CONFIGS = [
   {
     agentId: "coachConsultation",
     provider: "gemini",
-    model: "gemini-3-flash-preview",
+    model: "gemini-3.5-flash",
     promptVersion: "coach-v1",
     temperature: 0.4,
     enabled: true,

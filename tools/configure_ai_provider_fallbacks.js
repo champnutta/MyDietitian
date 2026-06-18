@@ -42,7 +42,7 @@ async function main() {
     const temperature = Number(current.temperature ?? defaultTemperature(agentId));
     const update = {
       provider: String(current.provider || "gemini"),
-      model: String(current.model || "gemini-3-flash-preview"),
+      model: String(current.model || "gemini-3.5-flash"),
       promptVersion: String(current.promptVersion || `${agentId}-v1`),
       temperature,
       enabled: current.enabled !== false,
