@@ -8,6 +8,7 @@ services/backend/lib/
 .DS_Store
 Thumbs.db
 *.log
+docs/FINAL_MIGRATION_READINESS_PACKET.latest.*
 .env
 .env.*
 !.env.example
