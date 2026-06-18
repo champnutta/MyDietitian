@@ -391,6 +391,7 @@ function checkStaleReadinessPacketLock() {
 }
 
 function buildStaleReadyPacket() {
+  const sourceCommit = currentGitCommit();
   return {
     packetType: "final-migration-readiness-packet",
     schemaVersion: 1,
@@ -428,12 +429,17 @@ function buildStaleReadyPacket() {
       "Owner approval for migration window"
     ].map((label) => ({ label, pass: true })),
     migrationSnapshot: {
+      sourceCommit,
       totalPlannedDocuments: 1,
       dataQuality: { okToPreviewImport: true },
       sourceFingerprint: {
         algorithm: "sha256",
         value: "a".repeat(64),
         sheetId: "guard-test-no-write"
+      },
+      importManifest: {
+        importRunId: "stale",
+        migrationCommit: sourceCommit
       },
       firestoreTargetSnapshot: {
         legacyImportAlreadyPresent: false,
@@ -442,6 +448,14 @@ function buildStaleReadyPacket() {
       }
     }
   };
+}
+
+function currentGitCommit() {
+  const result = spawnSync("git", ["rev-parse", "HEAD"], {
+    cwd: process.cwd(),
+    encoding: "utf8"
+  });
+  return result.status === 0 ? result.stdout.trim() : "";
 }
 
 function checkMigrationDryRunMapping() {

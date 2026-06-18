@@ -73,6 +73,7 @@ function main() {
   const evidenceOk = evidenceCheck ? Boolean(evidenceCheck.ok && evidenceCheck.json?.ok) : !anyManualFlagProvided;
   const manualOk = manualGates.every((gate) => gate.pass);
   const migrationSnapshot = preCutover.json?.migrationSnapshot || {};
+  const sourceCommit = migrationSnapshot.importManifest?.migrationCommit || currentGitCommit();
   const firestoreSnapshot = migrationSnapshot.firestoreTargetSnapshot || {};
   const noLegacyImportPresent = firestoreSnapshot.legacyImportAlreadyPresent === false;
   const firestoreTargetOk = firestoreSnapshot.okToProceedBeforeMigration === true;
@@ -120,6 +121,7 @@ function main() {
       },
     manualGates,
     migrationSnapshot: {
+      sourceCommit,
       totalPlannedDocuments: migrationSnapshot.totalPlannedDocuments ?? null,
       countByCollection: migrationSnapshot.countByCollection || null,
       importManifest: migrationSnapshot.importManifest || null,
@@ -169,7 +171,7 @@ function buildEvidenceConsistency(evidenceReport, migrationSnapshot) {
   const rollbackValues = Array.isArray(evidenceReport?.rollbackValues) ? evidenceReport.rollbackValues : [];
   const values = Object.fromEntries(rollbackValues.map((item) => [item.item, stripMarkdown(item.value)]));
   const currentFingerprint = migrationSnapshot?.sourceFingerprint?.value || "";
-  const currentCommit = currentGitCommit();
+  const currentCommit = migrationSnapshot?.importManifest?.migrationCommit || currentGitCommit();
   const checks = [
     {
       name: "Google Sheet source fingerprint",
@@ -363,6 +365,7 @@ function renderMarkdown(report) {
     "## Migration Snapshot",
     "",
     `Total planned documents: ${report.migrationSnapshot.totalPlannedDocuments ?? "-"}`,
+    `Source commit: ${report.migrationSnapshot.sourceCommit ?? "-"}`,
     `Source fingerprint: ${report.migrationSnapshot.sourceFingerprint?.value ?? "-"}`,
     `Legacy imported documents already present: ${report.migrationSnapshot.firestoreTargetSnapshot?.legacyImportedDocuments ?? "-"}`,
     `Firestore target risk level: ${report.migrationSnapshot.firestoreTargetSnapshot?.riskLevel ?? "-"}`,

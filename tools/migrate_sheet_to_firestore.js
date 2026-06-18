@@ -70,6 +70,7 @@ async function main() {
   const planned = planMigration(workbook);
   const report = buildReadinessReport(workbook, planned, sampleLimit);
   if (commit) validateCurrentSourceFingerprint(readinessPacket, report);
+  if (commit) validateCurrentMigrationCommit(readinessPacket);
   const importManifest = buildImportManifest(report, planned, readinessPacket);
 
   printSummary(planned, report, importManifest);
@@ -105,6 +106,8 @@ function validateFinalMigrationReadinessPacket(readinessPacketPath, expectedProj
     : [];
   const firestoreTarget = packet?.migrationSnapshot?.firestoreTargetSnapshot || {};
   const sourceFingerprint = packet?.migrationSnapshot?.sourceFingerprint || {};
+  const packetImportCommit = packet?.migrationSnapshot?.importManifest?.migrationCommit;
+  const packetSourceCommit = packet?.migrationSnapshot?.sourceCommit;
   const automatedCheckNames = automatedChecks.map((check) => check.name);
   const manualGateLabels = manualGates.map((gate) => gate.label);
   const hasPostMigrationCommands = requiredPostMigrationCommandFragments.every((fragment) =>
@@ -131,6 +134,9 @@ function validateFinalMigrationReadinessPacket(readinessPacketPath, expectedProj
     automatedChecks.every((check) => check.ok === true) &&
     packet?.migrationSnapshot?.dataQuality?.okToPreviewImport === true &&
     Number(packet?.migrationSnapshot?.totalPlannedDocuments || 0) > 0 &&
+    typeof packetSourceCommit === "string" &&
+    /^[a-f0-9]{40}$/i.test(packetSourceCommit) &&
+    packetSourceCommit === packetImportCommit &&
     sourceFingerprint.algorithm === "sha256" &&
     typeof sourceFingerprint.value === "string" &&
     sourceFingerprint.value.length === 64 &&
@@ -158,6 +164,16 @@ function validateCurrentSourceFingerprint(packet, report) {
   if (!matches) {
     throw new Error(
       "Refusing to write. Google Sheet source fingerprint changed after readiness packet generation. Re-run migration:readiness-packet during the approved migration window."
+    );
+  }
+}
+
+function validateCurrentMigrationCommit(packet) {
+  const packetCommit = String(packet?.migrationSnapshot?.sourceCommit || packet?.migrationSnapshot?.importManifest?.migrationCommit || "");
+  const currentCommit = currentGitCommit();
+  if (!packetCommit || !currentCommit || packetCommit !== currentCommit) {
+    throw new Error(
+      `Refusing to write. Current Git commit differs from readiness packet. packet=${packetCommit || "missing"} current=${currentCommit || "missing"}. Re-run migration:readiness-packet from the exact source state used for migration.`
     );
   }
 }
