@@ -198,6 +198,17 @@ To use Claude/Anthropic:
 
 To add OpenAI later, follow the same adapter pattern with an `OPENAI_API_KEY` secret and keep the exact same response contracts.
 
+## Secret safety
+
+Never use `firebase functions:secrets:access` during normal checks because it prints the secret value to the terminal. Use `describe` instead:
+
+```bash
+firebase functions:secrets:describe GEMINI_API_KEY --project mydietitian
+firebase functions:secrets:describe ANTHROPIC_API_KEY --project mydietitian
+```
+
+If a key is accidentally printed in logs, rotate that provider key and update the matching Secret Manager value before production deployment.
+
 ## Admin UI plan
 
 The admin dashboard should expose:
