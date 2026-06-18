@@ -27,6 +27,7 @@
     "uat:prepare-evidence": "node tools/prepare_manual_uat_evidence.js",
     "uat:remaining": "node tools/summarize_manual_uat_remaining.js",
     "uat:firestore-evidence": "node tools/summarize_manual_uat_firestore_evidence.js",
+    "uat:apply-firestore-evidence": "node tools/apply_firestore_uat_evidence.js",
     "uat:liff-invalid-token": "node tools/liff_invalid_token_test.js",
     "uat:line-secret-evidence": "node tools/line_secret_rotation_evidence.js",
     "uat:operator-checklist": "node tools/pre_migration_operator_checklist.js",

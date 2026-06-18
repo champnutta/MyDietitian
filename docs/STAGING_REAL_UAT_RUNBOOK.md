@@ -53,6 +53,14 @@ npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 
 
 `--require-all` is expected to fail until every tracked category is present. The checklist now maps directly to the manual evidence rows: Food image, Leftover image, Payment slip image, Admin approve, Admin reject, BIA image/PDF, BIA confirm, LIFF settings opens, and LINE ID token sent. Use the successful or partially successful Markdown output to copy document IDs and checklist hints into `docs/MANUAL_UAT_EVIDENCE.md`. Keep generated evidence files local if they contain LINE IDs or sensitive operational notes.
 
+After the report shows passing evidence for one or more rows, apply the passing rows into the local evidence file:
+
+```powershell
+npm run uat:apply-firestore-evidence -- --firestore-report docs\UAT_FIRESTORE_EVIDENCE.json --evidence-file docs\MANUAL_UAT_EVIDENCE.md
+```
+
+The apply command only fills rows whose Firestore checklist is already passing. It does not mark missing evidence as pass.
+
 ## 3. Real LIFF Auth Test Sequence
 
 Run these inside the LINE app, not a normal desktop browser.
