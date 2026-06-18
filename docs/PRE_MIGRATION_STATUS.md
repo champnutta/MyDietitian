@@ -1,6 +1,6 @@
 # Pre-Migration Status
 
-Last updated: 2026-06-18
+Last updated: 2026-06-19
 
 This project is ready for continued staging UAT, but it is not ready for final Google Sheet data migration or production LINE webhook cutover yet.
 
@@ -31,7 +31,10 @@ This project is ready for continued staging UAT, but it is not ready for final G
 
 ## Latest Automated Evidence
 
+- Latest source commit pushed to GitHub: `08fe5a4552c9556f50a9c404e9214c8868ece0de`.
+- Final migration tooling now requires the readiness packet and the write-time source tree to be clean and commit-matched before any `--commit` import can run.
 - Pre-migration audit passed with smoke-write enabled.
+- The latest readiness packet run still holds before data migration because the evidence file is incomplete and the run skipped the signed LINE secret check when `LINE_CHANNEL_SECRET` was not provided to the command environment.
 - AI agent runtime config check passed with Anthropic fallback required.
 - AI fallback smoke test passed: Gemini primary failed over successfully to Claude and recorded `fallbackUsed=true`.
 - Migration dry-run planned 11,955 Firestore documents from the current Google Sheet snapshot.
@@ -49,6 +52,14 @@ This project is ready for continued staging UAT, but it is not ready for final G
 - Owner approval for the final migration window.
 - Dashboard parity after imported Firestore data exists.
 - Owner approval for production LINE webhook cutover.
+
+## Current Hold Reasons
+
+- Do not run final data migration yet: readiness packet status is still `hold-before-data-migration`.
+- Manual UAT evidence is incomplete for real LINE media, real LIFF auth, security preflight, rollback fields, and owner sign-off.
+- Rotate `LINE_CHANNEL_SECRET` and record the new Secret Manager version evidence before approving production migration/cutover.
+- Re-run readiness with `LINE_CHANNEL_SECRET` supplied from Secret Manager so the automated pre-migration audit has `skipped=0`.
+- Update `docs/MANUAL_UAT_EVIDENCE.md` with the current commit SHA `08fe5a4552c9556f50a9c404e9214c8868ece0de` after regenerating/preparing evidence.
 
 ## Safe Commands
 
