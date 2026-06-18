@@ -11,6 +11,7 @@ const sinceHours = positiveNumber(args.sinceHours || args["since-hours"], 24);
 const limit = positiveInteger(args.limit, 8);
 const requireAll = Boolean(args.requireAll || args["require-all"]);
 const outFile = args.out;
+const markdownOutFile = args.markdownOut || args["markdown-out"];
 
 const COLLECTIONS = [
   {
@@ -110,6 +111,12 @@ async function main() {
     fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
     fs.writeFileSync(path.resolve(outFile), `${json}\n`, "utf8");
   }
+  if (markdownOutFile) {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    fs.mkdirSync(path.dirname(path.resolve(markdownOutFile)), { recursive: true });
+    fs.writeFileSync(path.resolve(markdownOutFile), `${renderMarkdown(report)}\n`, "utf8");
+  }
   if (!report.ok) process.exit(1);
 }
 
@@ -180,6 +187,86 @@ function checklist(testCase, ok, presentText, missingText) {
 function hasMealAdjustment(summary) {
   const mealLogs = summary.find((item) => item.collection === "mealLogs")?.latest || [];
   return mealLogs.some((item) => Array.isArray(item.fields.adjustments) && item.fields.adjustments.length > 0);
+}
+
+function renderMarkdown(report) {
+  const lines = [
+    "# Firestore UAT Evidence Summary",
+    "",
+    `Generated: ${report.generatedAt}`,
+    `Project: ${report.projectId}`,
+    `User: ${report.userId}`,
+    `Window: last ${report.sinceHours} hours`,
+    `Require all: ${report.requireAll ? "yes" : "no"}`,
+    `Overall: ${report.requireAll ? (report.ok ? "pass" : "missing evidence") : "informational"}`,
+    "",
+    "## Checklist Hints",
+    "",
+    "| Case | Status | Evidence hint |",
+    "| --- | --- | --- |"
+  ];
+
+  for (const hint of report.checklistHints) {
+    lines.push(`| ${escapeTable(hint.case)} | ${hint.ok ? "pass" : "missing"} | ${escapeTable(hint.evidence)} |`);
+  }
+
+  lines.push(
+    "",
+    "## Latest Documents",
+    "",
+    "| Collection | Count | Latest document IDs | Evidence notes to copy |",
+    "| --- | ---: | --- | --- |"
+  );
+
+  for (const item of report.summary) {
+    const latestIds = item.latest.map((doc) => doc.id || "query-error").slice(0, 5).join(", ") || "-";
+    const notes = item.latest.slice(0, 3).map((doc) => formatEvidenceNote(doc)).filter(Boolean).join("<br>") || "-";
+    lines.push(`| ${item.collection} | ${item.count} | ${escapeTable(latestIds)} | ${escapeTable(notes)} |`);
+  }
+
+  if (report.missingHints.length) {
+    lines.push("", "## Missing Before Pre-Migration Approval", "");
+    for (const hint of report.missingHints) {
+      lines.push(`- ${hint.case}: ${hint.evidence}`);
+    }
+  }
+
+  lines.push(
+    "",
+    "## Evidence File Usage",
+    "",
+    "Copy the relevant latest document IDs and notes into `docs/MANUAL_UAT_EVIDENCE.md`. This report is supporting evidence only; the evidence checker still reads `docs/MANUAL_UAT_EVIDENCE.md` as the approval source."
+  );
+
+  return lines.join("\n");
+}
+
+function formatEvidenceNote(doc) {
+  if (doc.error) return `error: ${doc.error}`;
+  const fields = doc.fields || {};
+  const parts = [
+    doc.id ? `id=${doc.id}` : null,
+    doc.lastTimestamp ? `time=${doc.lastTimestamp}` : null,
+    fields.status ? `status=${stringifyBrief(fields.status)}` : null,
+    fields.type ? `type=${stringifyBrief(fields.type)}` : null,
+    fields.source ? `source=${stringifyBrief(fields.source)}` : null,
+    fields.inputType ? `inputType=${stringifyBrief(fields.inputType)}` : null,
+    fields.provider ? `provider=${stringifyBrief(fields.provider)}` : null,
+    fields.model ? `model=${stringifyBrief(fields.model)}` : null,
+    typeof fields.fallbackUsed === "boolean" ? `fallbackUsed=${fields.fallbackUsed}` : null,
+    Array.isArray(fields.adjustments) && fields.adjustments.length ? `adjustments=${fields.adjustments.length}` : null
+  ].filter(Boolean);
+  return parts.join("; ");
+}
+
+function stringifyBrief(value) {
+  if (value == null) return "";
+  if (typeof value === "object") return JSON.stringify(value).slice(0, 80);
+  return String(value);
+}
+
+function escapeTable(value) {
+  return String(value).replace(/\|/g, "\\|").replace(/\r?\n/g, "<br>");
 }
 
 function toDate(value) {

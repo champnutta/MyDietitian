@@ -42,10 +42,10 @@ Run these from the staging LINE user recorded as `Test LINE user ID`.
 After each group, summarize evidence:
 
 ```powershell
-npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all --out docs\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\UAT_FIRESTORE_EVIDENCE.md
 ```
 
-`--require-all` is expected to fail until every tracked category is present. Use the successful or partially successful JSON output to copy document IDs and checklist hints into `docs/MANUAL_UAT_EVIDENCE.md`.
+`--require-all` is expected to fail until every tracked category is present. Use the successful or partially successful Markdown output to copy document IDs and checklist hints into `docs/MANUAL_UAT_EVIDENCE.md`. Keep generated evidence files local if they contain LINE IDs or sensitive operational notes.
 
 ## 3. Real LIFF Auth Test Sequence
 
@@ -60,7 +60,7 @@ Run these inside the LINE app, not a normal desktop browser.
 Summarize the Firestore evidence again:
 
 ```powershell
-npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --out docs\UAT_FIRESTORE_EVIDENCE.json --markdown-out docs\UAT_FIRESTORE_EVIDENCE.md
 ```
 
 ## 4. Security Preflight
