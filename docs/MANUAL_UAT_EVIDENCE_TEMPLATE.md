@@ -75,10 +75,10 @@ Tip: `npm run line:uat-report -- --out docs/LINE_STAGING_UAT_REPORT.md` now list
 After sending real LINE/LIFF test messages, summarize recent Firestore evidence for the staging user:
 
 ```powershell
-npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24
+npm run uat:firestore-evidence -- --user "<TEST_LINE_USER_ID>" --since-hours 24 --require-all
 ```
 
-Use the returned document IDs and checklist hints as the `Evidence link/notes` values below.
+Use the returned document IDs and checklist hints as the `Evidence link/notes` values below. `--require-all` exits non-zero until all tracked Firestore evidence categories are present.
 
 ## Real LINE Media UAT
 
@@ -87,7 +87,7 @@ These tests must use a real LINE message because Firebase downloads content from
 | Case | Steps | Expected Firestore evidence | Expected LINE/Admin evidence | Result | Evidence link/notes |
 | --- | --- | --- | --- | --- | --- |
 | Food image | Send a normal food photo from staging LINE user. | `mealLogs` created, `aiRuns` created, image source references `line-message://...`. | User receives meal summary. |  |  |
-| Leftover image | Create a latest meal first, then send leftover photo. | Latest `mealLogs` updated, leftover adjustment recorded. | User receives subtraction summary. |  |  |
+| Leftover image | Create a latest meal first, then send leftover photo. | Latest `mealLogs` updated, leftover adjustment recorded in `mealLogs.adjustments[]`. | User receives subtraction summary. |  |  |
 | Payment slip image | Send a payment slip image from expired or active test user. | `paymentReviews` created or updated with `pending-admin-review`. | Admin receives review notification. |  |  |
 | Admin approve | Admin sends `approve {USER_ID} 30d` or similar. | `subscriptions` updated, `subscriptionEvents` written. | User receives approval/expiry message. |  |  |
 | Admin reject | Admin sends `reject {USER_ID} test reason`. | `paymentReviews` marked rejected. | Admin receives rejection confirmation. |  |  |

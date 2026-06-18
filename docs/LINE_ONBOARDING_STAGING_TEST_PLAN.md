@@ -145,7 +145,7 @@ Message examples:
 Expected:
 
 - Latest meal is adjusted by the requested ratio.
-- `mealAdjustments` is created.
+- `mealLogs.adjustments[]` is updated.
 - Dashboard totals reflect the adjusted meal values.
 
 ### 8. Dashboard link

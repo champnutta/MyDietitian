@@ -9,6 +9,8 @@ const userId = args.user || args.userId || args.canonicalUserId || "";
 const lineUserId = args.lineUserId || userId;
 const sinceHours = positiveNumber(args.sinceHours || args["since-hours"], 24);
 const limit = positiveInteger(args.limit, 8);
+const requireAll = Boolean(args.requireAll || args["require-all"]);
+const outFile = args.out;
 
 const COLLECTIONS = [
   {
@@ -85,18 +87,30 @@ async function main() {
     });
   }
 
+  const checklistHints = buildChecklistHints(summary);
+  const missingHints = checklistHints.filter((hint) => !hint.ok);
   const report = {
-    ok: true,
+    ok: requireAll ? missingHints.length === 0 : true,
     projectId,
     userId,
     lineUserId,
     sinceHours,
+    requireAll,
     generatedAt: new Date().toISOString(),
     summary,
-    checklistHints: buildChecklistHints(summary)
+    checklistHints,
+    missingHints
   };
 
-  console.log(JSON.stringify(report, null, 2));
+  const json = JSON.stringify(report, null, 2);
+  console.log(json);
+  if (outFile) {
+    const fs = require("node:fs");
+    const path = require("node:path");
+    fs.mkdirSync(path.dirname(path.resolve(outFile)), { recursive: true });
+    fs.writeFileSync(path.resolve(outFile), `${json}\n`, "utf8");
+  }
+  if (!report.ok) process.exit(1);
 }
 
 async function collectCollectionEvidence(db, spec, sinceMs) {
@@ -146,13 +160,21 @@ function formatDoc(doc, spec) {
 function buildChecklistHints(summary) {
   const count = (collection) => summary.find((item) => item.collection === collection)?.count || 0;
   return [
-    { case: "Food image / text food", evidence: count("mealLogs") > 0 && count("aiRuns") > 0 ? "present" : "missing mealLogs or aiRuns" },
-    { case: "Leftover image", evidence: hasMealAdjustment(summary) ? "present" : "missing leftover adjustment in mealLogs" },
-    { case: "Payment slip/admin review", evidence: count("paymentReviews") > 0 ? "present" : "missing paymentReviews" },
-    { case: "Admin approve/reject", evidence: count("subscriptionEvents") > 0 ? "present" : "missing subscriptionEvents" },
-    { case: "BIA image/PDF", evidence: count("biaReports") > 0 ? "present" : "missing biaReports" },
-    { case: "LIFF auth", evidence: count("profileAuthEvents") > 0 ? "present" : "missing profileAuthEvents" }
+    checklist("Food image / text food", count("mealLogs") > 0 && count("aiRuns") > 0, "present", "missing mealLogs or aiRuns"),
+    checklist("Leftover image", hasMealAdjustment(summary), "present", "missing leftover adjustment in mealLogs.adjustments[]"),
+    checklist("Payment slip/admin review", count("paymentReviews") > 0, "present", "missing paymentReviews"),
+    checklist("Admin approve/reject", count("subscriptionEvents") > 0, "present", "missing subscriptionEvents"),
+    checklist("BIA image/PDF", count("biaReports") > 0, "present", "missing biaReports"),
+    checklist("LIFF auth", count("profileAuthEvents") > 0, "present", "missing profileAuthEvents")
   ];
+}
+
+function checklist(testCase, ok, presentText, missingText) {
+  return {
+    case: testCase,
+    ok,
+    evidence: ok ? presentText : missingText
+  };
 }
 
 function hasMealAdjustment(summary) {

@@ -52,7 +52,7 @@ const REAL_LINE_MEDIA_CASES = [
     scenario: "leftover-image",
     reason: "Classifier and leftover analysis require a real leftover image from LINE.",
     expected: "Creates a leftover-subtraction adjustment and updates the latest meal log.",
-    firestoreEvidence: ["mealAdjustments", "mealLogs", "aiRuns"]
+    firestoreEvidence: ["mealLogs.adjustments[]", "mealLogs", "aiRuns"]
   },
   {
     scenario: "payment-slip-image",
