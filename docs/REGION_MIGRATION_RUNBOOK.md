@@ -1,128 +1,63 @@
-# Region Migration Runbook: asia-southeast1 → asia-southeast3
+# Functions Region: asia-southeast1 vs asia-southeast3 (Finding)
 
-Goal: co-locate the Cloud Functions backend with Firestore in `asia-southeast3`
-(Bangkok) to remove cross-region latency on the many sequential Firestore
-reads/writes each LINE event triggers, and to keep data and compute inside
-Thailand.
+## Summary
 
-This runbook covers the region move only. It stops at the point where the
-production LINE OA webhook would be switched from GAS to Firebase. The actual
-production webhook switch remains gated by `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`
-(real UAT, data migration, owner approval). Do the region move first, while LINE
-production still points at GAS, so it costs nothing to real users.
+Firebase Functions stay in `asia-southeast1` (Singapore). Co-locating them with
+Firestore in `asia-southeast3` (Bangkok) is **not currently possible** on this
+project, even though that would remove cross-region latency on the many
+sequential Firestore reads/writes each LINE event triggers.
 
-## Why now
+## What was verified (2026-06-20)
 
-- The move only changes one source line for the backend
-  (`services/backend/src/runtime.ts`).
-- Cloud Functions (2nd gen / Cloud Run) is available in `asia-southeast3`.
-- Doing it before the production cutover means LINE Console is touched once, not
-  twice. Moving region after cutover would require a second production webhook
-  change.
+- Firestore `(default)` database location: `asia-southeast3` (confirmed via
+  `gcloud firestore databases describe`).
+- **Cloud Run** supported regions include `asia-southeast3`
+  (`gcloud run regions list`).
+- **Cloud Functions v2** supported locations for this project are only
+  `asia-southeast1`, `asia-southeast2`, `australia-southeast1`
+  (`gcloud functions regions list`) — `asia-southeast3` is **not** offered.
+- A `firebase deploy --only functions` targeting `asia-southeast3` failed:
 
-## Important: a region move is a redeploy, not an in-place edit
+  ```
+  HTTP 403: Location asia-southeast3 is not found or access is unauthorized
+  (cloudfunctions.googleapis.com/v2/.../locations/asia-southeast3/functions:generateUploadUrl)
+  ```
 
-Gen 2 functions are addressed by region. Changing the region deploys new
-function instances at new URLs:
+  The deploy failed before creating anything, so the live `asia-southeast1`
+  functions were never touched.
 
-- Old: `https://asia-southeast1-mydietitian.cloudfunctions.net/<fn>`
-- New: `https://asia-southeast3-mydietitian.cloudfunctions.net/<fn>`
+## Why the confusion
 
-The old `asia-southeast1` functions are not removed automatically. There is a
-window where both regions exist; use it to verify `asia-southeast3` before
-deleting `asia-southeast1`.
+Gen 2 functions run *on* Cloud Run, and Cloud Run supports `asia-southeast3`.
+But Firebase Functions deploy and manage them through the **Cloud Functions v2**
+control plane (`cloudfunctions.googleapis.com`), which does not yet expose
+`asia-southeast3`. "Cloud Run supports Bangkok" does not imply "Firebase
+Functions can deploy to Bangkok."
 
-## Source changes already applied
+## Decision
 
-- `services/backend/src/runtime.ts`: `setGlobalOptions({ region: "asia-southeast3" })`.
-- `apps/liff/public/config.js`: new shared `window.MD_FUNCTIONS_BASE` pointing at
-  `asia-southeast3`; `dashboard.html` and `settings.html` now read from it.
-- `tools/functions-base.js`: single source of truth for the tooling base URL,
-  defaulting to `asia-southeast3`, overridable with `MD_FUNCTIONS_BASE` /
-  `MD_FUNCTIONS_REGION` env vars. All region-aware tools read from it.
-- `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`: recorded Firebase webhook target
-  is now the `asia-southeast3` URL.
+- Keep Functions in `asia-southeast1`. Accept the Singapore↔Bangkok cross-region
+  hop to Firestore (single-digit-to-low-tens of ms per round trip).
+- The configuration was still centralized so a future move is a one-line change:
+  - `services/backend/src/runtime.ts` — region in one `setGlobalOptions` call.
+  - `tools/functions-base.js` — single base URL for tooling, env-overridable via
+    `MD_FUNCTIONS_BASE` / `MD_FUNCTIONS_REGION`.
+  - `apps/liff/public/config.js` — single base URL for the LIFF pages.
 
-During the transition, point tools back at the old region without code changes:
+## Options if co-location ever becomes a hard requirement
 
-```powershell
-$env:MD_FUNCTIONS_BASE = "https://asia-southeast1-mydietitian.cloudfunctions.net"
-```
+1. **Wait for Cloud Functions v2 to add `asia-southeast3`**, then change the
+   region in the three places above and redeploy (functions first, smoke test,
+   hosting, then delete the old-region functions).
+2. **Deploy the backend as native Cloud Run services in `asia-southeast3`**
+   instead of Firebase Functions. Cloud Run supports Bangkok today, but this
+   means leaving the `firebase-functions/v2` framework: own the container build,
+   wire Secret Manager and IAM manually, and replace the Hosting/function URL
+   wiring. Larger change — only worth it if cross-region latency or Thai data
+   residency for compute becomes a real constraint.
+3. **Reduce cross-region chattiness** in `lineWebhook` (batch/parallelize
+   Firestore reads, cache profile/subscription lookups per event) to blunt the
+   latency without moving regions.
 
-Unset it (`Remove-Item Env:MD_FUNCTIONS_BASE`) once `asia-southeast3` is live.
-
-## Deploy steps
-
-1. Confirm the working tree builds:
-
-   ```powershell
-   npm --workspace @mydietitian/backend run build
-   ```
-
-2. Deploy functions to `asia-southeast3` (this creates the new-region instances;
-   the old `asia-southeast1` instances still exist):
-
-   ```powershell
-   firebase deploy --only functions --project mydietitian
-   ```
-
-   If the CLI offers to delete the `asia-southeast1` functions during this
-   deploy, decline for now so there is a verified fallback. Delete them only in
-   step 6.
-
-3. Smoke-test the new region directly (before repointing any client):
-
-   ```powershell
-   curl https://asia-southeast3-mydietitian.cloudfunctions.net/health
-   $env:MD_FUNCTIONS_BASE = "https://asia-southeast3-mydietitian.cloudfunctions.net"
-   npm run test:line-webhook -- --webhookDryRun --useLineSecretManager
-   npm run dashboard:contract
-   ```
-
-4. Deploy hosting so the LIFF pages pick up `asia-southeast3` from `config.js`:
-
-   ```powershell
-   firebase deploy --only hosting --project mydietitian
-   ```
-
-   Deploy functions and hosting in the same window so the pages never call a
-   region that is not deployed. A combined `firebase deploy` also works once the
-   new region is verified.
-
-5. Verify the LIFF pages end to end from inside LINE (settings save + dashboard
-   load) against `asia-southeast3`.
-
-6. Delete the retired `asia-southeast1` functions only after the new region is
-   verified:
-
-   ```powershell
-   firebase functions:delete health updateProfile saveSettingsFromWeb getDashboardData analyzeMeal analyzeExercise lineWebhook --region asia-southeast1 --project mydietitian
-   ```
-
-7. Regenerate any evidence/checklist artifacts so their recorded endpoints and
-   webhook URLs reflect `asia-southeast3` (these files were intentionally left
-   unedited so the region change is captured through the normal helpers, not by
-   hand):
-
-   ```powershell
-   npm run status:backend-migration -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --out docs\BACKEND_MIGRATION_STATUS_PACK.md --json-out docs\BACKEND_MIGRATION_STATUS_PACK.json
-   npm run uat:prepare-evidence -- --project mydietitian --refresh-existing --useLineSecretManager --tester "<YOUR_NAME>" --lineChannel "<STAGING_LINE_CHANNEL>" --testLineUserId "<TEST_LINE_USER_ID>" --currentGasWebhookUrl "<CURRENT_GAS_WEBHOOK_URL_FROM_LINE_CONSOLE>" --operator "<ROLLBACK_OPERATOR>"
-   ```
-
-## Verification checklist before continuing to production cutover
-
-- `health` on `asia-southeast3` returns ok.
-- Signed LINE webhook dry-run passes against `asia-southeast3`.
-- Dashboard contract check passes against `asia-southeast3`.
-- LIFF settings save and dashboard load work from inside LINE against
-  `asia-southeast3`.
-- `asia-southeast1` functions are deleted (no stale endpoint can receive LINE
-  traffic by mistake).
-- README and evidence artifacts show `asia-southeast3` endpoints.
-
-## Then, and only then
-
-Continue with `docs/PRODUCTION_CUTOVER_ROLLBACK_RUNBOOK.md`. The production LINE
-OA webhook switch from GAS to Firebase happens there, after real UAT, the final
-Google Sheet → Firestore migration, dashboard parity, and owner approval. When
-that step runs, the webhook target is the `asia-southeast3` URL.
+Until one of those is chosen, `asia-southeast1` is the supported home for the
+Functions backend and the production LINE webhook target.

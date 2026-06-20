@@ -12,7 +12,7 @@ Keep `LINE OA` as the familiar user channel during migration, but move the real 
   - Chat and image upload
   - History and dashboard
 - `services/backend`
-  - Region: `asia-southeast3 (Bangkok)` for Firebase Functions, co-located with Firestore
+  - Region: `asia-southeast1 (Singapore)` for Firebase Functions (Cloud Functions v2 does not yet offer `asia-southeast3` where Firestore lives)
   - LINE webhook endpoint
   - AI provider orchestration for Gemini primary plus Claude/Anthropic fallback
   - Firestore read/write logic

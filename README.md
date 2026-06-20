@@ -23,20 +23,16 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - Git repo is connected to `https://github.com/champnutta/MyDietitian.git`.
 - Firebase project `mydietitian` is linked.
 - Firestore Standard edition is live in `asia-southeast3 (Bangkok)`.
-- Firebase Functions currently run in `asia-southeast1 (Singapore)` and are being co-located to `asia-southeast3 (Bangkok)` to match Firestore. Source already targets `asia-southeast3`; see `docs/REGION_MIGRATION_RUNBOOK.md` for the deploy/cutover sequence.
+- Firebase Functions run in `asia-southeast1 (Singapore)`. Co-locating them with Firestore in `asia-southeast3 (Bangkok)` is not currently possible: Cloud Functions v2 does not offer `asia-southeast3` for this project, even though Cloud Run and Firestore do. See `docs/REGION_MIGRATION_RUNBOOK.md`.
 - Flutter is not installed on this machine, so the initial scaffold uses Expo / React Native for faster local startup.
 
-## Endpoints
+## Deployed endpoints
 
-Source targets `asia-southeast3`. These URLs go live after the region deploy in
-`docs/REGION_MIGRATION_RUNBOOK.md`; until then the deployed instances remain on
-the `asia-southeast1` host.
-
-- Health: `https://asia-southeast3-mydietitian.cloudfunctions.net/health`
-- Update profile: `https://asia-southeast3-mydietitian.cloudfunctions.net/updateProfile`
-- Analyze meal: `https://asia-southeast3-mydietitian.cloudfunctions.net/analyzeMeal`
-- Dashboard data: `https://asia-southeast3-mydietitian.cloudfunctions.net/getDashboardData`
-- LINE webhook staging receiver: `https://asia-southeast3-mydietitian.cloudfunctions.net/lineWebhook`
+- Health: `https://asia-southeast1-mydietitian.cloudfunctions.net/health`
+- Update profile: `https://asia-southeast1-mydietitian.cloudfunctions.net/updateProfile`
+- Analyze meal: `https://asia-southeast1-mydietitian.cloudfunctions.net/analyzeMeal`
+- Dashboard data: `https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData`
+- LINE webhook staging receiver: `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook`
 
 ## Backend progress
 

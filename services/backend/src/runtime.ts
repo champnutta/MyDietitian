@@ -4,9 +4,14 @@ import { defineSecret } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2/options";
 
 initializeApp();
-// Co-located with Firestore (asia-southeast3 / Bangkok) to remove cross-region
-// latency on the many sequential Firestore reads/writes each LINE event triggers.
-setGlobalOptions({ region: "asia-southeast3" });
+// Firestore lives in asia-southeast3 (Bangkok), but Cloud Functions v2 (which
+// Firebase Functions deploys through) does not offer asia-southeast3 yet — the
+// cloudfunctions.googleapis.com control plane only exposes asia-southeast1,
+// asia-southeast2, australia-southeast1 for this project. So Functions stay in
+// asia-southeast1 (the closest supported region) and accept cross-region reads
+// to Firestore. Revisit if Cloud Functions v2 adds Bangkok. See
+// docs/REGION_MIGRATION_RUNBOOK.md.
+setGlobalOptions({ region: "asia-southeast1" });
 
 export const db = getFirestore();
 export const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");

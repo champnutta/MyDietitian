@@ -9,7 +9,7 @@ https://mydietitian.web.app/dashboard?uid={LINE_USER_ID}
 The page calls:
 
 ```text
-https://asia-southeast3-mydietitian.cloudfunctions.net/getDashboardData
+https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData
 ```
 
 ## Current Status
