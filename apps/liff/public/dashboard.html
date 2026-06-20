@@ -188,15 +188,15 @@
 
       function renderCalChart(data) {
         if (calChart) calChart.destroy();
-        const over = data.daily.map((d) => (d.calories || 0) > (d.dynamicTargetCalories || 0));
+        const m = data.macros || {};
         calChart = new Chart(document.getElementById("calChart"), {
           type: "bar",
           data: {
             labels: data.labels,
             datasets: [
-              { label: "กินจริง", data: data.calories, order: 2, borderRadius: 6,
-                backgroundColor: over.map((o) => o ? "#F4B0A6" : "#86D8BE"),
-                hoverBackgroundColor: over.map((o) => o ? "#F0705F" : "#18B98C") },
+              { label: "โปรตีน", data: (m.p || []).map((x) => Math.round(x * 4)), backgroundColor: "#18B98C", stack: "kcal", order: 3 },
+              { label: "คาร์บ", data: (m.c || []).map((x) => Math.round(x * 4)), backgroundColor: "#F2A93B", stack: "kcal", order: 3 },
+              { label: "ไขมัน", data: (m.f || []).map((x) => Math.round(x * 9)), backgroundColor: "#F0705F", stack: "kcal", order: 3 },
               { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1,
                 borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
             ]
@@ -204,8 +204,18 @@
           options: {
             responsive: true, maintainAspectRatio: false,
             onClick: (_e, els) => { if (els.length) drillTo(els[0].index); },
-            plugins: { legend: { display: true, labels: { boxWidth: 12, font: { size: 11 } } } },
-            scales: { y: { beginAtZero: true, ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } }
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+              legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+              tooltip: { callbacks: { footer: (items) => {
+                const tot = items.reduce((s, i) => i.dataset.type === "line" ? s : s + (i.raw || 0), 0);
+                return `รวม ${Math.round(tot).toLocaleString()} kcal`;
+              } } }
+            },
+            scales: {
+              x: { stacked: true, ticks: { font: { size: 10 } } },
+              y: { stacked: true, beginAtZero: true, ticks: { font: { size: 10 } }, title: { display: true, text: "kcal", font: { size: 10 } } }
+            }
           }
         });
       }
