@@ -4,7 +4,9 @@ import { defineSecret } from "firebase-functions/params";
 import { setGlobalOptions } from "firebase-functions/v2/options";
 
 initializeApp();
-setGlobalOptions({ region: "asia-southeast1" });
+// Co-located with Firestore (asia-southeast3 / Bangkok) to remove cross-region
+// latency on the many sequential Firestore reads/writes each LINE event triggers.
+setGlobalOptions({ region: "asia-southeast3" });
 
 export const db = getFirestore();
 export const GEMINI_API_KEY = defineSecret("GEMINI_API_KEY");

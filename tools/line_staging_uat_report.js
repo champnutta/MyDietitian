@@ -3,11 +3,12 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { functionUrl } = require("./functions-base");
 
 const args = parseArgs(process.argv.slice(2));
 const userId = args.user || "U_STAGING_UAT_USER";
 const secret = args.secret || process.env.LINE_CHANNEL_SECRET || "uat-dummy-secret";
-const endpoint = args.endpoint || "https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook";
+const endpoint = args.endpoint || functionUrl("lineWebhook");
 const outFile = args.out ? path.resolve(args.out) : null;
 
 const TEXT_SCENARIOS = [

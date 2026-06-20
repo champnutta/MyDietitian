@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
+const { functionUrl } = require("./functions-base");
+
 const args = parseArgs(process.argv.slice(2));
 
-const endpoint = args.endpoint || "https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData";
+const endpoint = args.endpoint || functionUrl("getDashboardData");
 const userId = args.user || "test-readiness-audit";
 const option = args.option ? Number(args.option) : 7;
 

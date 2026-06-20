@@ -2,9 +2,10 @@
 
 const crypto = require("node:crypto");
 const { spawnSync } = require("node:child_process");
+const { functionUrl } = require("./functions-base");
 
 const args = parseArgs(process.argv.slice(2));
-const endpoint = args.endpoint || "https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook";
+const endpoint = args.endpoint || functionUrl("lineWebhook");
 const projectId = args.project || "mydietitian";
 const useLineSecretManager = Boolean(args.useLineSecretManager || args["use-line-secret-manager"]);
 const lineSecretName = args.lineSecretName || args["line-secret-name"] || "LINE_CHANNEL_SECRET";

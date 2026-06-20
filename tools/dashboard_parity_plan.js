@@ -3,6 +3,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
+const { functionUrl } = require("./functions-base");
 
 const args = parseArgs(process.argv.slice(2));
 const sampleLimit = positiveInteger(args.sampleLimit || args.limit, 10);
@@ -10,7 +11,7 @@ const outFile = args.out ? path.resolve(args.out) : null;
 const jsonOutFile = args.jsonOut ? path.resolve(args.jsonOut) : null;
 const firestoreDashboardBaseUrl = args.firestoreDashboardBaseUrl || "https://mydietitian.web.app/dashboard";
 const gasDashboardBaseUrl = args.gasDashboardBaseUrl || "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec";
-const dashboardApiUrl = args.dashboardApiUrl || "https://asia-southeast1-mydietitian.cloudfunctions.net/getDashboardData";
+const dashboardApiUrl = args.dashboardApiUrl || functionUrl("getDashboardData");
 const windows = parseWindows(args.windows || "7,30,90,365");
 
 main();

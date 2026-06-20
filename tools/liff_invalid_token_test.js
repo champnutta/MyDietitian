@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 
+const { functionUrl } = require("./functions-base");
+
 const args = parseArgs(process.argv.slice(2));
-const endpoint = args.endpoint || "https://asia-southeast1-mydietitian.cloudfunctions.net/saveSettingsFromWeb";
+const endpoint = args.endpoint || functionUrl("saveSettingsFromWeb");
 const userId = args.user || args.userId || "U_STAGING_INVALID_TOKEN_TEST";
 const lineUserId = args.lineUserId || userId;
 const invalidToken = args.invalidToken || args["invalid-token"] || "invalid-line-id-token-for-negative-uat";

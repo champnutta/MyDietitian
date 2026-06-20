@@ -14,6 +14,7 @@ Use this runbook only after the approved final data migration window. Do not mov
 - Final Google Sheet migration is complete and verified.
 - Firestore dashboard parity matches GAS dashboard for sampled users and date ranges.
 - Owner explicitly approves the production webhook switch.
+- The backend has been deployed and verified in `asia-southeast3` per `docs/REGION_MIGRATION_RUNBOOK.md`, the old `asia-southeast1` functions have been removed, and the recorded Firebase webhook URL above is the `asia-southeast3` URL. The production webhook must point at the co-located `asia-southeast3` endpoint, never the retired `asia-southeast1` one.
 
 ## Values to Record Before Cutover
 
@@ -22,7 +23,7 @@ Record these values in the cutover notes before changing anything:
 | Item | Value |
 | --- | --- |
 | Current GAS webhook URL |  |
-| Firebase webhook URL | `https://asia-southeast1-mydietitian.cloudfunctions.net/lineWebhook` |
+| Firebase webhook URL | `https://asia-southeast3-mydietitian.cloudfunctions.net/lineWebhook` |
 | LINE channel |  |
 | Cutover start time (Asia/Bangkok) |  |
 | Operator |  |

@@ -5,6 +5,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { FUNCTIONS_BASE } = require("./functions-base");
 
 const args = parseArgs(process.argv.slice(2));
 const projectId = args.project || "mydietitian";
@@ -15,7 +16,6 @@ const lineSecretName = args.lineSecretName || args["line-secret-name"] || "LINE_
 const lineChannelSecret = args.lineChannelSecret || args["line-channel-secret"] || process.env.LINE_CHANNEL_SECRET || (useLineSecretManager ? accessSecret(lineSecretName) : "");
 
 const HOSTING_ORIGIN = "https://mydietitian.web.app";
-const FUNCTIONS_BASE = "https://asia-southeast1-mydietitian.cloudfunctions.net";
 const REQUIRED_AI_AGENTS = ["mealAnalysis", "exerciseAnalysis", "biaAnalysis", "coachConsultation"];
 const EXPECTED_GEMINI_MODEL = "gemini-3.5-flash";
 const EXPECTED_ANTHROPIC_MODEL = "claude-sonnet-4-6";

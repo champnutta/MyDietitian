@@ -273,9 +273,10 @@
       </section>
     </main>
 
+    <script src="/config.js"></script>
     <script>
       const LIFF_ID = "2009365288-Ux31tFWT";
-      const SAVE_SETTINGS_URL = "https://asia-southeast1-mydietitian.cloudfunctions.net/saveSettingsFromWeb";
+      const SAVE_SETTINGS_URL = `${window.MD_FUNCTIONS_BASE}/saveSettingsFromWeb`;
 
       const state = {
         mode: "auto",

@@ -3,7 +3,7 @@
 Firebase Hosting now serves the replacement settings form:
 
 - Hosting page: `https://mydietitian.web.app/settings`
-- Firebase endpoint: `https://asia-southeast1-mydietitian.cloudfunctions.net/saveSettingsFromWeb`
+- Firebase endpoint: `https://asia-southeast3-mydietitian.cloudfunctions.net/saveSettingsFromWeb`
 - Current LIFF ID: `2009365288-Ux31tFWT`
 - Current LINE channel ID fallback: `2009365288`
 
