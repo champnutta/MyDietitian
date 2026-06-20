@@ -34,8 +34,8 @@
       .ring-wrap { position: relative; width: 168px; height: 168px; margin: 8px auto 2px; }
       .ring { width: 168px; height: 168px; transform: rotate(-90deg); }
       .ring-bg { fill: none; stroke: var(--track); stroke-width: 11; }
-      .ring-fg { fill: none; stroke: var(--green); stroke-width: 11; stroke-linecap: round;
-        stroke-dasharray: 327; stroke-dashoffset: 327; transition: stroke-dashoffset .9s cubic-bezier(.3,.8,.3,1), stroke .3s; }
+      .ring-seg { fill: none; stroke-width: 11; stroke-linecap: butt; stroke-dasharray: 0 327; stroke-dashoffset: 0;
+        transition: stroke-dasharray .9s cubic-bezier(.3,.8,.3,1), stroke-dashoffset .9s cubic-bezier(.3,.8,.3,1); }
       .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
       .ring-center b { font-size: 34px; font-weight: 800; line-height: 1; }
       .ring-center small { font-size: 13px; color: var(--muted); margin-top: 3px; }
@@ -84,7 +84,9 @@
         <div class="ring-wrap">
           <svg class="ring" viewBox="0 0 120 120">
             <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
-            <circle class="ring-fg" id="todayRing" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-seg" id="segP" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-seg" id="segC" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-seg" id="segF" cx="60" cy="60" r="52"></circle>
           </svg>
           <div class="ring-center"><b id="todayCal">0</b><small id="todayTarget">/ 0 kcal</small></div>
         </div>
@@ -172,10 +174,18 @@
         document.getElementById("todayCal").textContent = cal.toLocaleString();
         document.getElementById("todayTarget").textContent = `/ ${calTarget.toLocaleString()} kcal`;
         const over = remain < 0;
-        const pct = Math.max(0, Math.min(1, calTarget ? cal / calTarget : 0));
-        const ring = document.getElementById("todayRing");
-        ring.style.strokeDashoffset = String(327 * (1 - pct));
-        ring.style.stroke = over ? "var(--coral)" : "var(--green)";
+        const C = 327, filled = Math.max(0, Math.min(1, calTarget ? cal / calTarget : 0));
+        const pc = (t.proteinG || 0) * 4, cc = (t.carbsG || 0) * 4, fc = (t.fatG || 0) * 9;
+        const totMacro = pc + cc + fc || 1;
+        let segOffset = 0;
+        [["segP", pc, "var(--green)"], ["segC", cc, "var(--amber)"], ["segF", fc, "var(--coral)"]].forEach(([id, mc, color]) => {
+          const len = C * filled * (mc / totMacro);
+          const el = document.getElementById(id);
+          el.style.stroke = color;
+          el.style.strokeDasharray = `${len} ${C - len}`;
+          el.style.strokeDashoffset = String(-segOffset);
+          segOffset += len;
+        });
         const rEl = document.getElementById("todayRemain");
         rEl.className = `remain ${over ? "over" : "ok"}`;
         rEl.textContent = over ? `เกินเป้าหมาย ${Math.abs(remain).toLocaleString()} kcal` : `เหลือกินได้อีก ${remain.toLocaleString()} kcal`;
