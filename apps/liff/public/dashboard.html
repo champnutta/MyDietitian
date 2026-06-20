@@ -7,9 +7,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
       :root {
-        --green: #1D9E75; --green-d: #0F6E56; --amber: #BA7517; --coral: #D85A30;
-        --fiber: #639922; --ink: #1F2937; --muted: #6B7280; --line: #ECECEC;
-        --bg: #F3F5F4; --card: #FFFFFF; --red: #C0392B;
+        --green: #18B98C; --green-d: #0E8A67; --amber: #F2A93B; --coral: #F0705F;
+        --fiber: #8DC641; --ink: #1F2937; --muted: #7A8088; --line: #EEF0EF;
+        --bg: #F4F6F5; --card: #FFFFFF; --red: #E0533F; --track: #EDF1EF;
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
       body { margin: 0; background: var(--bg); color: var(--ink);
@@ -29,7 +29,7 @@
       .hero span { font-size: 15px; color: var(--muted); }
       .remain { font-size: 15px; font-weight: 700; margin: 8px 0 16px; }
       .remain.ok { color: var(--green-d); } .remain.over { color: var(--red); }
-      .track { height: 9px; background: #EAEAEA; border-radius: 6px; overflow: hidden; margin: 10px 0; }
+      .track { height: 10px; background: var(--track); border-radius: 6px; overflow: hidden; margin: 10px 0; }
       .track > i { display: block; height: 100%; border-radius: 6px; transition: width .5s ease; }
       .mrow { margin: 12px 0; }
       .mrow .top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
@@ -134,7 +134,7 @@
       }
 
       function bkDay(iso) {
-        try { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(iso)); }
+        try { return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", timeZone: "Asia/Bangkok" }).format(new Date(iso)); }
         catch { return ""; }
       }
       function mealsOn(dayKey) {
@@ -147,7 +147,7 @@
 
       function renderToday(data) {
         const t = data.daily[data.daily.length - 1] || {};
-        const tgt = data.target || {};
+        const tgt = data.profile?.target || {};
         document.getElementById("rangeText").textContent = `อัปเดต ${fmt(data.range.end)}`;
         document.getElementById("streakBadge").textContent = `🔥 ${data.current?.streak?.count || 0} วัน`;
         const cal = Math.round(t.calories || 0);
@@ -192,13 +192,13 @@
         calChart = new Chart(document.getElementById("calChart"), {
           type: "bar",
           data: {
-            labels: data.labels.map(shortDay),
+            labels: data.labels,
             datasets: [
               { label: "กินจริง", data: data.calories, order: 2, borderRadius: 6,
-                backgroundColor: over.map((o) => o ? "#E5A38C" : "#7FCBB0"),
-                hoverBackgroundColor: over.map((o) => o ? "#D85A30" : "#1D9E75") },
+                backgroundColor: over.map((o) => o ? "#F4B0A6" : "#86D8BE"),
+                hoverBackgroundColor: over.map((o) => o ? "#F0705F" : "#18B98C") },
               { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1,
-                borderColor: "#0F6E56", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
+                borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
             ]
           },
           options: {
@@ -235,7 +235,7 @@
         bodyChart = new Chart(document.getElementById("bodyChart"), {
           type: "line",
           data: {
-            labels: data.labels.map(shortDay),
+            labels: data.labels,
             datasets: [
               { label: "น้ำหนัก kg", data: b.weight || [], borderColor: "#0F6E56", backgroundColor: "#0F6E56", spanGaps: true, tension: 0.3, pointRadius: 2 },
               { label: "ไขมัน %", data: b.fat || [], borderColor: "#D85A30", backgroundColor: "#D85A30", spanGaps: true, tension: 0.3, pointRadius: 2 },
@@ -263,14 +263,11 @@
           .map(([l, v]) => `<div class="stat"><small>${l}</small><b>${v}</b></div>`).join("");
       }
 
-      function shortDay(key) {
-        const d = new Date(`${key}T00:00:00+07:00`);
-        return new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: "Asia/Bangkok" }).format(d);
-      }
       function fmt(value) {
         if (!value) return "-";
-        const v = value.length === 10 ? `${value}T00:00:00+07:00` : value;
-        return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(new Date(v));
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return String(value);
+        return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(d);
       }
       function esc(v) {
         return String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
