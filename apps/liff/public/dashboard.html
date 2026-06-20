@@ -31,6 +31,17 @@
       .remain.ok { color: var(--green-d); } .remain.over { color: var(--red); }
       .track { height: 10px; background: var(--track); border-radius: 6px; overflow: hidden; margin: 10px 0; }
       .track > i { display: block; height: 100%; border-radius: 6px; transition: width .5s ease; }
+      .ring-wrap { position: relative; width: 168px; height: 168px; margin: 8px auto 2px; }
+      .ring { width: 168px; height: 168px; transform: rotate(-90deg); }
+      .ring-bg { fill: none; stroke: var(--track); stroke-width: 11; }
+      .ring-fg { fill: none; stroke: var(--green); stroke-width: 11; stroke-linecap: round;
+        stroke-dasharray: 327; stroke-dashoffset: 327; transition: stroke-dashoffset .9s cubic-bezier(.3,.8,.3,1), stroke .3s; }
+      .ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .ring-center b { font-size: 34px; font-weight: 800; line-height: 1; }
+      .ring-center small { font-size: 13px; color: var(--muted); margin-top: 3px; }
+      .mrow.tappable { cursor: pointer; padding: 8px; margin: 6px -8px; border-radius: 12px; transition: background .15s; }
+      .mrow.tappable:active { background: #EFF4F1; }
+      .mrow.active { background: #E9F6F0; box-shadow: inset 0 0 0 1px #C9E8D8; }
       .mrow { margin: 12px 0; }
       .mrow .top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
       .mrow .top .lbl { color: var(--muted); } .mrow .top .val { font-weight: 600; }
@@ -70,8 +81,13 @@
 
       <section class="card" id="todayCard">
         <h2>วันนี้</h2>
-        <div class="hero"><b id="todayCal">0</b><span id="todayTarget">/ 0 kcal</span></div>
-        <div class="track"><i id="todayBar" style="width:0%;background:var(--green)"></i></div>
+        <div class="ring-wrap">
+          <svg class="ring" viewBox="0 0 120 120">
+            <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-fg" id="todayRing" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="ring-center"><b id="todayCal">0</b><small id="todayTarget">/ 0 kcal</small></div>
+        </div>
         <div class="remain ok" id="todayRemain">—</div>
         <div id="todayMacros"></div>
         <h3>มื้อวันนี้</h3>
@@ -105,7 +121,7 @@
         { key: "fatG", tkey: "f", label: "ไขมัน", color: "var(--coral)" },
         { key: "fiberG", tkey: "fib", label: "Fiber", color: "var(--fiber)" }
       ];
-      let calChart, bodyChart, state = null;
+      let calChart, bodyChart, state = null, chartMode = "all";
 
       document.querySelectorAll("[data-days]").forEach((btn) => {
         btn.addEventListener("click", () => {
@@ -156,20 +172,29 @@
         document.getElementById("todayCal").textContent = cal.toLocaleString();
         document.getElementById("todayTarget").textContent = `/ ${calTarget.toLocaleString()} kcal`;
         const over = remain < 0;
-        const calBar = document.getElementById("todayBar");
-        calBar.style.width = `${Math.max(2, Math.min(100, calTarget ? (cal / calTarget) * 100 : 0))}%`;
-        calBar.style.background = over ? "var(--coral)" : "var(--green)";
+        const pct = Math.max(0, Math.min(1, calTarget ? cal / calTarget : 0));
+        const ring = document.getElementById("todayRing");
+        ring.style.strokeDashoffset = String(327 * (1 - pct));
+        ring.style.stroke = over ? "var(--coral)" : "var(--green)";
         const rEl = document.getElementById("todayRemain");
         rEl.className = `remain ${over ? "over" : "ok"}`;
         rEl.textContent = over ? `เกินเป้าหมาย ${Math.abs(remain).toLocaleString()} kcal` : `เหลือกินได้อีก ${remain.toLocaleString()} kcal`;
 
-        document.getElementById("todayMacros").innerHTML = MACROS.map((m) => {
-          const c = Math.round(t[m.key] || 0), goal = Math.round(tgt[m.tkey] || 0);
-          return `<div class="mrow"><div class="top"><span class="lbl">${m.label}</span>
-            <span class="val">${c} / ${goal} g</span></div>${bar(goal ? (c / goal) * 100 : 0, m.color)}</div>`;
+        document.getElementById("todayMacros").innerHTML = MACROS.map((mm) => {
+          const c = Math.round(t[mm.key] || 0), goal = Math.round(tgt[mm.tkey] || 0);
+          return `<div class="mrow tappable${chartMode === mm.tkey ? " active" : ""}" data-macro="${mm.tkey}" onclick="setMacroMode('${mm.tkey}')">
+            <div class="top"><span class="lbl">${mm.label}</span><span class="val">${c} / ${goal} g</span></div>
+            ${bar(goal ? (c / goal) * 100 : 0, mm.color)}</div>`;
         }).join("");
 
         renderMealList("todayMeals", mealsOn(t.date));
+      }
+
+      function setMacroMode(mode) {
+        chartMode = chartMode === mode ? "all" : mode;
+        document.querySelectorAll(".mrow[data-macro]").forEach((el) =>
+          el.classList.toggle("active", el.dataset.macro === chartMode));
+        if (state) renderCalChart(state);
       }
 
       function renderMealList(elId, meals) {
@@ -189,18 +214,27 @@
       function renderCalChart(data) {
         if (calChart) calChart.destroy();
         const m = data.macros || {};
+        const conf = { p: { label: "โปรตีน", color: "#18B98C" }, c: { label: "คาร์บ", color: "#F2A93B" },
+          f: { label: "ไขมัน", color: "#F0705F" }, fib: { label: "Fiber", color: "#8DC641" } }[chartMode];
+        const single = Boolean(conf);
+        let datasets;
+        if (single) {
+          const goal = Math.round(data.profile?.target?.[chartMode] || 0);
+          datasets = [
+            { label: `${conf.label} (g)`, data: (m[chartMode] || []).map((x) => Math.round(x)), backgroundColor: conf.color, borderRadius: 5, order: 2 },
+            { label: "เป้าหมาย", data: data.labels.map(() => goal), type: "line", borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5, order: 1 }
+          ];
+        } else {
+          datasets = [
+            { label: "โปรตีน", data: (m.p || []).map((x) => Math.round(x * 4)), backgroundColor: "#18B98C", stack: "kcal", order: 3 },
+            { label: "คาร์บ", data: (m.c || []).map((x) => Math.round(x * 4)), backgroundColor: "#F2A93B", stack: "kcal", order: 3 },
+            { label: "ไขมัน", data: (m.f || []).map((x) => Math.round(x * 9)), backgroundColor: "#F0705F", stack: "kcal", order: 3 },
+            { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1, borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
+          ];
+        }
         calChart = new Chart(document.getElementById("calChart"), {
           type: "bar",
-          data: {
-            labels: data.labels,
-            datasets: [
-              { label: "โปรตีน", data: (m.p || []).map((x) => Math.round(x * 4)), backgroundColor: "#18B98C", stack: "kcal", order: 3 },
-              { label: "คาร์บ", data: (m.c || []).map((x) => Math.round(x * 4)), backgroundColor: "#F2A93B", stack: "kcal", order: 3 },
-              { label: "ไขมัน", data: (m.f || []).map((x) => Math.round(x * 9)), backgroundColor: "#F0705F", stack: "kcal", order: 3 },
-              { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1,
-                borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
-            ]
-          },
+          data: { labels: data.labels, datasets },
           options: {
             responsive: true, maintainAspectRatio: false,
             onClick: (_e, els) => { if (els.length) drillTo(els[0].index); },
@@ -208,13 +242,14 @@
             plugins: {
               legend: { labels: { boxWidth: 12, font: { size: 11 } } },
               tooltip: { callbacks: { footer: (items) => {
+                if (single) return "";
                 const tot = items.reduce((s, i) => i.dataset.type === "line" ? s : s + (i.raw || 0), 0);
                 return `รวม ${Math.round(tot).toLocaleString()} kcal`;
               } } }
             },
             scales: {
-              x: { stacked: true, ticks: { font: { size: 10 } } },
-              y: { stacked: true, beginAtZero: true, ticks: { font: { size: 10 } }, title: { display: true, text: "kcal", font: { size: 10 } } }
+              x: { stacked: !single, ticks: { font: { size: 10 } } },
+              y: { stacked: !single, beginAtZero: true, ticks: { font: { size: 10 } }, title: { display: true, text: single ? "กรัม" : "kcal", font: { size: 10 } } }
             }
           }
         });
