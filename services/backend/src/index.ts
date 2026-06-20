@@ -1391,9 +1391,26 @@ async function handleLineImageMessage(
 
   try {
     const content = await downloadLineContent(messageId);
-    const classification = await classifyLineImage(content.base64, content.mimeType);
 
-    if (classification.type === "slip") {
+    // The "หักของเหลือ" button sets a short-lived intent so the next image is
+    // forced down the leftover path regardless of what it looks like.
+    const leftoverIntentRef = db.collection("leftoverIntents").doc(canonicalUserId);
+    const leftoverIntentSnap = await leftoverIntentRef.get();
+    const leftoverIntentActive = leftoverIntentSnap.exists &&
+      Timestamp.now().toMillis() - (normalizeTimestamp(leftoverIntentSnap.data()?.createdAt)?.toMillis() ?? 0) < 10 * 60 * 1000;
+    if (leftoverIntentSnap.exists) await leftoverIntentRef.delete();
+
+    // Give the classifier the latest meal name so it can tell a leftover of that
+    // meal apart from a new dish (GAS parity).
+    const latestMealForClassify = await getLatestMealLog(canonicalUserId);
+    const latestMealNameForClassify = latestMealForClassify
+      ? String(latestMealForClassify.data().mealNameTh ?? latestMealForClassify.data().mealNameEn ?? "")
+      : "";
+
+    const classification = await classifyLineImage(content.base64, content.mimeType, latestMealNameForClassify);
+    const classifiedType = leftoverIntentActive ? "leftover" : classification.type;
+
+    if (classifiedType === "slip") {
       const result = await handleSlipPaymentImage({
         replyToken,
         canonicalUserId,
@@ -1411,7 +1428,7 @@ async function handleLineImageMessage(
       };
     }
 
-    if (classification.type === "bia") {
+    if (classifiedType === "bia") {
       if (!readiness.subscriptionActive) {
         await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ ต้องต่ออายุก่อนส่งรายงาน BIA");
         return { ok: true, type: event.type, status: "subscription-required-before-bia-image", canonicalUserId };
@@ -1437,7 +1454,7 @@ async function handleLineImageMessage(
       };
     }
 
-    if (classification.type === "leftover") {
+    if (classifiedType === "leftover") {
       if (!readiness.subscriptionActive) {
         await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ (ส่งสลิปได้ แต่ยังหักของเหลือไม่ได้)");
         return { ok: true, type: event.type, status: "subscription-required-before-leftover-image", canonicalUserId };
@@ -1461,7 +1478,7 @@ async function handleLineImageMessage(
       };
     }
 
-    if (classification.type === "other") {
+    if (classifiedType === "other") {
       await replyToLine(replyToken, "รูปนี้ยังไม่ใช่อาหาร/สลิป/BIA ที่ระบบ staging รองรับครับ กรุณาส่งรูปอาหารหรือสลิปโอนเงิน");
       return { ok: true, type: event.type, status: "other-image-replied", canonicalUserId };
     }
@@ -1721,14 +1738,14 @@ async function saveWeightLogFromBia(
   }, { merge: true });
 }
 
-async function classifyLineImage(base64: string, mimeType: string) {
+async function classifyLineImage(base64: string, mimeType: string, latestMealName = "") {
   const agent = await getAiAgentConfig("mealAnalysis");
   if (!agent.enabled) {
     return { type: "food" as const, confidence: 0 };
   }
 
   try {
-    return await callGeminiImageClassification(base64, mimeType, getAiProviderApiKeys(), agent);
+    return await callGeminiImageClassification(base64, mimeType, getAiProviderApiKeys(), agent, latestMealName);
   } catch (error) {
     await db.collection("adminAuditLogs").add({
       type: "image-classification-failed",
@@ -1892,6 +1909,12 @@ async function handleLineTextCommand(
   if (text.startsWith("CONFIRM_UPDATE_TARGET")) {
     const result = await handleConfirmUpdateTarget(text, replyToken, canonicalUserId, lineUserId);
     return { status: "target-update-confirmed", ...result };
+  }
+
+  if (text === "หักของเหลือ") {
+    await db.collection("leftoverIntents").doc(canonicalUserId).set({ createdAt: Timestamp.now() });
+    await replyToLine(replyToken, "ส่งรูปของเหลือของมื้อล่าสุดมาได้เลยครับ ระบบจะหักออกจากที่บันทึกไว้ให้");
+    return { status: "leftover-intent-set" };
   }
 
   if (text === "ไม่ปรับเป้าหมาย") {
@@ -3789,8 +3812,15 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
       footer: {
         type: "box",
         layout: "vertical",
+        spacing: "sm",
         paddingAll: "12px",
         contents: [
+          {
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            action: { type: "message", label: "หักของเหลือ", text: "หักของเหลือ" }
+          },
           {
             type: "button",
             style: "secondary",

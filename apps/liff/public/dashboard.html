@@ -1,291 +1,96 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="th">
   <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
     <title>MyDietitian Dashboard</title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
       :root {
-        --leaf: #1db446;
-        --leaf-dark: #13733d;
-        --ink: #15231b;
-        --muted: #64736a;
-        --paper: #fffdf7;
-        --mist: #eef8ef;
-        --line: #dfeadf;
-        --blue: #36a2eb;
-        --gold: #ffce56;
-        --rose: #ff6384;
+        --green: #1D9E75; --green-d: #0F6E56; --amber: #BA7517; --coral: #D85A30;
+        --fiber: #639922; --ink: #1F2937; --muted: #6B7280; --line: #ECECEC;
+        --bg: #F3F5F4; --card: #FFFFFF; --red: #C0392B;
       }
-
-      * { box-sizing: border-box; }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        font-family: "Kanit", sans-serif;
-        color: var(--ink);
-        background:
-          radial-gradient(circle at 92% 10%, rgba(255, 206, 86, 0.24), transparent 30%),
-          radial-gradient(circle at 6% 0%, rgba(29, 180, 70, 0.18), transparent 28%),
-          linear-gradient(160deg, #f8fbf3 0%, #eef8ef 52%, #fff7e5 100%);
-      }
-
-      main {
-        width: min(1080px, 100%);
-        margin: 0 auto;
-        padding: 18px;
-      }
-
-      .hero, .card {
-        border: 1px solid rgba(29, 180, 70, 0.16);
-        border-radius: 28px;
-        background: rgba(255, 253, 247, 0.86);
-        box-shadow: 0 18px 50px rgba(21, 35, 27, 0.11);
-        backdrop-filter: blur(14px);
-      }
-
-      .hero {
-        padding: 24px;
-        margin-bottom: 16px;
-      }
-
-      .eyebrow {
-        margin: 0 0 6px;
-        color: var(--leaf-dark);
-        font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-      }
-
-      h1 {
-        margin: 0;
-        font-size: clamp(30px, 7vw, 52px);
-        line-height: 1.05;
-      }
-
-      .sub {
-        color: var(--muted);
-        line-height: 1.55;
-        margin: 12px 0 0;
-      }
-
-      .stats {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 12px;
-        margin-top: 20px;
-      }
-
-      .stat {
-        padding: 16px;
-        border-radius: 20px;
-        background: #ffffff;
-        border: 1px solid var(--line);
-      }
-
-      .stat span {
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .stat strong {
-        display: block;
-        margin-top: 4px;
-        font-size: 28px;
-      }
-
-      .filters {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin: 16px 0;
-      }
-
-      button {
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        padding: 10px 15px;
-        color: var(--leaf-dark);
-        background: #ffffff;
-        font-family: inherit;
-        font-weight: 700;
-        cursor: pointer;
-      }
-
-      button.active {
-        color: #ffffff;
-        border-color: transparent;
-        background: linear-gradient(135deg, var(--leaf), var(--leaf-dark));
-        box-shadow: 0 10px 22px rgba(29, 180, 70, 0.2);
-      }
-
-      .grid {
-        display: grid;
-        grid-template-columns: 1.15fr 0.85fr;
-        gap: 16px;
-      }
-
-      .card {
-        padding: 20px;
-        margin-bottom: 16px;
-      }
-
-      .card h2 {
-        margin: 0 0 14px;
-        font-size: 20px;
-      }
-
-      .chart {
-        position: relative;
-        height: 360px;
-      }
-
-      .macro-bar {
-        display: flex;
-        overflow: hidden;
-        height: 30px;
-        border-radius: 999px;
-        background: #edf1ec;
-      }
-
-      .macro-bar div {
-        display: grid;
-        place-items: center;
-        color: #ffffff;
-        font-size: 12px;
-        font-weight: 700;
-        min-width: 0;
-      }
-
-      .macro-list {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 10px;
-        margin-top: 12px;
-      }
-
-      .mini {
-        padding: 12px;
-        border-radius: 16px;
-        background: #ffffff;
-        border: 1px solid var(--line);
-      }
-
-      .mini span {
-        color: var(--muted);
-        font-size: 12px;
-      }
-
-      .mini strong {
-        display: block;
-        font-size: 22px;
-      }
-
-      .history {
-        display: grid;
-        gap: 10px;
-        max-height: 430px;
-        overflow: auto;
-      }
-
-      .meal {
-        padding: 12px 14px;
-        border-radius: 16px;
-        background: #ffffff;
-        border: 1px solid var(--line);
-      }
-
-      .meal strong { display: block; }
-      .meal span { color: var(--muted); font-size: 13px; }
-
-      .status {
-        display: none;
-        margin: 14px 0;
-        padding: 14px 16px;
-        border-radius: 18px;
-        color: var(--leaf-dark);
-        background: var(--mist);
-      }
-
-      .status.show { display: block; }
-      .status.error { color: #b45309; background: #fff7ed; }
-
-      @media (max-width: 860px) {
-        .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-        .grid { grid-template-columns: 1fr; }
-      }
-
-      @media (max-width: 560px) {
-        main { padding: 12px; }
-        .hero, .card { border-radius: 22px; padding: 16px; }
-        .stats, .macro-list { grid-template-columns: 1fr; }
-        .chart { height: 300px; }
-      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      body { margin: 0; background: var(--bg); color: var(--ink);
+        font-family: -apple-system, "Segoe UI", "Helvetica Neue", "Noto Sans Thai", sans-serif; }
+      main { max-width: 560px; margin: 0 auto; padding: 16px 14px 48px; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      header .who { font-size: 20px; font-weight: 700; }
+      header .who small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+      .streak { background: #FFF3E0; color: #9A5B00; font-size: 13px; font-weight: 600;
+        padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
+      .card { background: var(--card); border-radius: 18px; padding: 18px 16px; margin-bottom: 14px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+      .card h2 { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--muted);
+        text-transform: uppercase; letter-spacing: 0.04em; }
+      .hero { display: flex; align-items: baseline; gap: 8px; margin: 6px 0 2px; }
+      .hero b { font-size: 40px; font-weight: 800; line-height: 1; }
+      .hero span { font-size: 15px; color: var(--muted); }
+      .remain { font-size: 15px; font-weight: 700; margin: 8px 0 16px; }
+      .remain.ok { color: var(--green-d); } .remain.over { color: var(--red); }
+      .track { height: 9px; background: #EAEAEA; border-radius: 6px; overflow: hidden; margin: 10px 0; }
+      .track > i { display: block; height: 100%; border-radius: 6px; transition: width .5s ease; }
+      .mrow { margin: 12px 0; }
+      .mrow .top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+      .mrow .top .lbl { color: var(--muted); } .mrow .top .val { font-weight: 600; }
+      h3 { font-size: 15px; font-weight: 700; margin: 18px 0 10px; }
+      .meal { display: flex; justify-content: space-between; gap: 10px; padding: 11px 0;
+        border-top: 1px solid var(--line); font-size: 14px; }
+      .meal:first-of-type { border-top: 0; }
+      .meal .nm { font-weight: 600; } .meal .mt { color: var(--muted); font-size: 12px; margin-top: 2px; }
+      .meal .kc { font-weight: 700; white-space: nowrap; color: var(--green-d); }
+      .empty { color: var(--muted); font-size: 14px; padding: 10px 0; }
+      .toggle { display: flex; gap: 8px; margin-bottom: 14px; }
+      .toggle button { flex: 1; padding: 9px 0; border: 1px solid var(--line); background: #fff;
+        border-radius: 10px; font-size: 14px; color: var(--muted); cursor: pointer; font-weight: 600; }
+      .toggle button.active { background: var(--green); border-color: var(--green); color: #fff; }
+      .chartbox { position: relative; height: 230px; margin: 6px 0 4px; }
+      .hint { font-size: 12px; color: var(--muted); text-align: center; margin: 2px 0 12px; }
+      .drill { background: #F1F8F4; border: 1px solid #DCEBE2; border-radius: 14px;
+        padding: 14px; margin: 6px 0 4px; }
+      .drill .d-date { font-size: 13px; font-weight: 700; color: var(--green-d); margin-bottom: 8px; }
+      .drill .d-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 6px; }
+      .drill .d-cell { text-align: center; } .drill .d-cell b { display: block; font-size: 17px; }
+      .drill .d-cell small { color: var(--muted); font-size: 11px; }
+      .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 16px; }
+      .stat { background: var(--bg); border-radius: 12px; padding: 12px; }
+      .stat small { color: var(--muted); font-size: 12px; } .stat b { display: block; font-size: 20px; margin-top: 3px; }
+      #statusBox { font-size: 14px; color: var(--muted); padding: 8px 0; display: none; }
+      #statusBox.show { display: block; } #statusBox.error { color: var(--red); }
     </style>
   </head>
   <body>
     <main>
-      <section class="hero">
-        <p class="eyebrow">Firestore dashboard</p>
-        <h1 id="memberName">MyDietitian</h1>
-        <p class="sub" id="rangeText">กำลังโหลดข้อมูลจาก Firebase...</p>
-        <div class="stats">
-          <div class="stat"><span>น้ำหนักล่าสุด</span><strong id="weightStat">-</strong></div>
-          <div class="stat"><span>กินเฉลี่ย</span><strong id="avgCalStat">-</strong></div>
-          <div class="stat"><span>วันสำเร็จ</span><strong id="successStat">-</strong></div>
-          <div class="stat"><span>Streak</span><strong id="streakStat">-</strong></div>
-        </div>
+      <header>
+        <div class="who">MyDietitian<small id="rangeText">กำลังโหลด…</small></div>
+        <div class="streak" id="streakBadge">🔥 0 วัน</div>
+      </header>
+      <div id="statusBox"></div>
+
+      <section class="card" id="todayCard">
+        <h2>วันนี้</h2>
+        <div class="hero"><b id="todayCal">0</b><span id="todayTarget">/ 0 kcal</span></div>
+        <div class="track"><i id="todayBar" style="width:0%;background:var(--green)"></i></div>
+        <div class="remain ok" id="todayRemain">—</div>
+        <div id="todayMacros"></div>
+        <h3>มื้อวันนี้</h3>
+        <div id="todayMeals"><div class="empty">—</div></div>
       </section>
 
-      <div class="filters">
-        <button type="button" data-days="1">วันนี้</button>
-        <button type="button" data-days="7" class="active">7 วัน</button>
-        <button type="button" data-days="30">30 วัน</button>
-        <button type="button" data-days="90">90 วัน</button>
-        <button type="button" data-days="180">6 เดือน</button>
-        <button type="button" data-days="365">1 ปี</button>
-      </div>
-
-      <div class="status" id="statusBox"></div>
-
-      <section class="grid">
-        <div>
-          <article class="card">
-            <h2>พลังงานและสารอาหาร</h2>
-            <div class="chart"><canvas id="calChart"></canvas></div>
-          </article>
-
-          <article class="card">
-            <h2>น้ำหนักและ Body Composition</h2>
-            <div class="chart"><canvas id="bodyChart"></canvas></div>
-          </article>
+      <section class="card">
+        <h2>แนวโน้ม</h2>
+        <div class="toggle">
+          <button data-days="7" class="active">7 วัน</button>
+          <button data-days="30">30 วัน</button>
+          <button data-days="90">90 วัน</button>
         </div>
-
-        <aside>
-          <article class="card">
-            <h2>Macro เฉลี่ย</h2>
-            <div class="macro-bar">
-              <div id="barP" style="background: var(--blue); width: 0"></div>
-              <div id="barC" style="background: var(--gold); width: 0"></div>
-              <div id="barF" style="background: var(--rose); width: 0"></div>
-            </div>
-            <div class="macro-list">
-              <div class="mini"><span>Protein</span><strong id="proteinStat">-</strong></div>
-              <div class="mini"><span>Carb</span><strong id="carbStat">-</strong></div>
-              <div class="mini"><span>Fat</span><strong id="fatStat">-</strong></div>
-              <div class="mini"><span>Fiber</span><strong id="fiberStat">-</strong></div>
-            </div>
-          </article>
-
-          <article class="card">
-            <h2>รายการอาหารล่าสุด</h2>
-            <div class="history" id="mealHistory"></div>
-          </article>
-        </aside>
+        <div class="chartbox"><canvas id="calChart"></canvas></div>
+        <div class="hint">แตะที่แท่งเพื่อดูรายละเอียดของวันนั้น</div>
+        <div class="drill" id="drill"></div>
+        <h3>น้ำหนัก & องค์ประกอบร่างกาย</h3>
+        <div class="chartbox"><canvas id="bodyChart"></canvas></div>
+        <div class="stats" id="stats"></div>
       </section>
     </main>
 
@@ -294,168 +99,185 @@
       const DASHBOARD_URL = `${window.MD_FUNCTIONS_BASE}/getDashboardData`;
       const params = new URLSearchParams(location.search);
       const userId = params.get("uid") || params.get("userId") || "";
-      let calChart;
-      let bodyChart;
+      const MACROS = [
+        { key: "proteinG", tkey: "p", label: "โปรตีน", color: "var(--green)" },
+        { key: "carbsG", tkey: "c", label: "คาร์บ", color: "var(--amber)" },
+        { key: "fatG", tkey: "f", label: "ไขมัน", color: "var(--coral)" },
+        { key: "fiberG", tkey: "fib", label: "Fiber", color: "var(--fiber)" }
+      ];
+      let calChart, bodyChart, state = null;
 
-      document.querySelectorAll("[data-days]").forEach((button) => {
-        button.addEventListener("click", () => {
-          document.querySelectorAll("[data-days]").forEach((item) => item.classList.remove("active"));
-          button.classList.add("active");
-          loadDashboard(Number(button.dataset.days));
+      document.querySelectorAll("[data-days]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          document.querySelectorAll("[data-days]").forEach((b) => b.classList.remove("active"));
+          btn.classList.add("active");
+          load(Number(btn.dataset.days));
         });
       });
 
-      loadDashboard(7);
+      load(7);
 
-      async function loadDashboard(option) {
-        if (!userId || userId.length < 2) {
-          showStatus("ไม่พบ user id กรุณาเปิด dashboard จาก LINE อีกครั้ง", true);
-          return;
-        }
-
+      async function load(days) {
+        if (!userId || userId.length < 2) return status("ไม่พบ user id กรุณาเปิดจาก LINE อีกครั้ง", true);
         try {
-          showStatus("กำลังโหลดข้อมูล...");
-          const response = await fetch(DASHBOARD_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId, option })
+          status("กำลังโหลดข้อมูล…");
+          const res = await fetch(DASHBOARD_URL, {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ userId, option: days })
           });
-          const data = await response.json();
-          if (!response.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
-          renderDashboard(data);
-          showStatus("");
-        } catch (error) {
-          showStatus(error.message || String(error), true);
-        }
+          const data = await res.json();
+          if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
+          state = data; status("");
+          renderToday(data); renderCalChart(data); renderBodyChart(data); renderStats(data);
+          drillTo(data.daily.length - 1);
+        } catch (e) { status(e.message || String(e), true); }
       }
 
-      function renderDashboard(data) {
-        document.getElementById("memberName").textContent = data.profile?.name || "Member";
-        document.getElementById("rangeText").textContent = `${formatDate(data.range.start)} ถึง ${formatDate(data.range.end)} (${data.range.timezone})`;
-        document.getElementById("weightStat").textContent = data.current?.weight ? `${data.current.weight} kg` : "-";
-        document.getElementById("avgCalStat").textContent = `${Math.round(data.stats?.avgCal || 0)} kcal`;
-        document.getElementById("successStat").textContent = `${data.stats?.successDays || 0} วัน`;
-        document.getElementById("streakStat").textContent = `${data.current?.streak?.count || 0} วัน`;
-
-        renderMacroSummary(data);
-        renderCalChart(data);
-        renderBodyChart(data);
-        renderMeals(data.history?.meals || []);
+      function bkDay(iso) {
+        try { return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date(iso)); }
+        catch { return ""; }
+      }
+      function mealsOn(dayKey) {
+        return (state?.history?.meals || []).filter((m) => bkDay(m.loggedAt) === dayKey);
+      }
+      function bar(pct, color) {
+        const w = Math.max(2, Math.min(100, Math.round(pct || 0)));
+        return `<div class="track"><i style="width:${w}%;background:${color}"></i></div>`;
       }
 
-      function renderMacroSummary(data) {
-        const days = Math.max(1, data.stats?.totalDays || data.labels?.length || 1);
-        const sum = (items) => (items || []).reduce((total, value) => total + Number(value || 0), 0);
-        const p = sum(data.macros?.p);
-        const c = sum(data.macros?.c);
-        const f = sum(data.macros?.f);
-        const fib = sum(data.macros?.fib);
-        const pCal = p * 4;
-        const cCal = c * 4;
-        const fCal = f * 9;
-        const total = pCal + cCal + fCal || 1;
-        const pPct = Math.round((pCal / total) * 100);
-        const cPct = Math.round((cCal / total) * 100);
-        const fPct = Math.max(0, 100 - pPct - cPct);
+      function renderToday(data) {
+        const t = data.daily[data.daily.length - 1] || {};
+        const tgt = data.target || {};
+        document.getElementById("rangeText").textContent = `อัปเดต ${fmt(data.range.end)}`;
+        document.getElementById("streakBadge").textContent = `🔥 ${data.current?.streak?.count || 0} วัน`;
+        const cal = Math.round(t.calories || 0);
+        const calTarget = Math.round(t.dynamicTargetCalories || tgt.cal || 0);
+        const remain = Math.round(t.remainingCalories || 0);
+        document.getElementById("todayCal").textContent = cal.toLocaleString();
+        document.getElementById("todayTarget").textContent = `/ ${calTarget.toLocaleString()} kcal`;
+        const over = remain < 0;
+        const calBar = document.getElementById("todayBar");
+        calBar.style.width = `${Math.max(2, Math.min(100, calTarget ? (cal / calTarget) * 100 : 0))}%`;
+        calBar.style.background = over ? "var(--coral)" : "var(--green)";
+        const rEl = document.getElementById("todayRemain");
+        rEl.className = `remain ${over ? "over" : "ok"}`;
+        rEl.textContent = over ? `เกินเป้าหมาย ${Math.abs(remain).toLocaleString()} kcal` : `เหลือกินได้อีก ${remain.toLocaleString()} kcal`;
 
-        setBar("barP", pPct);
-        setBar("barC", cPct);
-        setBar("barF", fPct);
-        document.getElementById("proteinStat").textContent = `${Math.round(p / days)} g`;
-        document.getElementById("carbStat").textContent = `${Math.round(c / days)} g`;
-        document.getElementById("fatStat").textContent = `${Math.round(f / days)} g`;
-        document.getElementById("fiberStat").textContent = `${(fib / days).toFixed(1)} g`;
+        document.getElementById("todayMacros").innerHTML = MACROS.map((m) => {
+          const c = Math.round(t[m.key] || 0), goal = Math.round(tgt[m.tkey] || 0);
+          return `<div class="mrow"><div class="top"><span class="lbl">${m.label}</span>
+            <span class="val">${c} / ${goal} g</span></div>${bar(goal ? (c / goal) * 100 : 0, m.color)}</div>`;
+        }).join("");
+
+        renderMealList("todayMeals", mealsOn(t.date));
       }
 
-      function setBar(id, value) {
-        const el = document.getElementById(id);
-        el.style.width = `${value}%`;
-        el.textContent = value > 8 ? `${value}%` : "";
+      function renderMealList(elId, meals) {
+        const el = document.getElementById(elId);
+        if (!meals.length) { el.innerHTML = `<div class="empty">ยังไม่มีรายการอาหาร</div>`; return; }
+        el.innerHTML = meals.slice(0, 30).map((m) => {
+          const n = m.nutrients || {};
+          const name = esc(m.mealNameTh || m.mealNameEn || "อาหาร");
+          const kc = Math.round(Number(n.caloriesKcal || 0));
+          const tm = new Intl.DateTimeFormat("th-TH", { timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date(m.loggedAt));
+          return `<div class="meal"><div><div class="nm">${name}</div>
+            <div class="mt">${tm} · P ${Math.round(n.proteinG||0)} C ${Math.round(n.carbsG||0)} F ${Math.round(n.fatG||0)} g</div></div>
+            <div class="kc">${kc} kcal</div></div>`;
+        }).join("");
       }
 
       function renderCalChart(data) {
         if (calChart) calChart.destroy();
-        const ctx = document.getElementById("calChart");
-        calChart = new Chart(ctx, {
+        const over = data.daily.map((d) => (d.calories || 0) > (d.dynamicTargetCalories || 0));
+        calChart = new Chart(document.getElementById("calChart"), {
           type: "bar",
           data: {
-            labels: data.labels,
+            labels: data.labels.map(shortDay),
             datasets: [
-              { label: "Dynamic target", data: data.tdeeLine, type: "line", borderColor: "#13733d", borderDash: [6, 4], pointRadius: 0, order: 1 },
-              { label: "Weight", data: data.bodyData?.weight || [], type: "line", borderColor: "#17231c", yAxisID: "y1", spanGaps: true, order: 2 },
-              { label: "Protein", data: (data.macros?.p || []).map((x) => x * 4), backgroundColor: "#36a2eb", stack: "kcal", order: 3 },
-              { label: "Carb", data: (data.macros?.c || []).map((x) => x * 4), backgroundColor: "#ffce56", stack: "kcal", order: 3 },
-              { label: "Fat", data: (data.macros?.f || []).map((x) => x * 9), backgroundColor: "#ff6384", stack: "kcal", order: 3 }
+              { label: "กินจริง", data: data.calories, order: 2, borderRadius: 6,
+                backgroundColor: over.map((o) => o ? "#E5A38C" : "#7FCBB0"),
+                hoverBackgroundColor: over.map((o) => o ? "#D85A30" : "#1D9E75") },
+              { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1,
+                borderColor: "#0F6E56", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
             ]
           },
           options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: "index", intersect: false },
-            scales: {
-              x: { stacked: true },
-              y: { stacked: true, beginAtZero: true, title: { display: true, text: "kcal" } },
-              y1: { position: "right", grid: { drawOnChartArea: false }, title: { display: true, text: "kg" } }
-            }
+            responsive: true, maintainAspectRatio: false,
+            onClick: (_e, els) => { if (els.length) drillTo(els[0].index); },
+            plugins: { legend: { display: true, labels: { boxWidth: 12, font: { size: 11 } } } },
+            scales: { y: { beginAtZero: true, ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } }
           }
         });
+      }
+
+      function drillTo(idx) {
+        if (!state || idx == null || !state.daily[idx]) return;
+        const d = state.daily[idx];
+        const meals = mealsOn(d.date);
+        const cells = [
+          ["kcal", Math.round(d.calories || 0)], ["P", Math.round(d.proteinG || 0)],
+          ["C", Math.round(d.carbsG || 0)], ["F", Math.round(d.fatG || 0)]
+        ].map(([l, v]) => `<div class="d-cell"><b>${v}</b><small>${l}</small></div>`).join("");
+        const burn = Math.round(d.burnedCalories || 0);
+        document.getElementById("drill").innerHTML =
+          `<div class="d-date">${fmt(d.date)}${burn ? ` · เบิร์น ${burn} kcal` : ""}</div>
+           <div class="d-grid">${cells}</div>
+           ${meals.length ? meals.slice(0, 12).map((m) => {
+             const n = m.nutrients || {};
+             return `<div class="meal"><div class="nm">${esc(m.mealNameTh || m.mealNameEn || "อาหาร")}</div>
+               <div class="kc">${Math.round(Number(n.caloriesKcal||0))} kcal</div></div>`;
+           }).join("") : `<div class="empty">ไม่มีรายการอาหารวันนี้</div>`}`;
       }
 
       function renderBodyChart(data) {
         if (bodyChart) bodyChart.destroy();
-        const ctx = document.getElementById("bodyChart");
-        bodyChart = new Chart(ctx, {
+        const b = data.bodyData || {};
+        bodyChart = new Chart(document.getElementById("bodyChart"), {
           type: "line",
           data: {
-            labels: data.labels,
+            labels: data.labels.map(shortDay),
             datasets: [
-              { label: "Weight kg", data: data.bodyData?.weight || [], borderColor: "#17231c", spanGaps: true, tension: 0.32 },
-              { label: "Fat %", data: data.bodyData?.fat || [], borderColor: "#ff6384", spanGaps: true, tension: 0.32 },
-              { label: "Muscle kg", data: data.bodyData?.muscle || [], borderColor: "#36a2eb", spanGaps: true, tension: 0.32 }
+              { label: "น้ำหนัก kg", data: b.weight || [], borderColor: "#0F6E56", backgroundColor: "#0F6E56", spanGaps: true, tension: 0.3, pointRadius: 2 },
+              { label: "ไขมัน %", data: b.fat || [], borderColor: "#D85A30", backgroundColor: "#D85A30", spanGaps: true, tension: 0.3, pointRadius: 2 },
+              { label: "กล้าม kg", data: b.muscle || [], borderColor: "#185FA5", backgroundColor: "#185FA5", spanGaps: true, tension: 0.3, pointRadius: 2 }
             ]
           },
           options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            interaction: { mode: "index", intersect: false }
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } },
+            scales: { y: { ticks: { font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } }
           }
         });
       }
 
-      function renderMeals(meals) {
-        const container = document.getElementById("mealHistory");
-        if (!meals.length) {
-          container.innerHTML = "<div class='meal'><span>ยังไม่มีรายการอาหารในช่วงนี้</span></div>";
-          return;
-        }
-        container.innerHTML = meals.slice(0, 18).map((meal) => {
-          const nutrients = meal.nutrients || {};
-          const name = meal.mealNameTh || meal.mealNameEn || "อาหาร";
-          const kcal = Math.round(Number(nutrients.caloriesKcal || 0));
-          return `<div class="meal"><strong>${escapeHtml(name)} · ${kcal} kcal</strong><span>${formatDate(meal.loggedAt)} | P ${Math.round(nutrients.proteinG || 0)}g C ${Math.round(nutrients.carbsG || 0)}g F ${Math.round(nutrients.fatG || 0)}g</span></div>`;
-        }).join("");
+      function renderStats(data) {
+        const s = data.stats || {};
+        const cards = [
+          ["เฉลี่ย/วัน", `${Math.round(s.avgCal || 0).toLocaleString()} kcal`],
+          ["อยู่ในเป้า", `${s.successDays || 0} วัน`],
+          ["น้ำหนักล่าสุด", data.current?.weight ? `${data.current.weight} kg` : "—"],
+          ["บันทึกต่อเนื่อง", `${data.current?.streak?.count || 0} วัน`]
+        ];
+        document.getElementById("stats").innerHTML = cards
+          .map(([l, v]) => `<div class="stat"><small>${l}</small><b>${v}</b></div>`).join("");
       }
 
-      function formatDate(value) {
+      function shortDay(key) {
+        const d = new Date(`${key}T00:00:00+07:00`);
+        return new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: "Asia/Bangkok" }).format(d);
+      }
+      function fmt(value) {
         if (!value) return "-";
-        return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(new Date(value));
+        const v = value.length === 10 ? `${value}T00:00:00+07:00` : value;
+        return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeZone: "Asia/Bangkok" }).format(new Date(v));
       }
-
-      function escapeHtml(value) {
-        return String(value).replace(/[&<>"']/g, (char) => ({
-          "&": "&amp;",
-          "<": "&lt;",
-          ">": "&gt;",
-          "\"": "&quot;",
-          "'": "&#039;"
-        }[char]));
+      function esc(v) {
+        return String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c]));
       }
-
-      function showStatus(message, isError = false) {
+      function status(msg, err) {
         const box = document.getElementById("statusBox");
-        box.textContent = message;
-        box.classList.toggle("show", Boolean(message));
-        box.classList.toggle("error", isError);
+        box.textContent = msg; box.classList.toggle("show", Boolean(msg)); box.classList.toggle("error", Boolean(err));
       }
     </script>
   </body>

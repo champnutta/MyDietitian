@@ -135,9 +135,10 @@ export async function callGeminiImageClassification(
   imageBase64: string,
   mimeType: string,
   apiKeys: AiProviderApiKeys,
-  agent: AiAgentConfig
+  agent: AiAgentConfig,
+  latestMealName = ""
 ): Promise<ImageClassificationResult> {
-  const prompt = buildImageClassificationPrompt();
+  const prompt = buildImageClassificationPrompt(latestMealName);
   const text = await callGeminiWithFallback({
     apiKeys,
     agent,
@@ -641,7 +642,10 @@ Rules:
 - Use numbers, not strings, for nutrients.`;
 }
 
-function buildImageClassificationPrompt(): string {
+function buildImageClassificationPrompt(latestMealName = ""): string {
+  const leftoverContext = latestMealName
+    ? `\n\nContext: the user's most recent logged meal was "${latestMealName}". Classify as "leftover" only when this image shows a partially-eaten, reduced, or scrap version of THAT SAME meal (same food type, smaller portion or remains). If it is a different food type or a full/new portion, classify as "food".`
+    : "";
   return `Classify this LINE image for a Thai diet coach/payment bot.
 
 Return JSON only with this exact shape:
@@ -665,7 +669,7 @@ Rules:
 - "food" means food, drink, snack, menu, or nutrition label.
 - "other" means anything else.
 - If not a payment slip, omit slip_data or set fields empty.
-- Use numeric amount only when visible.`;
+- Use numeric amount only when visible.${leftoverContext}`;
 }
 
 function buildBiaPrompt(displayName: string, currentTargetCal: number): string {
