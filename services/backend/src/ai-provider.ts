@@ -89,6 +89,9 @@ export async function callGeminiMealAnalysis(
     agent,
     parts,
     anthropicPrompt: prompt,
+    anthropicImage: request.imageBase64
+      ? { base64: request.imageBase64, mimeType: request.mimeType || "image/jpeg" }
+      : undefined,
     generationConfig: {
       temperature: agent.temperature,
       response_mime_type: "application/json"
@@ -338,6 +341,12 @@ async function callGeminiWithFallback(input: {
       } else {
         throw new Error(`Provider adapter is not implemented: ${candidate.provider}`);
       }
+      if (input.generationConfig.response_mime_type === "application/json") {
+        // A 200 response that isn't valid JSON (e.g. the model replying
+        // "I don't see any food") must count as a failure so the next candidate
+        // (fallback provider) is tried instead of throwing to the caller.
+        parseJsonOutput(text);
+      }
       if (candidate.provider !== input.agent.provider || candidate.model !== input.agent.model) {
         console.warn(`${input.errorPrefix} recovered with fallback ${candidate.provider}/${candidate.model}`);
       }
@@ -417,14 +426,26 @@ async function callAnthropicOnce(input: {
   const timeout = setTimeout(() => controller.abort(), input.agent.timeoutMs ?? 20_000);
   const content: Array<Record<string, unknown>> = [];
   if (input.image) {
-    content.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: input.image.mimeType,
-        data: input.image.base64
-      }
-    });
+    // Anthropic's image block only accepts jpeg/png/gif/webp. PDFs (e.g. BIA
+    // reports) must be sent as a document block instead, or the API returns 400.
+    const isPdf = input.image.mimeType === "application/pdf";
+    content.push(isPdf
+      ? {
+          type: "document",
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: input.image.base64
+          }
+        }
+      : {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: input.image.mimeType,
+            data: input.image.base64
+          }
+        });
   }
   content.push({
     type: "text",

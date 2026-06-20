@@ -716,7 +716,7 @@ export const analyzeExercise = onRequest({ secrets: AI_PROVIDER_SECRETS }, async
 });
 
 export const lineWebhook = onRequest(
-  { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID, ...AI_PROVIDER_SECRETS] },
+  { secrets: [LINE_CHANNEL_SECRET, LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID, ...AI_PROVIDER_SECRETS], timeoutSeconds: 120 },
   async (request, response) => {
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
@@ -1342,7 +1342,7 @@ async function handleLineEvent(event: LineEvent) {
       text
     });
 
-    await replyToLine(replyToken, formatMealReply(saved.mealLog));
+    await replyWithMealCard(replyToken, canonicalUserId, lineUserId, saved.mealLog);
     return {
       ok: true,
       type: event.type,
@@ -1482,7 +1482,7 @@ async function handleLineImageMessage(
       mimeType: content.mimeType
     });
 
-    await replyToLine(replyToken, formatMealReply(saved.mealLog));
+    await replyWithMealCard(replyToken, canonicalUserId, lineUserId, saved.mealLog);
     return {
       ok: true,
       type: event.type,
@@ -1634,7 +1634,7 @@ async function createBiaReportReview(input: {
       createdAt: savedAt
     });
 
-    await replyToLine(input.replyToken, formatBiaAnalysisReply(reportRef.id, profile, analysis));
+    await replyToLineMessages(input.replyToken, [buildBiaReplyMessage(reportRef.id, profile, analysis)]);
     await pushMessage(ADMIN_LINE_USER_ID.value(), [
       "วิเคราะห์ BIA/สุขภาพสำเร็จ",
       `ลูกค้า: ${profile.name}`,
@@ -3442,8 +3442,11 @@ function formatOptionalNumber(value: unknown): string {
   return number ? String(Math.round(number * 10) / 10) : "-";
 }
 
-async function replyWithOnboarding(replyToken: string, lineUserId: string, displayName = "Member"): Promise<void> {
-  await replyToLineMessages(replyToken, await buildOnboardingMessages(lineUserId, displayName));
+async function replyWithOnboarding(replyToken: string, lineUserId: string, displayName?: string): Promise<void> {
+  // Message-triggered onboarding (image/text/file before profile setup) doesn't
+  // pass a name, so fetch the real LINE display name instead of showing "Member".
+  const name = displayName ?? (await getLineProfile(lineUserId)).displayName;
+  await replyToLineMessages(replyToken, await buildOnboardingMessages(lineUserId, name));
 }
 
 async function buildOnboardingMessages(lineUserId: string, displayName = "Member"): Promise<LineMessage[]> {
@@ -3631,6 +3634,266 @@ function formatMealReply(mealLog: Record<string, unknown>): string {
     String(rating.commentTh ?? ""),
     streakText
   ].join("\n");
+}
+
+// LINE Flex doesn't have a progress-bar component, so simulate one with a filled
+// inner box whose width is a percentage of the neutral track box.
+function flexProgressBar(pct: number, color: string): Record<string, unknown> {
+  const width = Math.max(2, Math.min(100, Math.round(pct)));
+  return {
+    type: "box",
+    layout: "vertical",
+    height: "6px",
+    backgroundColor: "#E5E7EB",
+    cornerRadius: "3px",
+    contents: [
+      {
+        type: "box",
+        layout: "vertical",
+        width: `${width}%`,
+        height: "6px",
+        backgroundColor: color,
+        cornerRadius: "3px",
+        contents: [{ type: "filler" }]
+      }
+    ]
+  };
+}
+
+function flexMacroRow(label: string, valueText: string, pct: number, color: string): Record<string, unknown> {
+  return {
+    type: "box",
+    layout: "vertical",
+    spacing: "xs",
+    margin: "md",
+    contents: [
+      {
+        type: "box",
+        layout: "horizontal",
+        contents: [
+          { type: "text", text: label, size: "xs", color: "#6B7280", flex: 1 },
+          { type: "text", text: valueText, size: "xs", weight: "bold", color: "#374151", align: "end" }
+        ]
+      },
+      flexProgressBar(pct, color)
+    ]
+  };
+}
+
+async function replyWithMealCard(replyToken: string, canonicalUserId: string, lineUserId: string, mealLog: Record<string, unknown>): Promise<void> {
+  const profile = await getUserProfile(canonicalUserId);
+  const summary = await getTodaySummary(canonicalUserId, profile);
+  await replyToLineMessages(replyToken, [buildMealReplyMessage(mealLog, summary, lineUserId)]);
+}
+
+function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodaySummary, lineUserId: string): LineMessage {
+  const nutrients = mealLog.nutrients as Record<string, number>;
+  const rating = mealLog.healthRating as Record<string, string | number>;
+  const p = Math.round(nutrients.proteinG ?? 0);
+  const c = Math.round(nutrients.carbsG ?? 0);
+  const f = Math.round(nutrients.fatG ?? 0);
+  const fib = Math.round(nutrients.fiberG ?? 0);
+  const kcal = Math.round(nutrients.caloriesKcal ?? 0);
+  const streak = normalizeStreak(mealLog);
+  const streakText = streak.count > 1 ? `บันทึกต่อเนื่อง ${streak.count} วัน` : "เริ่มบันทึกวันแรก";
+  const comment = String(rating.commentTh ?? "");
+
+  const bodyContents: Array<Record<string, unknown>> = [
+    {
+      type: "box",
+      layout: "horizontal",
+      alignItems: "center",
+      contents: [
+        { type: "text", text: String(mealLog.mealNameTh ?? "มื้ออาหาร"), weight: "bold", size: "sm", color: "#1F2937", flex: 1, wrap: true },
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 0,
+          backgroundColor: "#FAEEDA",
+          cornerRadius: "6px",
+          paddingAll: "4px",
+          paddingStart: "8px",
+          paddingEnd: "8px",
+          contents: [{ type: "text", text: `${rating.score ?? "-"}/10`, size: "xs", weight: "bold", color: "#854F0B", align: "center" }]
+        }
+      ]
+    },
+    {
+      type: "box",
+      layout: "baseline",
+      margin: "md",
+      contents: [
+        { type: "text", text: `${kcal}`, size: "xxl", weight: "bold", color: "#111827", flex: 0 },
+        { type: "text", text: "kcal", size: "sm", color: "#6B7280", margin: "sm", flex: 0 }
+      ]
+    },
+    { type: "text", text: `มื้อนี้ · P ${p} · C ${c} · F ${f} · Fiber ${fib} g`, size: "xs", color: "#9CA3AF", margin: "sm" }
+  ];
+
+  const dailyMacroRow = (label: string, consumed: number, remaining: number, color: string) => {
+    const target = Math.round(consumed + remaining);
+    return flexMacroRow(label, `${Math.round(consumed)} / ${target}g`, target ? (consumed / target) * 100 : 0, color);
+  };
+
+  const dayTarget = Math.round(summary.dynamicTarget);
+  const dayConsumed = Math.round(summary.consumed.cal);
+  const dayRemaining = Math.round(summary.remaining.cal);
+  const overTarget = dayConsumed > dayTarget;
+  bodyContents.push(
+    { type: "separator", margin: "lg" },
+    {
+      type: "box",
+      layout: "horizontal",
+      margin: "lg",
+      contents: [
+        { type: "text", text: "วันนี้", size: "xs", color: "#6B7280", flex: 1 },
+        { type: "text", text: `${dayConsumed} / ${dayTarget} kcal`, size: "xs", weight: "bold", color: "#374151", align: "end" }
+      ]
+    },
+    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? "#D85A30" : "#1D9E75"),
+    {
+      type: "text",
+      text: overTarget ? `เกินเป้าหมาย ${Math.abs(dayRemaining)} kcal` : `เหลือกินได้อีก ${dayRemaining} kcal`,
+      size: "xs",
+      weight: "bold",
+      color: overTarget ? "#A32D2D" : "#0F6E56",
+      margin: "sm"
+    },
+    dailyMacroRow("โปรตีน", summary.consumed.p, summary.remaining.p, "#1D9E75"),
+    dailyMacroRow("คาร์บ", summary.consumed.c, summary.remaining.c, "#BA7517"),
+    dailyMacroRow("ไขมัน", summary.consumed.f, summary.remaining.f, "#D85A30"),
+    dailyMacroRow("Fiber", summary.consumed.fib, summary.remaining.fib, "#639922")
+  );
+
+  if (comment) {
+    bodyContents.push({
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#F3F4F6",
+      cornerRadius: "8px",
+      paddingAll: "10px",
+      margin: "lg",
+      contents: [{ type: "text", text: comment, size: "xs", color: "#4B5563", wrap: true }]
+    });
+  }
+
+  bodyContents.push({ type: "text", text: `🔥 ${streakText}`, size: "xs", color: "#993C1D", margin: "lg" });
+
+  return {
+    type: "flex",
+    altText: formatMealReply(mealLog).slice(0, 1500),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      body: { type: "box", layout: "vertical", backgroundColor: "#FFFFFF", paddingAll: "16px", contents: bodyContents },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            action: { type: "uri", label: "ดูแดชบอร์ด", uri: `https://mydietitian.web.app/dashboard?uid=${encodeURIComponent(lineUserId)}` }
+          }
+        ]
+      }
+    }
+  };
+}
+
+function buildBiaReplyMessage(
+  biaReportId: string,
+  profile: UserProfile,
+  analysis: Awaited<ReturnType<typeof analyzeBiaReport>>
+): LineMessage {
+  const metrics = analysis.metrics ?? {};
+  const rec = analysis.recommendation ?? {};
+  const newTdee = Math.round(Number(rec.suggested_tdee ?? profile.target.cal));
+  const np = Math.round(Number(rec.suggested_p ?? profile.target.p));
+  const nc = Math.round(Number(rec.suggested_c ?? profile.target.c));
+  const nf = Math.round(Number(rec.suggested_f ?? profile.target.f));
+  const oldTdee = Math.round(profile.target.cal);
+  const reason = String(rec.reason_th ?? "");
+
+  const metricRow = (label: string, value: string): Record<string, unknown> => ({
+    type: "box",
+    layout: "horizontal",
+    margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "sm", color: "#6B7280", flex: 1 },
+      { type: "text", text: value, size: "sm", weight: "bold", color: "#374151", align: "end" }
+    ]
+  });
+
+  const bodyContents: Array<Record<string, unknown>> = [
+    { type: "text", text: "ผลวิเคราะห์ BIA / สุขภาพ", weight: "bold", size: "md", color: "#111827" },
+    metricRow("น้ำหนัก", `${formatOptionalNumber(metrics.weight_kg)} kg`),
+    metricRow("ไขมัน", `${formatOptionalNumber(metrics.fat_pct)} %`),
+    metricRow("กล้ามเนื้อ", `${formatOptionalNumber(metrics.muscle_kg)} kg`),
+    metricRow("BMR", `${formatOptionalNumber(metrics.bmr)} kcal`),
+    metricRow("Visceral", `${formatOptionalNumber(metrics.visceral_lvl)}`),
+    { type: "separator", margin: "lg" },
+    { type: "text", text: String(rec.goal_name ?? "ปรับเป้าหมาย"), weight: "bold", size: "sm", color: "#185FA5", margin: "lg", wrap: true },
+    {
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#E1F5EE",
+      cornerRadius: "8px",
+      paddingAll: "12px",
+      margin: "md",
+      contents: [
+        { type: "text", text: "เป้าหมายใหม่ที่แนะนำ", size: "xs", color: "#0F6E56" },
+        {
+          type: "box",
+          layout: "baseline",
+          margin: "sm",
+          contents: [
+            { type: "text", text: `${oldTdee}`, size: "sm", color: "#9CA3AF", decoration: "line-through", flex: 0 },
+            { type: "text", text: "→", size: "sm", color: "#0F6E56", margin: "sm", flex: 0 },
+            { type: "text", text: `${newTdee} kcal`, size: "lg", weight: "bold", color: "#0F6E56", margin: "sm", flex: 0 }
+          ]
+        },
+        { type: "text", text: `P ${np}g · C ${nc}g · F ${nf}g`, size: "xs", color: "#0F6E56", margin: "sm" }
+      ]
+    }
+  ];
+
+  if (reason) {
+    bodyContents.push({ type: "text", text: reason, size: "xs", color: "#4B5563", wrap: true, margin: "md" });
+  }
+
+  return {
+    type: "flex",
+    altText: formatBiaAnalysisReply(biaReportId, profile, analysis).slice(0, 1500),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      body: { type: "box", layout: "vertical", backgroundColor: "#FFFFFF", paddingAll: "16px", contents: bodyContents },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#1D9E75",
+            height: "sm",
+            action: { type: "message", label: `ใช้เป้าใหม่ ${newTdee}`, text: `CONFIRM_UPDATE_TARGET ${newTdee} ${np}-${nc}-${nf}` }
+          },
+          {
+            type: "button",
+            style: "secondary",
+            height: "sm",
+            action: { type: "message", label: "ไม่ปรับเป้าหมาย", text: "ไม่ปรับเป้าหมาย" }
+          }
+        ]
+      }
+    }
+  };
 }
 
 type DailyHistory = Record<string, {

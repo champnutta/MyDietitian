@@ -275,7 +275,7 @@
 
     <script src="/config.js"></script>
     <script>
-      const LIFF_ID = "2009365288-Ux31tFWT";
+      const LIFF_ID = "2009365288-Aua3Fli1";
       const SAVE_SETTINGS_URL = `${window.MD_FUNCTIONS_BASE}/saveSettingsFromWeb`;
 
       const state = {
@@ -334,7 +334,9 @@
               weight: numberValue("weight"),
               height: numberValue("height"),
               activity: numberValue("activity"),
-              goal: numberValue("goal")
+              // goal is a calorie delta: fat loss is negative, maintenance is 0,
+              // so it must not go through the positive-only numberValue() check.
+              goal: Number($("goal").value)
             }
           : {
               mode: "custom",
@@ -361,7 +363,7 @@
       function numberValue(id) {
         const value = Number($(id).value);
         if (!Number.isFinite(value) || value <= 0) {
-          throw new Error("กรุณากรอกข้อมูลให้ครบและถูกต้อง");
+          throw new Error(`กรุณากรอกข้อมูลให้ครบและถูกต้อง (${id})`);
         }
         return value;
       }
