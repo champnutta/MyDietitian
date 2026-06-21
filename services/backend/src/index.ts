@@ -4075,9 +4075,14 @@ function resolveDashboardRange(request: DashboardDataRequest): { startDate: Date
   // Anchor on the Bangkok day so "today" stays correct during 00:00-07:00 ICT,
   // when the server's UTC clock is still on the previous day.
   const days = typeof request.option === "number" ? request.option : 7;
+  const dayMs = 24 * 60 * 60 * 1000;
+  // offsetDays shifts the window backward so the trend view can page through
+  // older periods.
+  const offset = Math.max(0, Math.floor(Number(request.offsetDays) || 0));
   const today = getBangkokDayRange(new Date());
-  const startDate = new Date(today.startDate.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
-  return { startDate, endDate: today.endDate };
+  const endDate = new Date(today.endDate.getTime() - offset * dayMs);
+  const startDate = new Date(today.startDate.getTime() - (offset + days - 1) * dayMs);
+  return { startDate, endDate };
 }
 
 function buildDailyHistory(startDate: Date, endDate: Date): DailyHistory {

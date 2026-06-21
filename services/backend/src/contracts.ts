@@ -120,6 +120,7 @@ export interface DashboardDataRequest {
   userId: string;
   canonicalUserId?: string;
   option?: number | "custom";
+  offsetDays?: number;
   customStartStr?: string;
   customEndStr?: string;
 }
