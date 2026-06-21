@@ -170,8 +170,8 @@
           period = Number(btn.dataset.days); periodOffset = 0; load();
         });
       });
-      document.getElementById("periodPrev").addEventListener("click", () => { periodOffset += period; load(); });
-      document.getElementById("periodNext").addEventListener("click", () => { if (periodOffset > 0) { periodOffset = Math.max(0, periodOffset - period); load(); } });
+      document.getElementById("periodPrev").addEventListener("click", () => { periodOffset += period; load(true); });
+      document.getElementById("periodNext").addEventListener("click", () => { if (periodOffset > 0) { periodOffset = Math.max(0, periodOffset - period); load(true); } });
       (() => {
         const card = document.getElementById("trendCard");
         let sx = null, sy = null;
@@ -180,8 +180,8 @@
           if (sx === null) return;
           const dx = e.changedTouches[0].clientX - sx, dy = e.changedTouches[0].clientY - sy;
           if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-            if (dx > 0) { periodOffset += period; load(); }
-            else if (periodOffset > 0) { periodOffset = Math.max(0, periodOffset - period); load(); }
+            if (dx > 0) { periodOffset += period; load(true); }
+            else if (periodOffset > 0) { periodOffset = Math.max(0, periodOffset - period); load(true); }
           }
           sx = null;
         }, { passive: true });
@@ -189,8 +189,9 @@
 
       load();
 
-      async function load() {
+      async function load(keepScroll) {
         if (!userId || userId.length < 2) return status("ไม่พบ user id กรุณาเปิดจาก LINE อีกครั้ง", true);
+        const scrollY = keepScroll ? window.scrollY : null;
         try {
           status("กำลังโหลดข้อมูล…");
           const res = await fetch(DASHBOARD_URL, {
@@ -205,6 +206,7 @@
           const lab = data.labels || [];
           document.getElementById("periodRange").textContent = lab.length ? `${lab[0]} – ${lab[lab.length - 1]}` : "";
           document.getElementById("periodNext").disabled = periodOffset <= 0;
+          if (scrollY !== null) requestAnimationFrame(() => window.scrollTo(0, scrollY));
         } catch (e) { status(e.message || String(e), true); }
       }
 

@@ -1732,14 +1732,17 @@ async function createBiaReportReview(input: {
   try {
     const analysis = await analyzeBiaReport(input.base64, input.mimeType, profile);
     const savedAt = Timestamp.now();
+    // Use the date printed on the BIA report, not the day it was forwarded.
+    const reportDate = parseBiaReportDate(analysis.meta?.date_str, savedAt);
     await reportRef.set({
       status: "analysis-completed",
       analysis,
+      reportDate,
       analyzedAt: savedAt,
       updatedAt: savedAt
     }, { merge: true });
 
-    await saveWeightLogFromBia(input.canonicalUserId, analysis, savedAt);
+    await saveWeightLogFromBia(input.canonicalUserId, analysis, reportDate);
     await db.collection("profileEvents").add({
       type: "bia-analysis",
       biaReportId: reportRef.id,
@@ -1749,19 +1752,8 @@ async function createBiaReportReview(input: {
       createdAt: savedAt
     });
 
+    // Only the Flex card goes to the user; no extra admin text on success.
     await replyToLineMessages(input.replyToken, [buildBiaReplyMessage(reportRef.id, profile, analysis)]);
-    await pushMessage(ADMIN_LINE_USER_ID.value(), [
-      "วิเคราะห์ BIA/สุขภาพสำเร็จ",
-      `ลูกค้า: ${profile.name}`,
-      `LINE User ID: ${input.lineUserId}`,
-      `Canonical ID: ${input.canonicalUserId}`,
-      `BIA Report ID: ${reportRef.id}`,
-      `น้ำหนัก: ${analysis.metrics?.weight_kg ?? "-"} kg`,
-      `Fat: ${analysis.metrics?.fat_pct ?? "-"}% | Muscle: ${analysis.metrics?.muscle_kg ?? "-"} kg`,
-      `แนะนำ TDEE: ${analysis.recommendation?.suggested_tdee ?? "-"} kcal`,
-      "",
-      "รอ user ยืนยันก่อนปรับ profile target"
-    ].join("\n"));
   } catch (error) {
     const failedAt = Timestamp.now();
     await reportRef.set({
@@ -1836,6 +1828,23 @@ async function saveWeightLogFromBia(
   }, { merge: true });
 }
 
+// Parse "DD/MM/YYYY" (Gregorian or Buddhist year) from a BIA report. Falls back
+// to the submission time for "TODAY", blanks, or anything unparseable/future.
+function parseBiaReportDate(dateStr: unknown, fallback: Timestamp): Timestamp {
+  const text = String(dateStr ?? "").trim();
+  if (!text || /today|วันนี้/i.test(text)) return fallback;
+  const match = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/.exec(text);
+  if (!match) return fallback;
+  let day = Number(match[1]);
+  let month = Number(match[2]);
+  let year = Number(match[3]);
+  if (year < 100) year += 2000;
+  if (year > 2400) year -= 543;
+  if (month < 1 || month > 12 || day < 1 || day > 31 || year < 2000 || year > 2100) return fallback;
+  const ms = Date.UTC(year, month - 1, day, 5, 0, 0); // ~noon Bangkok
+  return Number.isNaN(ms) || ms > fallback.toMillis() ? fallback : Timestamp.fromMillis(ms);
+}
+
 async function classifyLineImage(base64: string, mimeType: string, latestMealName = "") {
   const agent = await getAiAgentConfig("mealAnalysis");
   if (!agent.enabled) {
@@ -1903,6 +1912,10 @@ async function handleSlipPaymentImage(input: {
     "ระบบส่งให้แอดมินตรวจสอบแล้ว กรุณารอสักครู่นะครับ"
   ].join("\n"));
 
+  const receiverName = String(input.slipData.receiver_name ?? "").trim();
+  const bankTo = String(input.slipData.bank_to ?? "").trim();
+  const bankFrom = String(input.slipData.bank_from ?? "").trim();
+  const slipWhen = `${String(input.slipData.date ?? "")} ${String(input.slipData.time ?? "")}`.trim();
   const adminRow = (label: string, value: string): Record<string, unknown> => ({
     type: "box", layout: "horizontal", margin: "sm",
     contents: [
@@ -1920,7 +1933,11 @@ async function handleSlipPaymentImage(input: {
         contents: [
           { type: "text", text: "สลิปโอนเงินใหม่รอตรวจ", weight: "bold", size: "md", color: "#111827" },
           adminRow("ลูกค้า", String(profile.name ?? "-")),
-          adminRow("ยอดที่อ่านได้", amount ? `${amount} บาท` : "-"),
+          adminRow("ยอด", amount ? `${amount} บาท` : "-"),
+          adminRow("โอนเข้า", receiverName ? `${receiverName}${bankTo ? ` · ${bankTo}` : ""}` : "อ่านไม่ได้"),
+          adminRow("จากบัญชี", bankFrom || "-"),
+          adminRow("วัน-เวลาในสลิป", slipWhen || "-"),
+          ...(receiverName ? [] : [{ type: "text", text: "⚠️ อ่านชื่อบัญชีผู้รับไม่ได้ — ตรวจรูปสลิปก่อนอนุมัติ", size: "sm", color: "#C0392B", weight: "bold", margin: "md", wrap: true }]),
           { type: "text", text: `LINE: ${input.lineUserId}`, size: "xxs", color: "#9CA3AF", margin: "md", wrap: true },
           { type: "text", text: `Review: ${reviewRef.id}`, size: "xxs", color: "#9CA3AF" }
         ]
@@ -3819,8 +3836,8 @@ function flexMacroRow(label: string, valueText: string, pct: number, color: stri
         type: "box",
         layout: "horizontal",
         contents: [
-          { type: "text", text: label, size: "xs", color: "#6B7280", flex: 1 },
-          { type: "text", text: valueText, size: "xs", weight: "bold", color: "#374151", align: "end" }
+          { type: "text", text: label, size: "sm", color: "#6B7280", flex: 1 },
+          { type: "text", text: valueText, size: "sm", weight: "bold", color: "#374151", align: "end" }
         ]
       },
       flexProgressBar(pct, color)
@@ -3852,7 +3869,7 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
       layout: "horizontal",
       alignItems: "center",
       contents: [
-        { type: "text", text: String(mealLog.mealNameTh ?? "มื้ออาหาร"), weight: "bold", size: "sm", color: "#1F2937", flex: 1, wrap: true },
+        { type: "text", text: String(mealLog.mealNameTh ?? "มื้ออาหาร"), weight: "bold", size: "md", color: "#1F2937", flex: 1, wrap: true },
         {
           type: "box",
           layout: "vertical",
@@ -3862,7 +3879,7 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
           paddingAll: "4px",
           paddingStart: "8px",
           paddingEnd: "8px",
-          contents: [{ type: "text", text: `${rating.score ?? "-"}/10`, size: "xs", weight: "bold", color: "#854F0B", align: "center" }]
+          contents: [{ type: "text", text: `${rating.score ?? "-"}/10`, size: "sm", weight: "bold", color: "#854F0B", align: "center" }]
         }
       ]
     },
@@ -3875,7 +3892,7 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
         { type: "text", text: "kcal", size: "sm", color: "#6B7280", margin: "sm", flex: 0 }
       ]
     },
-    { type: "text", text: `มื้อนี้ · P ${p} · C ${c} · F ${f} · Fiber ${fib} g`, size: "xs", color: "#9CA3AF", margin: "sm" }
+    { type: "text", text: `มื้อนี้ · P ${p} · C ${c} · F ${f} · Fiber ${fib} g`, size: "sm", color: "#9CA3AF", margin: "sm" }
   ];
 
   const dailyMacroRow = (label: string, consumed: number, remaining: number, color: string) => {
@@ -3894,15 +3911,15 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
       layout: "horizontal",
       margin: "lg",
       contents: [
-        { type: "text", text: "วันนี้", size: "xs", color: "#6B7280", flex: 1 },
-        { type: "text", text: `${dayConsumed} / ${dayTarget} kcal`, size: "xs", weight: "bold", color: "#374151", align: "end" }
+        { type: "text", text: "วันนี้", size: "sm", color: "#6B7280", flex: 1 },
+        { type: "text", text: `${dayConsumed} / ${dayTarget} kcal`, size: "sm", weight: "bold", color: "#374151", align: "end" }
       ]
     },
-    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? "#D85A30" : "#1D9E75"),
+    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? "#E0533F" : "#185FA5"),
     {
       type: "text",
       text: overTarget ? `เกินเป้าหมาย ${Math.abs(dayRemaining)} kcal` : `เหลือกินได้อีก ${dayRemaining} kcal`,
-      size: "xs",
+      size: "sm",
       weight: "bold",
       color: overTarget ? "#A32D2D" : "#0F6E56",
       margin: "sm"
@@ -3921,11 +3938,11 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
       cornerRadius: "8px",
       paddingAll: "10px",
       margin: "lg",
-      contents: [{ type: "text", text: comment, size: "xs", color: "#4B5563", wrap: true }]
+      contents: [{ type: "text", text: comment, size: "sm", color: "#4B5563", wrap: true }]
     });
   }
 
-  bodyContents.push({ type: "text", text: `🔥 ${streakText}`, size: "xs", color: "#993C1D", margin: "lg" });
+  bodyContents.push({ type: "text", text: `🔥 ${streakText}`, size: "sm", color: "#993C1D", margin: "lg" });
 
   return {
     type: "flex",
