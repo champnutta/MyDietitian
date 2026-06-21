@@ -13,6 +13,10 @@ const projectId = args.project || "mydietitian";
 const sheetId = args.sheetId || DEFAULT_SHEET_ID;
 const commit = Boolean(args.commit);
 const finalMigrationConfirmed = Boolean(args.confirmFinalMigration);
+// Single-user rehearsal: writes ONLY this user's docs (merge), bypassing the
+// full-migration readiness guards. For safe per-account practice on staging.
+const onlyUser = typeof args.onlyUser === "string" ? args.onlyUser.trim() : "";
+const rehearse = Boolean(onlyUser);
 const finalConfirmationText = "FINAL_MIGRATION_MYDIETITIAN";
 const readinessPacketMaxAgeMs = 6 * 60 * 60 * 1000;
 const requiredReadinessCheckNames = [
@@ -51,6 +55,13 @@ async function main() {
   let readinessPacket = null;
   if (!commit) {
     console.log("DRY RUN: no Firestore writes will be performed. Pass --commit to write.");
+  } else if (rehearse) {
+    if (!args.rehearseConfirm) {
+      throw new Error(
+        `Refusing to write. Single-user rehearse needs --rehearseConfirm. It writes ONLY docs for --onlyUser ${onlyUser} (merge), skipping the full-migration readiness packet.`
+      );
+    }
+    console.log(`REHEARSE single-user import for ${onlyUser} — full-migration guards are skipped (single account only).`);
   } else if (!finalMigrationConfirmed) {
     throw new Error(
       "Refusing to write. Data migration is reserved for final production cutover. " +
@@ -69,15 +80,30 @@ async function main() {
   const workbook = await fetchWorkbook(sheetId);
   const planned = planMigration(workbook);
   const report = buildReadinessReport(workbook, planned, sampleLimit);
-  if (commit) validateCurrentSourceFingerprint(readinessPacket, report);
-  if (commit) validateCurrentMigrationCommit(readinessPacket);
-  if (commit) validateCurrentGitTreeClean();
+  if (commit && !rehearse) validateCurrentSourceFingerprint(readinessPacket, report);
+  if (commit && !rehearse) validateCurrentMigrationCommit(readinessPacket);
+  if (commit && !rehearse) validateCurrentGitTreeClean();
   const importManifest = buildImportManifest(report, planned, readinessPacket);
 
-  printSummary(planned, report, importManifest);
+  let docsToWrite = planned;
+  if (rehearse) {
+    docsToWrite = planned.filter((item) =>
+      item?.data?.userId === onlyUser ||
+      item?.data?.canonicalUserId === onlyUser ||
+      item.id === onlyUser ||
+      (typeof item.id === "string" && item.id.startsWith(`${onlyUser}`))
+    );
+    importManifest.importRunId = `rehearse_${onlyUser.slice(0, 16)}`;
+    importManifest.status = commit ? "rehearse-single-user" : "dry-run-preview";
+    importManifest.onlyUser = onlyUser;
+    importManifest.totalPlannedDocuments = docsToWrite.length;
+    importManifest.countByCollection = countDocumentsByCollection(docsToWrite);
+  }
+
+  printSummary(docsToWrite, report, importManifest);
 
   if (commit) {
-    await writePlannedDocuments(planned, importManifest);
+    await writePlannedDocuments(docsToWrite, importManifest);
   }
 }
 
@@ -1006,7 +1032,7 @@ function withImportProvenance(data, manifest) {
       sourceSheetId: manifest.sheetId,
       readinessPacketGeneratedAt: manifest.readinessPacketGeneratedAt,
       migrationCommit: manifest.migrationCommit,
-      importedAt: manifest.importedAt
+      importedAt: manifest.startedAt ?? null
     }
   };
 }
