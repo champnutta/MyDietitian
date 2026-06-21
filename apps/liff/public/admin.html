@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MyDietitian Admin</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+      :root { --green: #18B98C; --green-d: #0E8A67; --ink: #1F2937; --muted: #7A8088;
+        --bg: #F4F6F5; --card: #FFFFFF; --line: #EEF0EF; --red: #E0533F; --amber: #B9770F; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--ink);
+        font-family: -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; }
+      main { max-width: 880px; margin: 0 auto; padding: 20px 16px 56px; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+      header b { font-size: 21px; }
+      header b small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+      button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 9px 16px; }
+      button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
+      .center { text-align: center; padding: 60px 0; }
+      .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+      .stat { background: var(--card); border-radius: 14px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+      .stat small { color: var(--muted); font-size: 12px; } .stat b { display: block; font-size: 26px; margin-top: 4px; }
+      .stat.warn b { color: var(--amber); } .stat.danger b { color: var(--red); } .stat.ok b { color: var(--green-d); }
+      h3 { font-size: 15px; margin: 24px 0 10px; }
+      .card { background: var(--card); border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+      .chartbox { position: relative; height: 220px; }
+      .prow { display: flex; justify-content: space-between; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 14px; }
+      .prow:first-child { border-top: 0; } .prow .amt { font-weight: 700; color: var(--green-d); white-space: nowrap; }
+      .prow .sub { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
+      .empty { color: var(--muted); padding: 10px 0; font-size: 14px; }
+      #msg { margin-top: 14px; font-size: 14px; color: var(--muted); }
+      #msg.error { color: var(--red); }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <b>MyDietitian Admin<small id="who">monitoring</small></b>
+        <button id="signout" hidden>ออกจากระบบ</button>
+      </header>
+
+      <div id="signin" class="center">
+        <p class="empty">เข้าสู่ระบบด้วยบัญชี Google ของแอดมิน</p>
+        <button class="primary" id="loginBtn">เข้าสู่ระบบด้วย Google</button>
+      </div>
+
+      <div id="panel" hidden>
+        <div class="cards" id="cards"></div>
+        <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
+        <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
+        <h3>สลิปรออนุมัติ</h3>
+        <div class="card" id="pending"></div>
+      </div>
+
+      <div id="msg"></div>
+    </main>
+
+    <script src="/config.js"></script>
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+      import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged }
+        from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+
+      const app = initializeApp({
+        apiKey: "AIzaSyAPPd0uBtefhSqCe8MR4vJ-C3ehOguQehE",
+        authDomain: "mydietitian.firebaseapp.com",
+        projectId: "mydietitian",
+        appId: "1:455239121557:web:cb3624b5c41094f9c9399c",
+        messagingSenderId: "455239121557"
+      });
+      const auth = getAuth(app);
+      const MON_URL = `${window.MD_FUNCTIONS_BASE}/getAdminMonitoring`;
+      const $ = (id) => document.getElementById(id);
+      let chart;
+
+      $("loginBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => msg(e.message, true));
+      $("signout").onclick = () => signOut(auth);
+
+      onAuthStateChanged(auth, async (user) => {
+        if (!user) { $("signin").hidden = false; $("panel").hidden = true; $("signout").hidden = true; return; }
+        $("signin").hidden = true; $("signout").hidden = false;
+        $("who").textContent = user.email;
+        msg("กำลังโหลด…");
+        try {
+          const token = await user.getIdToken();
+          const res = await fetch(MON_URL, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          const data = await res.json();
+          if (res.status === 401) throw new Error("บัญชีนี้ไม่มีสิทธิ์ admin");
+          if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
+          render(data); $("panel").hidden = false; msg("");
+        } catch (e) { msg(e.message || String(e), true); }
+      });
+
+      function render(d) {
+        const c = d.cards;
+        const cards = [
+          ["ผู้ใช้ทั้งหมด", c.users, ""],
+          ["Subscription active", c.activeSubscriptions, "ok"],
+          ["ใกล้หมดอายุ (7 วัน)", c.expiringSoon, c.expiringSoon ? "warn" : ""],
+          ["สลิปรออนุมัติ", c.pendingReviews, c.pendingReviews ? "danger" : ""],
+          ["มื้อวันนี้", c.mealsToday, ""],
+          ["AI runs (7 วัน)", c.aiRuns7d, ""],
+          ["Fallback %", `${c.aiFallbackPct}%`, c.aiFallbackPct > 30 ? "warn" : ""],
+          ["AI fail (7 วัน)", c.aiFailed7d, c.aiFailed7d ? "danger" : ""]
+        ];
+        $("cards").innerHTML = cards.map(([l, v, cls]) =>
+          `<div class="stat ${cls}"><small>${l}</small><b>${typeof v === "number" ? v.toLocaleString() : v}</b></div>`).join("");
+
+        if (chart) chart.destroy();
+        chart = new Chart($("actChart"), {
+          type: "bar",
+          data: { labels: d.activity.labels, datasets: [{ label: "มื้อ", data: d.activity.meals, backgroundColor: "#18B98C", borderRadius: 5 }] },
+          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
+        });
+
+        const p = d.pending || [];
+        $("pending").innerHTML = p.length ? p.map((r) =>
+          `<div class="prow"><div><div>${r.amount ? `${r.amount} บาท` : "ยอด -"}</div>
+            <div class="sub">${r.lineUserId || r.canonicalUserId || "-"} · ${fmt(r.createdAt)}</div></div>
+            <div class="amt">รออนุมัติ</div></div>`).join("")
+          : `<div class="empty">ไม่มีสลิปรออนุมัติ</div>`;
+      }
+
+      function fmt(iso) {
+        if (!iso) return "-";
+        try { return new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date(iso)); }
+        catch { return iso; }
+      }
+      function msg(text, err) { const b = $("msg"); b.textContent = text || ""; b.classList.toggle("error", Boolean(err)); }
+    </script>
+  </body>
+</html>

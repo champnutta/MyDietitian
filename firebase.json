@@ -25,6 +25,10 @@
       {
         "source": "/dashboard",
         "destination": "/dashboard.html"
+      },
+      {
+        "source": "/admin",
+        "destination": "/admin.html"
       }
     ],
     "headers": [

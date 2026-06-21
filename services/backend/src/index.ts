@@ -1,5 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { Timestamp, type Transaction } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   callGeminiBiaAnalysis,
@@ -651,6 +652,101 @@ export const getDashboardData = onRequest(async (request, response) => {
       weights: weightItems,
       adjustments: mealItems.flatMap((meal) => meal.adjustments)
     }
+  });
+});
+
+// Allowlist of admin Google accounts for the admin web app. Move to Firestore
+// config once the admin app can manage it.
+const ADMIN_EMAILS = ["znak.iiz@gmail.com"];
+
+async function requireAdminEmail(request: Parameters<Parameters<typeof onRequest>[0]>[0]): Promise<string> {
+  const header = request.get("authorization") ?? "";
+  const token = /^Bearer\s+(.+)$/i.exec(header)?.[1]?.trim();
+  if (!token) throw new Error("missing-admin-token");
+  const decoded = await getAuth().verifyIdToken(token);
+  const email = decoded.email?.toLowerCase();
+  if (!email || !decoded.email_verified || !ADMIN_EMAILS.includes(email)) {
+    throw new Error("not-authorized");
+  }
+  return email;
+}
+
+export const getAdminMonitoring = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  let adminEmail: string;
+  try {
+    adminEmail = await requireAdminEmail(request);
+  } catch (error) {
+    response.status(401).json({ ok: false, error: "admin-auth-failed", message: error instanceof Error ? error.message : String(error) });
+    return;
+  }
+
+  const now = Timestamp.now();
+  const nowMs = now.toMillis();
+  const day = 24 * 60 * 60 * 1000;
+  const since7 = Timestamp.fromMillis(nowMs - 7 * day);
+  const since14 = Timestamp.fromMillis(nowMs - 14 * day);
+  const soon = Timestamp.fromMillis(nowMs + 7 * day);
+  const { startDate: todayStart } = getBangkokDayRange(new Date());
+
+  const [usersCount, activeSubs, expiring, mealsToday, pendingSnap, aiRunsSnap, meals14Snap] = await Promise.all([
+    db.collection("users").count().get(),
+    db.collection("subscriptions").where("status", "==", "active").count().get(),
+    db.collection("subscriptions").where("expiresAt", ">=", now).where("expiresAt", "<=", soon).count().get(),
+    db.collection("mealLogs").where("loggedAt", ">=", Timestamp.fromDate(todayStart)).count().get(),
+    db.collection("paymentReviews").where("status", "==", "pending-admin-review").orderBy("createdAt", "desc").limit(20).get(),
+    db.collection("aiRuns").where("createdAt", ">=", since7).get(),
+    db.collection("mealLogs").where("loggedAt", ">=", since14).get()
+  ]);
+
+  let aiTotal = 0, aiFallback = 0, aiFailed = 0;
+  aiRunsSnap.forEach((doc) => {
+    const data = doc.data();
+    aiTotal += 1;
+    if (data.fallbackUsed) aiFallback += 1;
+    if (data.status === "failed") aiFailed += 1;
+  });
+
+  const byDay: Record<string, number> = {};
+  for (let i = 13; i >= 0; i -= 1) byDay[formatDayKey(new Date(nowMs - i * day))] = 0;
+  meals14Snap.forEach((doc) => {
+    const ts = normalizeTimestamp(doc.data().loggedAt);
+    const key = ts ? formatDayKey(ts.toDate()) : "";
+    if (key in byDay) byDay[key] += 1;
+  });
+
+  const pending = pendingSnap.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      id: doc.id,
+      lineUserId: data.lineUserId ?? null,
+      canonicalUserId: data.canonicalUserId ?? null,
+      amount: data.amount ?? null,
+      createdAt: timestampToIso(data.createdAt)
+    };
+  });
+
+  response.json({
+    ok: true,
+    admin: adminEmail,
+    generatedAt: now.toDate().toISOString(),
+    cards: {
+      users: usersCount.data().count,
+      activeSubscriptions: activeSubs.data().count,
+      expiringSoon: expiring.data().count,
+      pendingReviews: pending.length,
+      mealsToday: mealsToday.data().count,
+      aiRuns7d: aiTotal,
+      aiFallbackPct: aiTotal ? Math.round((aiFallback / aiTotal) * 100) : 0,
+      aiFailed7d: aiFailed
+    },
+    activity: { labels: Object.keys(byDay), meals: Object.values(byDay) },
+    pending
   });
 });
 
