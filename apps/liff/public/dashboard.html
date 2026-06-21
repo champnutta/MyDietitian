@@ -60,6 +60,7 @@
       .toggle button { flex: 1; padding: 8px 2px; border: 1px solid var(--line); background: #fff;
         border-radius: 10px; font-size: 12.5px; color: var(--muted); cursor: pointer; font-weight: 600; white-space: nowrap; }
       .toggle button.active { background: var(--green); border-color: var(--green); color: #fff; }
+      .devsel { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 10px; font: inherit; font-size: 13px; color: var(--ink); background: #fff; }
       .chartbox { position: relative; height: 230px; margin: 6px 0 4px; }
       .hint { font-size: 12px; color: var(--muted); text-align: center; margin: 2px 0 12px; }
       .drill { background: #F1F8F4; border: 1px solid #DCEBE2; border-radius: 14px;
@@ -122,6 +123,8 @@
         <div class="hint">แตะที่แท่งเพื่อดูรายละเอียดของวันนั้น</div>
         <div class="drill" id="drill"></div>
         <h3>น้ำหนัก & องค์ประกอบร่างกาย</h3>
+        <select id="deviceSel" class="devsel"><option value="all">ทุกอุปกรณ์</option></select>
+        <div class="hint">เทียบได้แม่นเมื่อเลือกอุปกรณ์เดียวกัน (เครื่อง BIA ต่างรุ่นวัดต่างกัน)</div>
         <div class="chartbox"><canvas id="bodyChart"></canvas></div>
         <div class="stats" id="stats"></div>
       </section>
@@ -138,7 +141,12 @@
         { key: "fatG", tkey: "f", label: "ไขมัน", color: "var(--coral)" },
         { key: "fiberG", tkey: "fib", label: "Fiber", color: "var(--fiber)" }
       ];
-      let calChart, bodyChart, state = null, chartMode = "all", dayIndex = 0, period = 7, periodOffset = 0;
+      let calChart, bodyChart, state = null, chartMode = "all", dayIndex = 0, period = 7, periodOffset = 0, deviceFilter = "all";
+
+      document.getElementById("deviceSel").addEventListener("change", (e) => {
+        deviceFilter = e.target.value;
+        if (state) renderBodyChart(state);
+      });
 
       document.getElementById("dayPrev").addEventListener("click", () => selectDay(dayIndex - 1));
       document.getElementById("dayNext").addEventListener("click", () => selectDay(dayIndex + 1));
@@ -201,6 +209,7 @@
           const data = await res.json();
           if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
           state = data; status("");
+          populateDevices(data);
           renderCalChart(data); renderBodyChart(data); renderStats(data);
           selectDay(data.daily.length - 1);
           const lab = data.labels || [];
@@ -353,14 +362,16 @@
       function renderBodyChart(data) {
         if (bodyChart) bodyChart.destroy();
         const b = data.bodyData || {};
+        const devs = b.devices || [];
+        const keep = (arr) => (arr || []).map((v, i) => (deviceFilter === "all" || devs[i] === deviceFilter) ? v : null);
         bodyChart = new Chart(document.getElementById("bodyChart"), {
           type: "line",
           data: {
             labels: data.labels,
             datasets: [
-              { label: "น้ำหนัก kg", data: b.weight || [], borderColor: "#0F6E56", backgroundColor: "#0F6E56", spanGaps: true, tension: 0.3, pointRadius: 2 },
-              { label: "ไขมัน %", data: b.fat || [], borderColor: "#D85A30", backgroundColor: "#D85A30", spanGaps: true, tension: 0.3, pointRadius: 2 },
-              { label: "กล้าม kg", data: b.muscle || [], borderColor: "#185FA5", backgroundColor: "#185FA5", spanGaps: true, tension: 0.3, pointRadius: 2 }
+              { label: "น้ำหนัก kg", data: keep(b.weight), borderColor: "#0F6E56", backgroundColor: "#0F6E56", spanGaps: true, tension: 0.3, pointRadius: 2 },
+              { label: "ไขมัน %", data: keep(b.fat), borderColor: "#D85A30", backgroundColor: "#D85A30", spanGaps: true, tension: 0.3, pointRadius: 2 },
+              { label: "กล้าม kg", data: keep(b.muscle), borderColor: "#185FA5", backgroundColor: "#185FA5", spanGaps: true, tension: 0.3, pointRadius: 2 }
             ]
           },
           options: {
@@ -382,6 +393,14 @@
         ];
         document.getElementById("stats").innerHTML = cards
           .map(([l, v]) => `<div class="stat"><small>${l}</small><b>${v}</b></div>`).join("");
+      }
+
+      function populateDevices(data) {
+        const devs = [...new Set((data.bodyData?.devices || []).filter(Boolean))];
+        const sel = document.getElementById("deviceSel");
+        sel.innerHTML = `<option value="all">ทุกอุปกรณ์</option>` + devs.map((d) => `<option value="${esc(d)}">${esc(d)}</option>`).join("");
+        if (deviceFilter !== "all" && !devs.includes(deviceFilter)) deviceFilter = "all";
+        sel.value = deviceFilter;
       }
 
       function fmt(value) {
