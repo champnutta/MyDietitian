@@ -686,6 +686,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     return;
   }
 
+  try {
   const now = Timestamp.now();
   const nowMs = now.toMillis();
   const day = 24 * 60 * 60 * 1000;
@@ -694,12 +695,15 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   const soon = Timestamp.fromMillis(nowMs + 7 * day);
   const { startDate: todayStart } = getBangkokDayRange(new Date());
 
-  const [usersCount, activeSubs, expiring, mealsToday, pendingSnap, aiRunsSnap, meals14Snap] = await Promise.all([
+  // Avoid a status+createdAt composite index by fetching pending reviews
+  // unordered and sorting in memory.
+  const [usersCount, activeSubs, expiring, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap] = await Promise.all([
     db.collection("users").count().get(),
     db.collection("subscriptions").where("status", "==", "active").count().get(),
     db.collection("subscriptions").where("expiresAt", ">=", now).where("expiresAt", "<=", soon).count().get(),
     db.collection("mealLogs").where("loggedAt", ">=", Timestamp.fromDate(todayStart)).count().get(),
-    db.collection("paymentReviews").where("status", "==", "pending-admin-review").orderBy("createdAt", "desc").limit(20).get(),
+    db.collection("paymentReviews").where("status", "==", "pending-admin-review").count().get(),
+    db.collection("paymentReviews").where("status", "==", "pending-admin-review").limit(50).get(),
     db.collection("aiRuns").where("createdAt", ">=", since7).get(),
     db.collection("mealLogs").where("loggedAt", ">=", since14).get()
   ]);
@@ -729,7 +733,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       amount: data.amount ?? null,
       createdAt: timestampToIso(data.createdAt)
     };
-  });
+  }).sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""))).slice(0, 20);
 
   response.json({
     ok: true,
@@ -739,7 +743,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       users: usersCount.data().count,
       activeSubscriptions: activeSubs.data().count,
       expiringSoon: expiring.data().count,
-      pendingReviews: pending.length,
+      pendingReviews: pendingCount.data().count,
       mealsToday: mealsToday.data().count,
       aiRuns7d: aiTotal,
       aiFallbackPct: aiTotal ? Math.round((aiFallback / aiTotal) * 100) : 0,
@@ -748,6 +752,9 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     activity: { labels: Object.keys(byDay), meals: Object.values(byDay) },
     pending
   });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: "monitoring-failed", message: error instanceof Error ? error.message : String(error) });
+  }
 });
 
 export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (request, response) => {
