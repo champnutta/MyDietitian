@@ -25,6 +25,7 @@ import {
   getLineProfile,
   type LineMessage,
   pushMessage,
+  pushMessages,
   replyToLine,
   replyToLineMessages,
   showLoadingAnimation
@@ -1334,6 +1335,7 @@ async function handleLineEvent(event: LineEvent) {
   }
 
   try {
+    await showLoadingAnimation(lineUserId, 15);
     const saved = await analyzeAndSaveMeal({
       userId: canonicalUserId,
       canonicalUserId,
@@ -1805,18 +1807,43 @@ async function handleSlipPaymentImage(input: {
     "ระบบส่งให้แอดมินตรวจสอบแล้ว กรุณารอสักครู่นะครับ"
   ].join("\n"));
 
-  await pushMessage(ADMIN_LINE_USER_ID.value(), [
-    "มีสลิปโอนเงินใหม่รอตรวจ",
-    `ลูกค้า: ${profile.name}`,
-    `LINE User ID: ${input.lineUserId}`,
-    `Canonical ID: ${input.canonicalUserId}`,
-    amount ? `ยอดที่อ่านได้: ${amount} บาท` : "ยอดที่อ่านได้: -",
-    `Review ID: ${reviewRef.id}`,
-    "",
-    `อนุมัติ 30 วัน: อนุมัติ ${input.lineUserId} 30`,
-    `อนุมัติ 90 วัน: อนุมัติ ${input.lineUserId} 90`,
-    `ปฏิเสธ: ปฏิเสธ ${input.lineUserId}`
-  ].join("\n"));
+  const adminRow = (label: string, value: string): Record<string, unknown> => ({
+    type: "box", layout: "horizontal", margin: "sm",
+    contents: [
+      { type: "text", text: label, size: "sm", color: "#6B7280", flex: 2 },
+      { type: "text", text: value, size: "sm", color: "#374151", weight: "bold", flex: 5, wrap: true, align: "end" }
+    ]
+  });
+  await pushMessages(ADMIN_LINE_USER_ID.value(), [{
+    type: "flex",
+    altText: `สลิปใหม่รอตรวจ • ${profile.name} • ${amount ? `${amount} บาท` : "-"} • อนุมัติ ${input.lineUserId} 30`.slice(0, 400),
+    contents: {
+      type: "bubble",
+      body: {
+        type: "box", layout: "vertical", backgroundColor: "#FFFFFF", paddingAll: "16px",
+        contents: [
+          { type: "text", text: "สลิปโอนเงินใหม่รอตรวจ", weight: "bold", size: "md", color: "#111827" },
+          adminRow("ลูกค้า", String(profile.name ?? "-")),
+          adminRow("ยอดที่อ่านได้", amount ? `${amount} บาท` : "-"),
+          { type: "text", text: `LINE: ${input.lineUserId}`, size: "xxs", color: "#9CA3AF", margin: "md", wrap: true },
+          { type: "text", text: `Review: ${reviewRef.id}`, size: "xxs", color: "#9CA3AF" }
+        ]
+      },
+      footer: {
+        type: "box", layout: "vertical", spacing: "sm", paddingAll: "12px",
+        contents: [
+          { type: "button", style: "primary", color: "#1D9E75", height: "sm",
+            action: { type: "message", label: "✅ อนุมัติ 30 วัน", text: `อนุมัติ ${input.lineUserId} 30` } },
+          { type: "button", style: "primary", color: "#0F6E56", height: "sm",
+            action: { type: "message", label: "✅ อนุมัติ 90 วัน", text: `อนุมัติ ${input.lineUserId} 90` } },
+          { type: "button", style: "secondary", height: "sm",
+            action: { type: "message", label: "👑 Lifetime / VIP", text: `อนุมัติ ${input.lineUserId} lifetime` } },
+          { type: "button", style: "secondary", height: "sm",
+            action: { type: "message", label: "❌ ปฏิเสธ", text: `ปฏิเสธ ${input.lineUserId}` } }
+        ]
+      }
+    }
+  }]);
 
   return { paymentReviewId: reviewRef.id };
 }
@@ -2008,6 +2035,7 @@ async function handleLineTextCommand(
     }
 
     const mode = looksLikeMenuRecommendationRequest(text) ? "menu_recommendation" : "consultation";
+    await showLoadingAnimation(lineUserId, 15);
     const saved = await analyzeAndSaveCoachConsultation({
       userId: canonicalUserId,
       lineUserId,
@@ -2034,6 +2062,7 @@ async function handleLineTextCommand(
       return { status: "subscription-required-before-exercise" };
     }
 
+    await showLoadingAnimation(lineUserId, 15);
     const saved = await analyzeAndSaveExercise({
       userId: canonicalUserId,
       canonicalUserId,
@@ -3940,26 +3969,19 @@ type DailyHistory = Record<string, {
 }>;
 
 function resolveDashboardRange(request: DashboardDataRequest): { startDate: Date; endDate: Date } {
-  const now = new Date();
-  const today = new Date(now);
-  today.setHours(0, 0, 0, 0);
-
-  let startDate: Date;
-  let endDate: Date;
-
   if (request.option === "custom" && request.customStartStr && request.customEndStr) {
-    startDate = new Date(request.customStartStr);
-    endDate = new Date(request.customEndStr);
-  } else {
-    const days = typeof request.option === "number" ? request.option : 7;
-    endDate = new Date(today);
-    startDate = new Date(today);
-    startDate.setDate(today.getDate() - days + 1);
+    const startDate = new Date(request.customStartStr);
+    const endDate = new Date(request.customEndStr);
+    startDate.setHours(0, 0, 0, 0);
+    endDate.setHours(23, 59, 59, 999);
+    return { startDate, endDate };
   }
-
-  startDate.setHours(0, 0, 0, 0);
-  endDate.setHours(23, 59, 59, 999);
-  return { startDate, endDate };
+  // Anchor on the Bangkok day so "today" stays correct during 00:00-07:00 ICT,
+  // when the server's UTC clock is still on the previous day.
+  const days = typeof request.option === "number" ? request.option : 7;
+  const today = getBangkokDayRange(new Date());
+  const startDate = new Date(today.startDate.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+  return { startDate, endDate: today.endDate };
 }
 
 function buildDailyHistory(startDate: Date, endDate: Date): DailyHistory {
@@ -4159,7 +4181,15 @@ function timestampDayKey(value: unknown): string | null {
 }
 
 function formatDayKey(date: Date): string {
-  const day = String(date.getDate()).padStart(2, "0");
-  const month = String(date.getMonth() + 1).padStart(2, "0");
+  // Bucket dashboard days by the Bangkok calendar day, not the server's UTC day,
+  // so the range/labels match meal logging (which keys by Asia/Bangkok). Without
+  // this, 00:00-07:00 Bangkok counts toward the previous UTC day.
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok",
+    day: "2-digit",
+    month: "2-digit"
+  }).formatToParts(date);
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
   return `${day}/${month}`;
 }

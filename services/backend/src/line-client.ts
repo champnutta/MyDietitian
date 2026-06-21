@@ -44,6 +44,21 @@ export async function pushMessage(userId: string, text: string): Promise<void> {
   }
 }
 
+export async function pushMessages(userId: string, messages: LineMessage[]): Promise<void> {
+  const res = await fetch("https://api.line.me/v2/bot/message/push", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${LINE_CHANNEL_ACCESS_TOKEN.value()}`
+    },
+    body: JSON.stringify({ to: userId, messages })
+  });
+
+  if (!res.ok) {
+    throw new Error(`LINE push failed: ${res.status} ${await res.text()}`);
+  }
+}
+
 export async function downloadLineContent(messageId: string): Promise<{ base64: string; mimeType: string }> {
   const res = await fetch(`https://api-data.line.me/v2/bot/message/${messageId}/content`, {
     headers: {
