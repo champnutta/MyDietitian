@@ -2468,11 +2468,8 @@ async function handleSubscriptionRequest(
     "แพ็กเกจเติมวัน",
     ...packageLines,
     "",
-    "โอนเงินแล้วส่งรูปสลิปเข้าห้อง staging นี้ได้เลยครับ ระบบจะสร้างรายการรอแอดมินตรวจใน Firestore",
-    `QR: ${appConfig.paymentQrImage}`,
-    "",
-    `สำหรับแอดมิน staging: อนุมัติ ${lineUserId} 30`,
-    `Admin free/lifetime: approve ${lineUserId} lifetime`
+    "โอนเงินแล้วส่งรูปสลิปกลับมาในแชทนี้ได้เลยครับ แอดมินจะตรวจสอบและเปิดสิทธิ์ให้",
+    `QR: ${appConfig.paymentQrImage}`
   ].filter((line) => line !== "").join("\n");
 
   await db.collection("subscriptionRequests").add({
