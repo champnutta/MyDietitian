@@ -191,7 +191,7 @@
 
       async function load(keepScroll) {
         if (!userId || userId.length < 2) return status("ไม่พบ user id กรุณาเปิดจาก LINE อีกครั้ง", true);
-        const scrollY = keepScroll ? window.scrollY : null;
+        const trendTopBefore = keepScroll ? document.getElementById("trendCard").getBoundingClientRect().top : null;
         try {
           status("กำลังโหลดข้อมูล…");
           const res = await fetch(DASHBOARD_URL, {
@@ -206,7 +206,10 @@
           const lab = data.labels || [];
           document.getElementById("periodRange").textContent = lab.length ? `${lab[0]} – ${lab[lab.length - 1]}` : "";
           document.getElementById("periodNext").disabled = periodOffset <= 0;
-          if (scrollY !== null) requestAnimationFrame(() => window.scrollTo(0, scrollY));
+          if (trendTopBefore !== null) requestAnimationFrame(() => {
+            const after = document.getElementById("trendCard").getBoundingClientRect().top;
+            window.scrollBy(0, after - trendTopBefore);
+          });
         } catch (e) { status(e.message || String(e), true); }
       }
 

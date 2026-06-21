@@ -2216,7 +2216,7 @@ async function handleLineTextCommand(
     return { status: result.deleted ? "last-meal-deleted" : "last-meal-not-found" };
   }
 
-  if (text.startsWith("หนัก") || text.startsWith("น้ำหนัก") || lower.startsWith("weight")) {
+  if (text.includes("น้ำหนัก") || text.startsWith("หนัก") || lower.startsWith("weight")) {
     const parsed = parseWeightCommand(text);
     if (!parsed) {
       await replyToLine(replyToken, "รูปแบบน้ำหนักยังไม่ถูกต้องครับ เช่น `หนัก 65 fat 20 muscle 28`");
@@ -3059,7 +3059,7 @@ function looksLikeMenuRecommendationRequest(text: string): boolean {
 function looksLikeCoachConsultationRequest(text: string): boolean {
   const lower = text.toLowerCase();
   if (looksLikeMenuRecommendationRequest(text)) return true;
-  return /ดีไหม|ควร|ไหม|มั้ย|ได้ไหม|ได้มั้ย|ถาม|ปรึกษา|แนะนำ|ช่วยแนะนำ|ลดน้ำหนัก|เพิ่มกล้าม|คุมอาหาร|\?/.test(text) ||
+  return /ดีไหม|ควร|ไหม|มั้ย|ได้ไหม|ได้มั้ย|ถาม|ปรึกษา|แนะนำ|ช่วยแนะนำ|ลดน้ำหนัก|เพิ่มกล้าม|คุมอาหาร|ยังไง|ยังงัย|อย่างไร|ทำไง|วิธี|\?/.test(text) ||
     lower.includes("should i") ||
     lower.includes("advice") ||
     lower.includes("coach") ||
