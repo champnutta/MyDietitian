@@ -280,14 +280,32 @@ function initializeFirebase(projectId, serviceAccountPath) {
   admin.initializeApp({ projectId });
 }
 
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// The public gviz endpoint can drop large tabs mid-stream ("terminated"), which
+// would silently import partial data. Retry so the migration gets the full tab.
+async function fetchTextWithRetry(url, label, attempts = 4) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`${label}: HTTP ${response.status}`);
+      const text = await response.text();
+      if (!text || text.length < 20) throw new Error(`${label}: empty/short response`);
+      return text;
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts) await delay(600 * attempt);
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
 async function fetchWorkbook(sheetId) {
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Unable to fetch spreadsheet metadata: ${response.status}`);
-  }
-
-  const text = await response.text();
+  const text = await fetchTextWithRetry(url, "fetch spreadsheet metadata");
   const json = parseGoogleVizJson(text);
   const sheets = json.table?.cols ? [{ name: "Log", rows: parseRows(json.table) }] : [];
 
@@ -329,11 +347,7 @@ async function fetchWorkbook(sheetId) {
 
 async function fetchSheetRows(sheetId, sheetName) {
   const url = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Unable to fetch ${sheetName}: ${response.status}`);
-  }
-  const text = await response.text();
+  const text = await fetchTextWithRetry(url, `fetch ${sheetName}`);
   const json = parseGoogleVizJson(text);
   return normalizeSheetRows(sheetName, parseRows(json.table));
 }
