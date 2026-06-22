@@ -8,7 +8,7 @@
     <style>
       :root {
         --green: #18B98C; --green-d: #0E8A67; --amber: #F2A93B; --coral: #F0705F;
-        --fiber: #8DC641; --ink: #1F2937; --muted: #7A8088; --line: #EEF0EF;
+        --fiber: #845EF7; --ink: #1F2937; --muted: #7A8088; --line: #EEF0EF;
         --bg: #F4F6F5; --card: #FFFFFF; --red: #E0533F; --track: #EDF1EF;
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -300,7 +300,7 @@
         if (calChart) calChart.destroy();
         const m = data.macros || {};
         const conf = { p: { label: "โปรตีน", color: "#18B98C" }, c: { label: "คาร์บ", color: "#F2A93B" },
-          f: { label: "ไขมัน", color: "#F0705F" }, fib: { label: "Fiber", color: "#8DC641" } }[chartMode];
+          f: { label: "ไขมัน", color: "#F0705F" }, fib: { label: "Fiber", color: "#845EF7" } }[chartMode];
         const single = Boolean(conf);
         let datasets;
         if (single) {

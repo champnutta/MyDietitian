@@ -3931,7 +3931,7 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
     dailyMacroRow("โปรตีน", summary.consumed.p, summary.remaining.p, "#1D9E75"),
     dailyMacroRow("คาร์บ", summary.consumed.c, summary.remaining.c, "#BA7517"),
     dailyMacroRow("ไขมัน", summary.consumed.f, summary.remaining.f, "#D85A30"),
-    dailyMacroRow("Fiber", summary.consumed.fib, summary.remaining.fib, "#639922")
+    dailyMacroRow("Fiber", summary.consumed.fib, summary.remaining.fib, "#845EF7")
   );
 
   if (comment) {
