@@ -580,10 +580,27 @@ function delay(ms: number): Promise<void> {
 
 function buildMealPrompt(request: AnalyzeMealRequest): string {
   const inputHint = request.inputType === "image"
-    ? "Analyze the visible food image only. Do not assume hidden ingredients."
-    : `Analyze this user food text: ${request.text ?? ""}`;
+    ? `Analyze ONLY what is visible in the food image. Do NOT assume ingredients that are not shown.
+- If only sauce/broth is visible, calculate ONLY for the sauce/broth.
+- If the dish is half-eaten or leftovers, calculate ONLY the remaining portion.
+- Do NOT estimate a full standard serving unless the image clearly shows a full plate.
+- If a nutrition label is visible, read and use its exact values.`
+    : `Analyze this food the user described in Thai: "${request.text ?? ""}".
+- Estimate nutrients for the described portion. Words like "นิดเดียว", "น้อย", "ครึ่ง" mean a smaller portion (reduce calories accordingly).`;
 
   return `Act as an expert Thai nutrition coach. ${inputHint}
+
+Analysis priority:
+1. Identify the cuisine and the specific dish.
+2. Watch hidden calories in Thai food: sugar and oil in sauces, coconut milk, and deep-frying. A dipping sauce (น้ำจิ้ม) is small in volume but can be high in sugar and sodium.
+3. You MUST estimate "fiber_g" as a realistic number (e.g. 0.5, 3.2), not 0 by default.
+
+Health score (1-10):
+- 1-3: deep-fried, high sugar, heavy oil/grease.
+- 4-6: moderate / balanced.
+- 7-10: high protein, whole foods, low oil and sugar.
+
+Language: "dish_name.th" and "health_rating.comment" MUST be in Thai only. Keep "comment" a short, practical coaching note.
 
 Return JSON only with this exact shape:
 {
@@ -603,11 +620,7 @@ Return JSON only with this exact shape:
   }
 }
 
-Rules:
-- Estimate only the food that is visible or explicitly described.
-- Use Thai language for health_rating.comment.
-- health_rating.score must be 1 to 10.
-- Use numbers, not strings, for nutrients.`;
+Use numbers (not strings) for all nutrients. health_rating.score must be an integer 1-10.`;
 }
 
 function buildLeftoverPrompt(latestMealName: string): string {
