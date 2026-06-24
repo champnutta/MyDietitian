@@ -691,10 +691,13 @@ Analyze this BIA/InBody/smart-scale/health report for user "${displayName}".
 Current target TDEE is ${currentTargetCal} kcal.
 
 Tasks:
-1. Extract report date and device name if visible.
-2. Extract body metrics: weight, skeletal muscle/muscle mass, body fat percentage, BMR, visceral fat level.
-3. Recommend a conservative updated nutrition target based on the report.
-4. Give Thai-language reasoning and workout advice.
+1. Extract report date (DD/MM/YYYY or TODAY) and device brand/model if visible.
+2. Extract metrics: weight, skeletal muscle/muscle mass, body fat percentage, the MEASURED BMR shown on the report, and visceral fat level.
+3. Calculate a new plan FROM THE MEASURED BMR on the report (use the report's BMR, not a formula estimate):
+   - Estimate maintenance TDEE from the measured BMR and the user's typical activity.
+   - Choose the goal by body-fat status: higher body fat -> a calorie deficit (cut); lean with low muscle -> a slight surplus (bulk); otherwise maintain. Keep changes conservative and safe.
+   - Suggest protein/carb/fat in grams that fit that target.
+4. Give Thai reasoning (reason_th) and workout advice targeting the weak points you found.
 
 Return JSON only with this exact shape:
 {
