@@ -442,9 +442,9 @@ function isSafePublicId(value: string) {
 
 function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["config"]) {
   let finalTdee = 0;
-  let proteinPct = 30;
-  let carbsPct = 40;
-  let fatPct = 30;
+  let proteinG = 0;
+  let carbsG = 0;
+  let fatG = 0;
 
   if (config.mode === "auto") {
     const weightKg = Number(config.weightKg ?? config.weight ?? 0);
@@ -457,39 +457,60 @@ function buildTargetFromSettingsConfig(config: SaveSettingsFromWebRequest["confi
     assertNumberInRange("activityFactor", activityFactor, 1, 2.5);
     assertNumberInRange("goal", Number(config.goal ?? 0), -1000, 1000);
 
-    let bmr = (10 * weightKg) + (6.25 * heightCm) - (5 * age);
-    bmr += normalizeSettingsGender(config.gender) === "male" ? 5 : -161;
-    finalTdee = Math.max(1200, Math.round((bmr * activityFactor) + Number(config.goal ?? 0)));
-    ({ proteinPct, carbsPct, fatPct } = macroPercentagesForDietStyle(config.dietStyle));
+    // Mifflin-St Jeor BMR -> maintenance TDEE.
+    const bmr = (10 * weightKg) + (6.25 * heightCm) - (5 * age) + (normalizeSettingsGender(config.gender) === "male" ? 5 : -161);
+    const maintenance = bmr * activityFactor;
+
+    // Goal as a PERCENTAGE of maintenance (the form's kcal value selects the goal
+    // type), floored so the target never drops below BMR — safer than a fixed
+    // kcal delta that hits small and large bodies very differently.
+    const goalType = inferGoalType(Number(config.goal ?? 0));
+    const goalPct = goalType === "fat_loss" ? -0.18 : goalType === "recomp" ? -0.08 : goalType === "muscle_gain" ? 0.12 : 0;
+    finalTdee = Math.max(Math.round(bmr), 1200, Math.round(maintenance * (1 + goalPct)));
+
+    // Protein by body weight (g/kg) — higher when cutting or gaining to protect/build muscle.
+    const proteinPerKg = (goalType === "fat_loss" || goalType === "muscle_gain") ? 2.0 : 1.8;
+    proteinG = Math.round(weightKg * proteinPerKg);
+
+    // Split the remaining calories into carbs/fat by the chosen diet style, with a
+    // minimum dietary fat (0.8 g/kg) for hormonal health.
+    const { carbsPct: styleCarb, fatPct: styleFat } = macroPercentagesForDietStyle(config.dietStyle);
+    const remainingCal = Math.max(0, finalTdee - proteinG * 4);
+    const cfTotal = styleCarb + styleFat || 1;
+    fatG = Math.max(Math.round(0.8 * weightKg), Math.round((remainingCal * (styleFat / cfTotal)) / 9));
+    carbsG = Math.max(0, Math.round((finalTdee - proteinG * 4 - fatG * 9) / 4));
   } else {
     finalTdee = Math.round(Number(config.tdee ?? 0));
-    proteinPct = Number(config.p ?? 0);
-    carbsPct = Number(config.c ?? 0);
-    fatPct = Number(config.f ?? 0);
+    const proteinPct = Number(config.p ?? 0);
+    const carbsPct = Number(config.c ?? 0);
+    const fatPct = Number(config.f ?? 0);
+    for (const [name, value] of Object.entries({ proteinPct, carbsPct, fatPct })) {
+      assertNumberInRange(name, value, 1, 80);
+    }
+    if (proteinPct + carbsPct + fatPct < 90 || proteinPct + carbsPct + fatPct > 110) {
+      throw new SettingsValidationError("macro percentages should add up close to 100");
+    }
+    proteinG = Math.round((finalTdee * proteinPct / 100) / 4);
+    carbsG = Math.round((finalTdee * carbsPct / 100) / 4);
+    fatG = Math.round((finalTdee * fatPct / 100) / 9);
   }
 
   if (!Number.isFinite(finalTdee) || finalTdee < 800 || finalTdee > 6000) {
     throw new SettingsValidationError("invalid TDEE");
   }
-  for (const [name, value] of Object.entries({ proteinPct, carbsPct, fatPct })) {
-    assertNumberInRange(name, value, 1, 80);
-  }
-  const macroTotal = proteinPct + carbsPct + fatPct;
-  if (macroTotal < 90 || macroTotal > 110) {
-    throw new SettingsValidationError("macro percentages should add up close to 100");
-  }
-  const fiberG = Number(config.fiberG ?? 25);
-  assertNumberInRange("fiberG", fiberG, 0, 100);
+
+  // Fiber target follows the 14 g per 1000 kcal dietary guideline.
+  const fiberG = Math.round((finalTdee / 1000) * 14);
 
   return {
     calories: Math.round(finalTdee),
-    proteinPct: Math.round(proteinPct),
-    carbsPct: Math.round(carbsPct),
-    fatPct: Math.round(fatPct),
-    proteinG: Math.round((finalTdee * proteinPct / 100) / 4),
-    carbsG: Math.round((finalTdee * carbsPct / 100) / 4),
-    fatG: Math.round((finalTdee * fatPct / 100) / 9),
-    fiberG: Math.round(fiberG)
+    proteinPct: Math.round((proteinG * 4 / finalTdee) * 100),
+    carbsPct: Math.round((carbsG * 4 / finalTdee) * 100),
+    fatPct: Math.round((fatG * 9 / finalTdee) * 100),
+    proteinG,
+    carbsG,
+    fatG,
+    fiberG
   };
 }
 
