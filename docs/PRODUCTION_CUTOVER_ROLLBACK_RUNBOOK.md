@@ -38,8 +38,14 @@ Record these values in the cutover notes before changing anything:
 Run this immediately before the approved migration window:
 
 ```powershell
-npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidence-file docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --security-preflight-pass --owner-approval --out docs/FINAL_MIGRATION_READINESS_PACKET.md --json-out docs/FINAL_MIGRATION_READINESS_PACKET.json
+npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager --evidenceFile docs/MANUAL_UAT_EVIDENCE.md --manual-line-media-pass --manual-liff-auth-pass --rollback-reviewed --security-preflight-pass --owner-approval --out docs/FINAL_MIGRATION_READINESS_PACKET.latest.md --jsonOut docs/FINAL_MIGRATION_READINESS_PACKET.latest.json
 ```
+
+Flag notes (verified against `tools/final_migration_readiness_packet.js`):
+
+- Use `--evidenceFile` and `--jsonOut` (camelCase). The kebab-case `--evidence-file`/`--json-out` are not parsed and silently fall back to defaults.
+- Write to the `.latest.*` filenames — only `docs/FINAL_MIGRATION_READINESS_PACKET.latest.*` is git-ignored. Writing to the non-`.latest` names leaves the tree dirty, which the packet then reports as its own blocker.
+- A green packet is only obtainable inside the window: the Google Sheet source fingerprint changes every few minutes from live GAS traffic, and the Firestore-clean check fails until staging data is cleared (next section). Regenerate the packet immediately before the migrate command so its fingerprint still matches the live Sheet.
 
 ## Cutover Steps
 
@@ -49,36 +55,52 @@ npm run migration:readiness-packet -- --project mydietitian --serviceAccount "C:
    The automated pre-cutover report checks the legacy GAS dashboard bridge, but still record the current GAS webhook URL before changing LINE Console.
 4. Confirm Firebase health endpoint is healthy.
 5. Confirm `appConfig/runtime.productionLineWebhookReady` is still `false` before the final switch.
-6. Complete final Google Sheet to Firestore migration using the locked write command only inside the approved window:
+6. Clear staging/rehearsal data so the import lands in a clean database. This deletes only per-user/transactional collections; `appConfig`, `aiAgents`, and `subscriptionPlans` are never touched. Dry-run first to review counts, then commit:
 
 ```powershell
-npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
+npm run clear:staging -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json"
+npm run clear:staging -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmText CLEAR_STAGING_MYDIETITIAN
+```
+
+   This removes the single-user migration rehearsal data. After it runs, regenerate the readiness packet (previous section) so the Firestore-clean check and the live Sheet fingerprint both pass.
+
+7. Complete final Google Sheet to Firestore migration using the locked write command only inside the approved window:
+
+```powershell
+npm run migrate:sheets:dry-run -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --commit --confirmFinalMigration --confirmText FINAL_MIGRATION_MYDIETITIAN --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.latest.json
 ```
 
 This command is intentionally wordy. Do not shorten it; the typed confirmation prevents accidental writes before the final migration window.
 
-7. Run the pre-cutover report again with `--smoke-write`.
+8. Run the pre-cutover report again with `--smoke-write`.
    Confirm the expected `migrationRuns/{importRunId}` document exists, has `status=completed`, `writtenDocuments` equals the planned total, and its counts/fingerprint match the final readiness packet.
-8. Run the read-only import verifier:
+9. Run the read-only import verifier:
 
 ```powershell
-npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.json
+npm run migration:verify-import -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --readinessPacket docs/FINAL_MIGRATION_READINESS_PACKET.latest.json
 ```
 
 Do not replace this with an `--importRunId`-only check. Final verification must use the readiness packet so commit, fingerprint, readiness timestamp, manual gate evidence, and expected counts are tied to the exact approved migration window.
 
-9. Run dashboard parity checks for sampled users.
-10. Run real LINE staging media and LIFF auth tests one final time.
-11. Validate final cutover evidence:
+10. Run dashboard parity checks for sampled users.
+11. Run real LINE staging media and LIFF auth tests one final time.
+12. Validate final cutover evidence:
 
 ```powershell
 npm run uat:evidence-check -- --file docs/MANUAL_UAT_EVIDENCE.md --phase cutover --parity-plan-json docs/DASHBOARD_PARITY_PLAN_OUTPUT.json
 ```
 
-12. In LINE Developers Console, change the production webhook URL to Firebase.
-13. Send a production canary message from an internal LINE user.
-14. Watch Firestore `lineEvents`, `lineEventDedup`, `adminAuditLogs`, `aiRuns`, `mealLogs`, and `paymentReviews` for unexpected errors.
-15. Keep the old GAS webhook URL ready for immediate rollback.
+13. Swap LINE credentials from the test channel to the production channel `2008644255`. Until this is done the Firebase backend verifies signatures with the test channel secret and will reject every production message.
+    - In LINE Developers Console (production channel `2008644255`), copy the Channel secret and issue/copy a Channel access token.
+    - Add new versions in Secret Manager for project `mydietitian`: `LINE_CHANNEL_SECRET` (production channel secret) and `LINE_CHANNEL_ACCESS_TOKEN` (production token). Leave the old test versions enabled until rollback is no longer possible.
+    - Redeploy the functions so gen2 binds the new secret versions: `npm --workspace @mydietitian/backend run deploy` (or `firebase deploy --only functions`).
+    - Verify: `npm run report:pre-cutover -- --project mydietitian --serviceAccount "C:\Users\champ\AppData\Roaming\firebase\znak_iiz_gmail.com_application_default_credentials.json" --smoke-write --useLineSecretManager` is `ok=true` and the health endpoint is healthy on the new versions.
+14. Repoint LIFF to the production channel: set the production LIFF endpoint URL to `https://mydietitian.web.app/settings`, and update `appConfig.liffSettingsUrl` (and the onboarding card link) to the production LIFF ID. Confirm `settings.html` opens and `saveSettingsFromWeb` returns `authVerified=true` under the production LIFF.
+15. Flip `appConfig/runtime.productionLineWebhookReady` to `true` once steps 13–14 verify cleanly.
+16. In LINE Developers Console, change the production webhook URL to Firebase.
+17. Send a production canary message from an internal LINE user.
+18. Watch Firestore `lineEvents`, `lineEventDedup`, `adminAuditLogs`, `aiRuns`, `mealLogs`, and `paymentReviews` for unexpected errors.
+19. Keep the old GAS webhook URL ready for immediate rollback.
 
 ## Canary Tests After Switch
 
