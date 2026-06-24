@@ -580,19 +580,20 @@ function delay(ms: number): Promise<void> {
 
 function buildMealPrompt(request: AnalyzeMealRequest): string {
   const inputHint = request.inputType === "image"
-    ? `Analyze ONLY what is visible in the food image. Do NOT assume ingredients that are not shown.
-- If only sauce/broth is visible, calculate ONLY for the sauce/broth.
-- If the dish is half-eaten or leftovers, calculate ONLY the remaining portion.
-- Do NOT estimate a full standard serving unless the image clearly shows a full plate.
-- If a nutrition label is visible, read and use its exact values.`
+    ? `Identify the SPECIFIC dish in the image from its distinctive visual cues — broth/sauce COLOR, toppings, garnishes, noodle/rice type, and cooking style.
+- Name the exact dish, e.g. "เย็นตาโฟผัดแห้ง" (recognisable by its pink fermented-tofu sauce), not the generic "ก๋วยเตี๋ยวแห้ง".
+- Distinguish look-alikes by colour/sauce/topping: ผัดซีอิ๊ว vs ราดหน้า vs ผัดไทย, ข้าวมันไก่ vs ข้าวหมูแดง, ต้มยำ vs ต้มข่า.
+- Count the portion ACTUALLY on the plate (the visible amount; if it is half-eaten, count what remains). If a nutrition label is visible, use its exact values.`
     : `Analyze this food the user described in Thai: "${request.text ?? ""}".
 - Estimate nutrients for the described portion. Words like "นิดเดียว", "น้อย", "ครึ่ง" mean a smaller portion (reduce calories accordingly).`;
 
-  return `Act as an expert Thai nutrition coach. ${inputHint}
+  return `Act as an expert nutritionist specialized in global cuisines (Thai, Chinese, Japanese, Korean, Western, etc.) as commonly served in Thailand. You can recognise specific named dishes, not just generic food categories.
+
+${inputHint}
 
 Analysis priority:
-1. Identify the cuisine and the specific dish.
-2. Watch hidden calories in Thai food: sugar and oil in sauces, coconut milk, and deep-frying. A dipping sauce (น้ำจิ้ม) is small in volume but can be high in sugar and sodium.
+1. Identify the specific dish as described above.
+2. Hidden calories: INCLUDE the oil, sugar, coconut milk, and sauce absorbed INTO the food even if not separately visible — Thai food hides calories here. A dipping sauce (น้ำจิ้ม) is small in volume but can be high in sugar and sodium.
 3. You MUST estimate "fiber_g" as a realistic number (e.g. 0.5, 3.2), not 0 by default.
 
 Health score (1-10):
