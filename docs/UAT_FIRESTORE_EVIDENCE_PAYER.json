@@ -1,0 +1,701 @@
+{
+  "ok": true,
+  "projectId": "mydietitian",
+  "userId": "Uea3d44a20ec4fadb9dfe904ab44f4cc7",
+  "lineUserId": "Uea3d44a20ec4fadb9dfe904ab44f4cc7",
+  "sinceHours": 240,
+  "requireAll": false,
+  "generatedAt": "2026-06-24T12:19:08.378Z",
+  "summary": [
+    {
+      "collection": "mealLogs",
+      "count": 6,
+      "latest": [
+        {
+          "id": "C788bJGdAakcVQWyQI3P",
+          "lastTimestamp": "2026-06-23T12:08:48.537Z",
+          "fields": {
+            "source": "line",
+            "inputType": "image",
+            "mealNameTh": "ไข่คนเครื่องเทศ + สลัดทูน่า + ขนมปังปิ้ง",
+            "mealNameEn": "Spiced Scrambled Eggs + Tuna Salad + Toasted Bread",
+            "ai": {
+              "runId": "iSee0SrUk7Gn3YcSJPvh",
+              "agentId": "mealAnalysis",
+              "primaryProvider": "gemini",
+              "primaryModel": "gemini-3.5-flash",
+              "provider": "anthropic",
+              "model": "claude-sonnet-4-6",
+              "promptVersion": "meal-v1",
+              "fallbackUsed": true
+            },
+            "adjustments": null
+          }
+        },
+        {
+          "id": "BVHvw2V3qG0K6ypZ4RSc",
+          "lastTimestamp": "2026-06-22T12:08:31.249Z",
+          "fields": {
+            "source": "line",
+            "inputType": "image",
+            "mealNameTh": "ข้าวแกงกะหรี่ญี่ปุ่นหน้าแฮมเบิร์กและไข่ออนเซ็น (หัก: เศษข้าวแกงกะหรี่ญี่ปุ่นที่เหลือในจาน)",
+            "mealNameEn": "Japanese Curry Rice with Hamburg Steak and Onsen Egg",
+            "ai": {
+              "runId": "gmn2mtF4kH5drZBHNiSN",
+              "agentId": "mealAnalysis",
+              "primaryProvider": "gemini",
+              "primaryModel": "gemini-3.5-flash",
+              "provider": "gemini",
+              "model": "gemini-3.5-flash",
+              "promptVersion": "meal-v1",
+              "fallbackUsed": false
+            },
+            "adjustments": [
+              {
+                "type": "leftover-subtraction",
+                "lineMessageId": "619580538834911883",
+                "leftoverNameTh": "เศษข้าวแกงกะหรี่ญี่ปุ่นที่เหลือในจาน",
+                "portionDescription": "เหลือซอสแกงกะหรี่เล็กน้อยติดจาน ข้าวประมาณ 2-3 ช้อนโต๊ะ และหัวหอมทอดเล็กน้อย คิดเป็นประมาณ 10-15% ของมื้อทั้งหมด",
+                "subtractedNutrients": {
+                  "caloriesKcal": 85,
+                  "proteinG": 4,
+                  "carbsG": 12,
+                  "fatG": 3,
+                  "fiberG": 0.5,
+                  "sugarG": 1.5
+                },
+                "previousNutrients": {
+                  "caloriesKcal": 885,
+                  "proteinG": 32.5,
+                  "carbsG": 86,
+                  "fatG": 41.5,
+                  "fiberG": 3.5,
+                  "sugarG": 11.5
+                },
+                "aiRunId": "qrtLe3mWQfolCyCiZtlV",
+                "adjustedAt": "2026-06-22T12:08:31.249Z"
+              }
+            ]
+          }
+        },
+        {
+          "id": "Cik2TKtCI3MDYcuzl4uz",
+          "lastTimestamp": "2026-06-22T11:36:23.293Z",
+          "fields": {
+            "source": "line",
+            "inputType": "image",
+            "mealNameTh": "คาสทาวน์ แบล็คที ฮันนี่ เลมอน คราฟต์โซดา",
+            "mealNameEn": "Castown Black Tea Honey Lemon Craft Soda",
+            "ai": {
+              "runId": "p7gwjSorSj3VVFPymKWH",
+              "agentId": "mealAnalysis",
+              "primaryProvider": "gemini",
+              "primaryModel": "gemini-3.5-flash",
+              "provider": "gemini",
+              "model": "gemini-3.5-flash",
+              "promptVersion": "meal-v1",
+              "fallbackUsed": false
+            },
+            "adjustments": null
+          }
+        },
+        {
+          "id": "PbhzyIMazMXWkpkHNcZx",
+          "lastTimestamp": "2026-06-22T11:36:14.661Z",
+          "fields": {
+            "source": "line",
+            "inputType": "image",
+            "mealNameTh": "เห็ดเข็มทองทอดกรอบโรยผงปรุงรส",
+            "mealNameEn": "Deep-fried Enoki Mushrooms with Seasoning",
+            "ai": {
+              "runId": "3haTV68CwH5KgAEGnpvj",
+              "agentId": "mealAnalysis",
+              "primaryProvider": "gemini",
+              "primaryModel": "gemini-3.5-flash",
+              "provider": "gemini",
+              "model": "gemini-3.5-flash",
+              "promptVersion": "meal-v1",
+              "fallbackUsed": false
+            },
+            "adjustments": null
+          }
+        },
+        {
+          "id": "1fetgaQcKvlgFeTaVCQW",
+          "lastTimestamp": "2026-06-21T14:37:55.892Z",
+          "fields": {
+            "source": "line",
+            "inputType": "image",
+            "mealNameTh": "ข้าวซอยเนื้อ",
+            "mealNameEn": "Khao Soi with Beef",
+            "ai": {
+              "runId": "voG36gWgOPGBQ4uVNj14",
+              "agentId": "mealAnalysis",
+              "primaryProvider": "gemini",
+              "primaryModel": "gemini-3.5-flash",
+              "provider": "gemini",
+              "model": "gemini-3.5-flash",
+              "promptVersion": "meal-v1",
+              "fallbackUsed": false
+            },
+            "adjustments": null
+          }
+        },
+        {
+          "id": "F1zXZ90BfNXWqSWw3VMD",
+          "lastTimestamp": "2026-06-21T09:57:13.681Z",
+          "fields": {
+            "source": "line",
+            "inputType": "image",
+            "mealNameTh": "ทงคัตสึราเมน ใส่หมูชาชู ไข่ต้ม และเทมปุระผัก",
+            "mealNameEn": "Tonkotsu Ramen with Chashu Pork, Soft-Boiled Egg, and Vegetable Tempura",
+            "ai": {
+              "runId": "SZ3qQpBPTPskGuEwo8m9",
+              "agentId": "mealAnalysis",
+              "primaryProvider": "gemini",
+              "primaryModel": "gemini-3.5-flash",
+              "provider": "gemini",
+              "model": "gemini-3.5-flash",
+              "promptVersion": "meal-v1",
+              "fallbackUsed": false
+            },
+            "adjustments": null
+          }
+        }
+      ]
+    },
+    {
+      "collection": "aiRuns",
+      "count": 7,
+      "latest": [
+        {
+          "id": "iSee0SrUk7Gn3YcSJPvh",
+          "lastTimestamp": "2026-06-23T12:08:48.537Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "image",
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": true,
+            "error": null
+          }
+        },
+        {
+          "id": "qrtLe3mWQfolCyCiZtlV",
+          "lastTimestamp": "2026-06-22T12:08:31.249Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "leftover_image",
+            "provider": "anthropic",
+            "model": "claude-sonnet-4-6",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": true,
+            "error": null
+          }
+        },
+        {
+          "id": "gmn2mtF4kH5drZBHNiSN",
+          "lastTimestamp": "2026-06-22T11:38:19.353Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "image",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": false,
+            "error": null
+          }
+        },
+        {
+          "id": "p7gwjSorSj3VVFPymKWH",
+          "lastTimestamp": "2026-06-22T11:36:23.293Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "image",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": false,
+            "error": null
+          }
+        },
+        {
+          "id": "3haTV68CwH5KgAEGnpvj",
+          "lastTimestamp": "2026-06-22T11:36:14.661Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "image",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": false,
+            "error": null
+          }
+        },
+        {
+          "id": "voG36gWgOPGBQ4uVNj14",
+          "lastTimestamp": "2026-06-21T14:37:55.892Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "image",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": false,
+            "error": null
+          }
+        },
+        {
+          "id": "SZ3qQpBPTPskGuEwo8m9",
+          "lastTimestamp": "2026-06-21T09:57:13.681Z",
+          "fields": {
+            "status": "completed",
+            "source": "line",
+            "inputType": "image",
+            "provider": "gemini",
+            "model": "gemini-3.5-flash",
+            "primaryProvider": "gemini",
+            "primaryModel": "gemini-3.5-flash",
+            "fallbackUsed": false,
+            "error": null
+          }
+        }
+      ]
+    },
+    {
+      "collection": "paymentReviews",
+      "count": 5,
+      "latest": [
+        {
+          "id": "zmXr5ZkIteyyAtLoaWLG",
+          "lastTimestamp": "2026-06-21T15:02:07.121Z",
+          "fields": {
+            "status": "rejected",
+            "amount": null,
+            "days": null,
+            "planId": null,
+            "adminDecision": null,
+            "lineMessageId": null,
+            "reviewedBy": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "zyV2L0u6xJvGkbM0hutZ",
+          "lastTimestamp": "2026-06-21T15:01:46.445Z",
+          "fields": {
+            "status": "approved",
+            "amount": null,
+            "days": null,
+            "planId": "lifetime",
+            "adminDecision": null,
+            "lineMessageId": "619453025550860629",
+            "reviewedBy": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "OQDUoJnaSgWhGOPprikW",
+          "lastTimestamp": "2026-06-21T14:32:52.455Z",
+          "fields": {
+            "status": "approved",
+            "amount": null,
+            "days": 30,
+            "planId": null,
+            "adminDecision": null,
+            "lineMessageId": "619450109318660409",
+            "reviewedBy": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "XigFw0K0U6JBAnetLy34",
+          "lastTimestamp": "2026-06-21T09:49:52.761Z",
+          "fields": {
+            "status": "approved",
+            "amount": null,
+            "days": 30,
+            "planId": null,
+            "adminDecision": null,
+            "lineMessageId": "619421634507309197",
+            "reviewedBy": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "o88NYLuacajJZXuil6Ia",
+          "lastTimestamp": "2026-06-20T17:08:35.345Z",
+          "fields": {
+            "status": "rejected",
+            "amount": null,
+            "days": null,
+            "planId": null,
+            "adminDecision": null,
+            "lineMessageId": "619320775605747972",
+            "reviewedBy": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        }
+      ]
+    },
+    {
+      "collection": "biaReports",
+      "count": 0,
+      "latest": []
+    },
+    {
+      "collection": "subscriptionEvents",
+      "count": 9,
+      "latest": [
+        {
+          "id": "ExMMdakEpXJnMKOARKXj",
+          "lastTimestamp": "2026-06-21T15:02:07.121Z",
+          "fields": {
+            "type": "admin-reject",
+            "planId": null,
+            "days": null,
+            "expiresAt": null,
+            "adminLineUserId": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "2vRgCIt54pjRnKsq1bD0",
+          "lastTimestamp": "2026-06-21T15:01:46.445Z",
+          "fields": {
+            "type": "admin-approve",
+            "planId": "lifetime",
+            "days": null,
+            "expiresAt": null,
+            "adminLineUserId": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "ILF71qDCFBD5ZrU0e8cw",
+          "lastTimestamp": "2026-06-21T15:01:25.554Z",
+          "fields": {
+            "type": "slip-submitted",
+            "planId": null,
+            "days": null,
+            "expiresAt": null,
+            "adminLineUserId": null,
+            "reason": null
+          }
+        },
+        {
+          "id": "6cNoABdkk5kj1HiXH8Ty",
+          "lastTimestamp": "2026-06-21T14:32:52.455Z",
+          "fields": {
+            "type": "admin-approve",
+            "planId": null,
+            "days": 30,
+            "expiresAt": "2026-08-22T17:06:49.932Z",
+            "adminLineUserId": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "EHGdimBKk9CMOlOr6iG9",
+          "lastTimestamp": "2026-06-21T14:32:30.578Z",
+          "fields": {
+            "type": "slip-submitted",
+            "planId": null,
+            "days": null,
+            "expiresAt": null,
+            "adminLineUserId": null,
+            "reason": null
+          }
+        },
+        {
+          "id": "a8P5qNAmFfBEyLN9k1rz",
+          "lastTimestamp": "2026-06-21T09:49:52.761Z",
+          "fields": {
+            "type": "admin-approve",
+            "planId": null,
+            "days": 30,
+            "expiresAt": "2026-07-23T17:06:49.932Z",
+            "adminLineUserId": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        },
+        {
+          "id": "IluX7J9VDkQW7VTkl913",
+          "lastTimestamp": "2026-06-21T09:49:36.707Z",
+          "fields": {
+            "type": "slip-submitted",
+            "planId": null,
+            "days": null,
+            "expiresAt": null,
+            "adminLineUserId": null,
+            "reason": null
+          }
+        },
+        {
+          "id": "zyzXs9udg5xIomCfzW0p",
+          "lastTimestamp": "2026-06-20T17:08:35.345Z",
+          "fields": {
+            "type": "admin-reject",
+            "planId": null,
+            "days": null,
+            "expiresAt": null,
+            "adminLineUserId": "U3fb492842b941cdb615ca4151abf50d5",
+            "reason": null
+          }
+        }
+      ]
+    },
+    {
+      "collection": "subscriptions",
+      "count": 1,
+      "latest": [
+        {
+          "id": "Uea3d44a20ec4fadb9dfe904ab44f4cc7",
+          "lastTimestamp": "2026-06-21T15:01:46.445Z",
+          "fields": {
+            "status": "active",
+            "entitlementType": "lifetime",
+            "lifetime": true,
+            "expiresAt": null,
+            "lastApprovedDays": null,
+            "lastApprovedPlanId": "lifetime",
+            "lastApprovedBy": "U3fb492842b941cdb615ca4151abf50d5"
+          }
+        }
+      ]
+    },
+    {
+      "collection": "profiles",
+      "count": 1,
+      "latest": [
+        {
+          "id": "Uea3d44a20ec4fadb9dfe904ab44f4cc7",
+          "lastTimestamp": "2026-06-23T12:08:48.608Z",
+          "fields": {
+            "target": {
+              "fatG": 40,
+              "proteinG": 90,
+              "fatPct": 30,
+              "carbsG": 120,
+              "proteinPct": 30,
+              "calories": 1200,
+              "carbsPct": 40,
+              "fiberG": 25
+            },
+            "expiresAt": null,
+            "lifetime": true,
+            "authVerified": true,
+            "weightKg": 54
+          }
+        }
+      ]
+    },
+    {
+      "collection": "profileEvents",
+      "count": 7,
+      "latest": [
+        {
+          "id": "7MpkIOCmn5ceR8COHHke",
+          "lastTimestamp": "2026-06-23T12:08:48.608Z",
+          "fields": {
+            "type": "meal-streak-updated",
+            "status": "continued",
+            "source": null,
+            "target": null,
+            "biaReportId": null
+          }
+        },
+        {
+          "id": "vmiVqOS6HrTgzZZSv3xI",
+          "lastTimestamp": "2026-06-22T11:38:19.400Z",
+          "fields": {
+            "type": "meal-streak-updated",
+            "status": "same-day",
+            "source": null,
+            "target": null,
+            "biaReportId": null
+          }
+        },
+        {
+          "id": "YrS35OoGDdDcxzvYnVx4",
+          "lastTimestamp": "2026-06-22T11:36:23.335Z",
+          "fields": {
+            "type": "meal-streak-updated",
+            "status": "same-day",
+            "source": null,
+            "target": null,
+            "biaReportId": null
+          }
+        },
+        {
+          "id": "fhCFZpHbn62VKkOtiSk9",
+          "lastTimestamp": "2026-06-22T11:36:14.767Z",
+          "fields": {
+            "type": "meal-streak-updated",
+            "status": "continued",
+            "source": null,
+            "target": null,
+            "biaReportId": null
+          }
+        },
+        {
+          "id": "MuoikfI2PuIGVxTHVX0u",
+          "lastTimestamp": "2026-06-21T14:37:55.939Z",
+          "fields": {
+            "type": "meal-streak-updated",
+            "status": "same-day",
+            "source": null,
+            "target": null,
+            "biaReportId": null
+          }
+        },
+        {
+          "id": "sb28Cskig42kHeVWS713",
+          "lastTimestamp": "2026-06-21T09:57:13.801Z",
+          "fields": {
+            "type": "meal-streak-updated",
+            "status": "started",
+            "source": null,
+            "target": null,
+            "biaReportId": null
+          }
+        },
+        {
+          "id": "W7fs2ldgWgqKdFB6oDRG",
+          "lastTimestamp": "2026-06-20T17:06:49.850Z",
+          "fields": {
+            "type": "web-settings-save",
+            "status": null,
+            "source": null,
+            "target": {
+              "calories": 1200,
+              "proteinPct": 30,
+              "carbsPct": 40,
+              "fatPct": 30,
+              "proteinG": 90,
+              "carbsG": 120,
+              "fatG": 40,
+              "fiberG": 25
+            },
+            "biaReportId": null
+          }
+        }
+      ]
+    },
+    {
+      "collection": "profileAuthEvents",
+      "count": 1,
+      "latest": [
+        {
+          "id": "Amc9Vt7pmTwJyJff9Rnw",
+          "lastTimestamp": "2026-06-20T17:06:50.135Z",
+          "fields": {
+            "type": null,
+            "status": null,
+            "authVerified": null,
+            "reason": null
+          }
+        }
+      ]
+    },
+    {
+      "collection": "exerciseLogs",
+      "count": 0,
+      "latest": []
+    },
+    {
+      "collection": "weightLogs",
+      "count": 1,
+      "latest": [
+        {
+          "id": "og7N75qoOEqQDmiNAKSV",
+          "lastTimestamp": "2026-06-20T17:06:49.850Z",
+          "fields": {
+            "source": "web-form",
+            "weightKg": 54,
+            "bodyFatPct": null,
+            "muscleMassKg": null,
+            "deviceName": "LIFF Form"
+          }
+        }
+      ]
+    }
+  ],
+  "checklistHints": [
+    {
+      "case": "Food image",
+      "ok": true,
+      "evidence": "mealLogs: C788bJGdAakcVQWyQI3P, BVHvw2V3qG0K6ypZ4RSc, Cik2TKtCI3MDYcuzl4uz; aiRuns: iSee0SrUk7Gn3YcSJPvh, qrtLe3mWQfolCyCiZtlV, gmn2mtF4kH5drZBHNiSN"
+    },
+    {
+      "case": "Leftover image",
+      "ok": true,
+      "evidence": "mealLogs: C788bJGdAakcVQWyQI3P, BVHvw2V3qG0K6ypZ4RSc, Cik2TKtCI3MDYcuzl4uz; aiRuns: iSee0SrUk7Gn3YcSJPvh, qrtLe3mWQfolCyCiZtlV, gmn2mtF4kH5drZBHNiSN"
+    },
+    {
+      "case": "Payment slip image",
+      "ok": false,
+      "evidence": "missing pending paymentReviews evidence"
+    },
+    {
+      "case": "Admin approve",
+      "ok": true,
+      "evidence": "subscriptionEvents: ExMMdakEpXJnMKOARKXj, 2vRgCIt54pjRnKsq1bD0, ILF71qDCFBD5ZrU0e8cw; subscriptions: Uea3d44a20ec4fadb9dfe904ab44f4cc7; paymentReviews: zmXr5ZkIteyyAtLoaWLG, zyV2L0u6xJvGkbM0hutZ, OQDUoJnaSgWhGOPprikW"
+    },
+    {
+      "case": "Admin reject",
+      "ok": true,
+      "evidence": "subscriptionEvents: ExMMdakEpXJnMKOARKXj, 2vRgCIt54pjRnKsq1bD0, ILF71qDCFBD5ZrU0e8cw; paymentReviews: zmXr5ZkIteyyAtLoaWLG, zyV2L0u6xJvGkbM0hutZ, OQDUoJnaSgWhGOPprikW"
+    },
+    {
+      "case": "BIA image/PDF",
+      "ok": false,
+      "evidence": "missing biaReports plus bia-analysis/weight evidence"
+    },
+    {
+      "case": "BIA confirm",
+      "ok": false,
+      "evidence": "missing target-update-confirmed profileEvents or profiles.target"
+    },
+    {
+      "case": "LIFF settings opens",
+      "ok": true,
+      "evidence": "profiles: Uea3d44a20ec4fadb9dfe904ab44f4cc7"
+    },
+    {
+      "case": "LINE ID token sent",
+      "ok": true,
+      "evidence": "profileAuthEvents: Amc9Vt7pmTwJyJff9Rnw"
+    }
+  ],
+  "missingHints": [
+    {
+      "case": "Payment slip image",
+      "ok": false,
+      "evidence": "missing pending paymentReviews evidence"
+    },
+    {
+      "case": "BIA image/PDF",
+      "ok": false,
+      "evidence": "missing biaReports plus bia-analysis/weight evidence"
+    },
+    {
+      "case": "BIA confirm",
+      "ok": false,
+      "evidence": "missing target-update-confirmed profileEvents or profiles.target"
+    }
+  ]
+}
