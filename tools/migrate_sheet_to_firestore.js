@@ -479,15 +479,38 @@ function planMigration(workbook) {
     }));
   }
 
+  // Meal/exercise logs live in "Log" plus one or more "Logs_Archive_*" tabs.
+  // archiveOldLogs() MOVES rows older than 90 days from Log into the archive,
+  // but archive tabs have also been duplicated manually, so the same logical
+  // row can appear verbatim in several sheets. Importing every sheet inflates
+  // the data 3-4x. We dedup by full row content, but a genuine same-day repeat
+  // (the user logged an identical meal twice) appears the same number of times
+  // in EVERY copy, so the real count of a row is the MAX number of identical
+  // rows found in any single sheet.
+  const logGroups = new Map();
   for (const [sheetName, rows] of Object.entries(workbook)) {
     if (sheetName !== "Log" && !sheetName.startsWith("Logs_Archive")) continue;
     for (const row of rows) {
       const userId = stringValue(row.UserID);
       if (!userId) continue;
-      const canonicalUserId = userId;
       const type = stringValue(row.Dish_EN_or_Type || row.Column_4);
       const collection = type === "Exercise" || type === "Burn" ? "exerciseLogs" : "mealLogs";
-      docs.push(doc(collection, stableId(sheetName, row.__rowNumber), mapLogRow(sheetName, row, collection, canonicalUserId)));
+      const key = logContentKey(collection, userId, row);
+      let group = logGroups.get(key);
+      if (!group) {
+        group = { collection, canonicalUserId: userId, sample: { sheetName, row }, perSheet: new Map() };
+        logGroups.set(key, group);
+      }
+      group.perSheet.set(sheetName, (group.perSheet.get(sheetName) || 0) + 1);
+      // Prefer the live "Log" row for provenance when the same content exists there.
+      if (sheetName === "Log" && group.sample.sheetName !== "Log") group.sample = { sheetName, row };
+    }
+  }
+  for (const [key, group] of logGroups) {
+    const legitCount = Math.max(...group.perSheet.values());
+    const { sheetName, row } = group.sample;
+    for (let i = 0; i < legitCount; i += 1) {
+      docs.push(doc(group.collection, dedupLogId(group.collection, key, i), mapLogRow(sheetName, row, group.collection, group.canonicalUserId)));
     }
   }
 
@@ -591,6 +614,36 @@ function doc(collection, id, data) {
 
 function stableId(sheetName, rowNumber) {
   return `${sheetName.replace(/[^A-Za-z0-9_-]/g, "_")}_${rowNumber}`;
+}
+
+// Content fingerprint of a Log/archive row, used to collapse duplicate copies
+// across sheets while preserving genuine same-day repeats. Two rows share a key
+// only when every meaningful column matches, so distinct meals are never merged.
+function logContentKey(collection, userId, row) {
+  const dateValue = dateOrNull(row.Date);
+  const dateKey = dateValue ? dateValue.toISOString().slice(0, 10) : String(row.Date ?? "");
+  return [
+    collection,
+    userId,
+    dateKey,
+    stringValue(row.Dish_TH || row.Column_3),
+    stringValue(row.Dish_EN_or_Type || row.Column_4),
+    stringValue(row.Portion || row.Column_5),
+    numberValue(row.Calories || row.Column_6),
+    numberValue(row.Protein || row.Column_7),
+    numberValue(row.Carbs || row.Column_8),
+    numberValue(row.Fat || row.Column_9),
+    numberValue(row.Fiber || row.Column_10),
+    numberValue(row.Sugar || row.Column_11),
+    numberValue(row.Score || row.Column_12),
+    stringValue(row.Comment || row.Column_13)
+  ].join("");
+}
+
+// Deterministic, idempotent doc id for a deduped Log/archive row.
+function dedupLogId(collection, key, index) {
+  const hash = crypto.createHash("sha1").update(key).digest("hex").slice(0, 20);
+  return `${collection === "exerciseLogs" ? "ex" : "meal"}_${hash}_${index}`;
 }
 
 function legacyMeta(sheetName, row) {
