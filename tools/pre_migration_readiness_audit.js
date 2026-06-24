@@ -33,7 +33,7 @@ async function main() {
 
   await checkHttp("health endpoint", `${FUNCTIONS_BASE}/health`, { expectStatus: 200, expectJsonOk: true });
   await checkHostingPage("LIFF settings page", `${HOSTING_ORIGIN}/settings`, ["MyDietitian setup", "SAVE_SETTINGS_URL", "X-Line-Id-Token"]);
-  await checkHostingPage("Firestore dashboard page", `${HOSTING_ORIGIN}/dashboard?uid=test-readiness-audit`, ["Firestore dashboard", "DASHBOARD_URL", "mealHistory"]);
+  await checkHostingPage("Firestore dashboard page", `${HOSTING_ORIGIN}/dashboard?uid=test-readiness-audit`, ["MyDietitian Dashboard", "DASHBOARD_URL", "getDashboardData"]);
   await checkCors("saveSettingsFromWeb CORS", `${FUNCTIONS_BASE}/saveSettingsFromWeb`, "content-type,x-line-id-token");
   await checkCors("getDashboardData CORS", `${FUNCTIONS_BASE}/getDashboardData`, "content-type");
   await checkDashboardContract("test-readiness-audit", 7);
@@ -293,6 +293,17 @@ async function checkAiAgents() {
   const disabled = [];
   const misconfigured = [];
   const models = {};
+  // Text/image meal + exercise analysis stay Gemini-primary (fast, cheap).
+  // BIA PDF and coach consultation are Anthropic-primary because Gemini times
+  // out on those payloads; each keeps the other provider as the fallback.
+  const GEMINI = { provider: "gemini", model: EXPECTED_GEMINI_MODEL };
+  const ANTHROPIC = { provider: "anthropic", model: EXPECTED_ANTHROPIC_MODEL };
+  const AGENT_EXPECTATIONS = {
+    mealAnalysis: { primary: GEMINI, fallback: ANTHROPIC },
+    exerciseAnalysis: { primary: GEMINI, fallback: ANTHROPIC },
+    biaAnalysis: { primary: ANTHROPIC, fallback: GEMINI },
+    coachConsultation: { primary: ANTHROPIC, fallback: GEMINI },
+  };
   for (const id of REQUIRED_AI_AGENTS) {
     const snap = await db.collection("aiAgents").doc(id).get();
     if (!snap.exists) {
@@ -302,21 +313,25 @@ async function checkAiAgents() {
     const data = snap.data() || {};
     if (data.enabled !== true) disabled.push(id);
     models[id] = `${data.provider || "unknown"}/${data.model || "unknown"}`;
+    const expect = AGENT_EXPECTATIONS[id];
     const fallback = Array.isArray(data.fallbacks)
-      ? data.fallbacks.find((item) => item?.provider === "anthropic")
+      ? data.fallbacks.find((item) => item?.provider === expect.fallback.provider)
       : null;
-    const primaryOk = data.provider === "gemini" &&
-      data.model === EXPECTED_GEMINI_MODEL &&
+    const primaryOk = data.provider === expect.primary.provider &&
+      data.model === expect.primary.model &&
       Number(data.maxAttempts) === 1;
     const fallbackOk = Boolean(fallback) &&
-      fallback.model === EXPECTED_ANTHROPIC_MODEL &&
+      fallback.model === expect.fallback.model &&
       Number(fallback.maxAttempts) === 1;
     if (!primaryOk || !fallbackOk) misconfigured.push(id);
   }
+  const expected = Object.entries(AGENT_EXPECTATIONS)
+    .map(([id, e]) => `${id}=${e.primary.provider}>${e.fallback.provider}`)
+    .join(",");
   record(
     "aiAgents config",
     missing.length === 0 && disabled.length === 0 && misconfigured.length === 0 ? "pass" : "fail",
-    `models=${JSON.stringify(models)} expectedPrimary=gemini/${EXPECTED_GEMINI_MODEL} expectedFallback=anthropic/${EXPECTED_ANTHROPIC_MODEL} missing=${missing.join(",")} disabled=${disabled.join(",")} misconfigured=${misconfigured.join(",")}`
+    `models=${JSON.stringify(models)} expected=${expected} missing=${missing.join(",")} disabled=${disabled.join(",")} misconfigured=${misconfigured.join(",")}`
   );
 }
 
