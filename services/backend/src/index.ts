@@ -2117,7 +2117,7 @@ async function handleLineTextCommand(
   }
 
   if (text.includes("คู่มือ") || text.includes("วิธีใช้") || lower.includes("help")) {
-    await replyToLine(replyToken, formatHelpReply());
+    await replyToLineMessages(replyToken, [buildHelpFlexMessage()]);
     return { status: "help-replied" };
   }
 
@@ -3732,12 +3732,81 @@ async function formatDashboardReply(lineUserId: string): Promise<string> {
 function formatHelpReply(): string {
   return [
     "คู่มือใช้งานแบบย่อ",
-    "บันทึกอาหาร: พิมพ์ชื่ออาหาร หรือส่งรูปหลังเปิด image parity",
+    "บันทึกอาหาร: พิมพ์ชื่ออาหาร หรือส่งรูป",
     "สรุปวันนี้: พิมพ์ `สรุป` หรือ `ยอด`",
     "จดน้ำหนัก: `หนัก 65 fat 20 muscle 28`",
-    "ลบรายการล่าสุด: `ลบ` หรือ `undo`",
+    "ลบรายการล่าสุด: `ลบ` หรือ `ยกเลิก`",
     "Dashboard: พิมพ์ `กราฟ` หรือ `dashboard`"
   ].join("\n");
+}
+
+// Categorised usage guide, ported from the GAS Flex carousel (4 cards) so the
+// "คู่มือ" reply keeps the same sectioned look instead of a flat text block.
+function buildHelpFlexMessage(): LineMessage {
+  const card = (
+    backgroundColor: string,
+    color: string,
+    title: string,
+    lines: Array<{ text: string; color?: string; weight?: "bold" }>
+  ) => {
+    const contents: Array<Record<string, unknown>> = [];
+    lines.forEach((line, index) => {
+      if (index > 0) contents.push({ type: "separator", margin: "sm" });
+      contents.push({
+        type: "text",
+        text: line.text,
+        wrap: true,
+        size: "sm",
+        color: line.color ?? "#374151",
+        ...(line.weight ? { weight: line.weight } : {})
+      });
+    });
+    return {
+      type: "bubble",
+      size: "kilo",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor,
+        contents: [{ type: "text", text: title, weight: "bold", color, size: "md" }]
+      },
+      body: { type: "box", layout: "vertical", spacing: "sm", contents }
+    };
+  };
+
+  return {
+    type: "flex",
+    altText: "📖 คู่มือการใช้งาน MyDietitian",
+    contents: {
+      type: "carousel",
+      contents: [
+        card("#E8F5E9", "#1DB446", "🍽️ 1. บันทึกอาหาร", [
+          { text: "📸 ส่งรูปอาหาร หรือ พิมพ์ชื่อ (เช่น ข้าวมันไก่)" },
+          { text: "✏️ แก้คำผิด: พิมพ์ \"ไม่ใช่หมู เป็นไก่\"", color: "#666666" },
+          { text: "✂️ ลดปริมาณ: พิมพ์เช่น \"กินแค่ครึ่งเดียว\"", color: "#666666" },
+          { text: "♻️ คืนแคลอรี่: ถ่ายรูปจานที่กินเหลือ (เช่น กระดูก, น้ำซุป) AI จะหักแคลอรี่จากมื้อล่าสุดให้", color: "#1DB446", weight: "bold" }
+        ]),
+        card("#FFF3E0", "#FF9800", "🏃‍♂️ 2. ร่างกาย & ออกกำลัง", [
+          { text: "⏱️ บันทึกเบิร์น: พิมพ์ \"วิ่ง 30 นาที\" (บอทจะเพิ่มเป้าหมายการกินให้ทันที)" },
+          { text: "⚖️ จดน้ำหนัก: พิมพ์ \"หนัก 65 fat 20%\"", color: "#666666" },
+          { text: "🏥 ส่งผลตรวจ: ส่งรูป หรือ ไฟล์ PDF ใบ InBody / เครื่องชั่งอัจฉริยะ ให้โค้ชจัดแผนใหม่", color: "#666666" }
+        ]),
+        card("#E3F2FD", "#2196F3", "📊 3. ดูสถิติ & ตั้งค่า", [
+          { text: "📈 เช็คยอดวันนี้: พิมพ์ \"สรุป\"" },
+          { text: "💻 ดูกราฟย้อนหลัง: พิมพ์ \"กราฟ\" หรือ \"dashboard\"", color: "#666666" },
+          { text: "⚙️ ปรับเป้าหมาย: พิมพ์ \"ตั้งค่า\" เพื่อเปิดฟอร์ม", color: "#666666" },
+          { text: "👤 เช็คข้อมูลผู้ใช้: พิมพ์ \"ข้อมูลส่วนตัว\"", color: "#666666" },
+          { text: "↩️ ลบรายการล่าสุด: พิมพ์ \"ยกเลิก\"", color: "#FF334B" }
+        ]),
+        card("#F3E5F5", "#9C27B0", "💡 4. โค้ช AI & ติดต่อ", [
+          { text: "🥗 คิดไม่ออกบอก AI: พิมพ์ \"กินไรดี\" (AI จะแนะนำเมนูให้พอดีกับโควต้าที่เหลือ)" },
+          { text: "💬 ปรึกษา: พิมพ์ถามได้ทุกเรื่อง เช่น \"ดึกแล้วกินไรดี\"", color: "#666666" },
+          { text: "🎫 ต่ออายุ: พิมพ์ \"เติมวัน\" หรือ \"โค้ด [รหัส]\"", color: "#666666" },
+          { text: "👨‍⚕️ ติดต่อคนจริง: พิมพ์ \"แอดมิน\" ตามด้วยข้อความ", color: "#666666" }
+        ])
+      ]
+    }
+  };
 }
 
 function getBangkokDayRange(date: Date): { startDate: Date; endDate: Date } {
