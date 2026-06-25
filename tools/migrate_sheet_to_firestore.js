@@ -460,6 +460,7 @@ function planMigration(workbook) {
       displayName: stringValue(row.Name) || "Member",
       lineUserId,
       target,
+      ...legacyStreakFromUserRow(row),
       legacy: legacyMeta("Users", row)
     }));
 
@@ -561,6 +562,20 @@ function targetFromUserRow(row) {
     fatG: Math.round((calories * fatPct / 100) / 9) || 0,
     fiberG: 25
   };
+}
+
+// Carry the GAS streak onto the profile so a migrated user keeps their
+// "บันทึกต่อเนื่อง N วัน" instead of restarting at day one. The Users mapping
+// aliases Last_Log_Date -> row.Last_Update and Streak_Count -> row.Streak.
+function legacyStreakFromUserRow(row) {
+  const count = Math.max(0, numberValue(row.Streak));
+  const lastDate = dateOrNull(row.Last_Update);
+  if (count <= 0 || !lastDate) return {};
+  return { streak: { count, lastMealLogDayKey: bangkokIsoDayKey(lastDate), updatedAt: null } };
+}
+
+function bangkokIsoDayKey(date) {
+  return new Date(date.getTime() + 7 * 3600 * 1000).toISOString().slice(0, 10);
 }
 
 function mapLogRow(sheetName, row, collection, canonicalUserId) {
