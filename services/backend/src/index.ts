@@ -2117,7 +2117,9 @@ async function handleLineTextCommand(
   }
 
   if (text.includes("คู่มือ") || text.includes("วิธีใช้") || lower.includes("help")) {
-    await replyToLineMessages(replyToken, [buildHelpFlexMessage()]);
+    const helpConfig = await getAppRuntimeConfig();
+    const helpLiffUrl = `${helpConfig.liffSettingsUrl}&uid=${encodeURIComponent(lineUserId)}`;
+    await replyToLineMessages(replyToken, [buildHelpFlexMessage(lineUserId, helpLiffUrl)]);
     return { status: "help-replied" };
   }
 
@@ -3740,14 +3742,32 @@ function formatHelpReply(): string {
   ].join("\n");
 }
 
-// Categorised usage guide, ported from the GAS Flex carousel (4 cards) so the
-// "คู่มือ" reply keeps the same sectioned look instead of a flat text block.
-function buildHelpFlexMessage(): LineMessage {
+// Categorised usage guide, ported from the GAS Flex carousel (4 cards) and
+// upgraded with tappable action buttons (message + LIFF/dashboard URIs) so users
+// tap instead of typing commands. Keeps the same sectioned look as GAS.
+function buildHelpFlexMessage(lineUserId: string, liffUrl: string): LineMessage {
+  const dashboardUrl = `https://mydietitian.web.app/dashboard?uid=${encodeURIComponent(lineUserId)}`;
+
+  const msgBtn = (label: string, text: string) => ({
+    type: "button",
+    style: "secondary",
+    height: "sm",
+    action: { type: "message", label, text }
+  });
+  const uriBtn = (label: string, uri: string, color?: string) => ({
+    type: "button",
+    style: color ? "primary" : "secondary",
+    ...(color ? { color } : {}),
+    height: "sm",
+    action: { type: "uri", label, uri }
+  });
+
   const card = (
     backgroundColor: string,
     color: string,
     title: string,
-    lines: Array<{ text: string; color?: string; weight?: "bold" }>
+    lines: Array<{ text: string; color?: string; weight?: "bold" }>,
+    buttons?: Array<Record<string, unknown>>
   ) => {
     const contents: Array<Record<string, unknown>> = [];
     lines.forEach((line, index) => {
@@ -3761,7 +3781,7 @@ function buildHelpFlexMessage(): LineMessage {
         ...(line.weight ? { weight: line.weight } : {})
       });
     });
-    return {
+    const bubble: Record<string, unknown> = {
       type: "bubble",
       size: "kilo",
       header: {
@@ -3772,6 +3792,10 @@ function buildHelpFlexMessage(): LineMessage {
       },
       body: { type: "box", layout: "vertical", spacing: "sm", contents }
     };
+    if (buttons && buttons.length) {
+      bubble.footer = { type: "box", layout: "vertical", spacing: "sm", paddingAll: "12px", contents: buttons };
+    }
+    return bubble;
   };
 
   return {
@@ -3790,19 +3814,24 @@ function buildHelpFlexMessage(): LineMessage {
           { text: "⏱️ บันทึกเบิร์น: พิมพ์ \"วิ่ง 30 นาที\" (บอทจะเพิ่มเป้าหมายการกินให้ทันที)" },
           { text: "⚖️ จดน้ำหนัก: พิมพ์ \"หนัก 65 fat 20%\"", color: "#666666" },
           { text: "🏥 ส่งผลตรวจ: ส่งรูป หรือ ไฟล์ PDF ใบ InBody / เครื่องชั่งอัจฉริยะ ให้โค้ชจัดแผนใหม่", color: "#666666" }
+        ], [
+          msgBtn("📋 วิธีออกกำลังกาย", "ออกกำลังกาย")
         ]),
         card("#E3F2FD", "#2196F3", "📊 3. ดูสถิติ & ตั้งค่า", [
-          { text: "📈 เช็คยอดวันนี้: พิมพ์ \"สรุป\"" },
-          { text: "💻 ดูกราฟย้อนหลัง: พิมพ์ \"กราฟ\" หรือ \"dashboard\"", color: "#666666" },
-          { text: "⚙️ ปรับเป้าหมาย: พิมพ์ \"ตั้งค่า\" เพื่อเปิดฟอร์ม", color: "#666666" },
           { text: "👤 เช็คข้อมูลผู้ใช้: พิมพ์ \"ข้อมูลส่วนตัว\"", color: "#666666" },
           { text: "↩️ ลบรายการล่าสุด: พิมพ์ \"ยกเลิก\"", color: "#FF334B" }
+        ], [
+          msgBtn("📈 สรุปวันนี้", "สรุป"),
+          uriBtn("📊 ดูแดชบอร์ด", dashboardUrl),
+          uriBtn("⚙️ เปิดฟอร์มตั้งค่า", liffUrl, "#2196F3")
         ]),
         card("#F3E5F5", "#9C27B0", "💡 4. โค้ช AI & ติดต่อ", [
-          { text: "🥗 คิดไม่ออกบอก AI: พิมพ์ \"กินไรดี\" (AI จะแนะนำเมนูให้พอดีกับโควต้าที่เหลือ)" },
           { text: "💬 ปรึกษา: พิมพ์ถามได้ทุกเรื่อง เช่น \"ดึกแล้วกินไรดี\"", color: "#666666" },
-          { text: "🎫 ต่ออายุ: พิมพ์ \"เติมวัน\" หรือ \"โค้ด [รหัส]\"", color: "#666666" },
-          { text: "👨‍⚕️ ติดต่อคนจริง: พิมพ์ \"แอดมิน\" ตามด้วยข้อความ", color: "#666666" }
+          { text: "👨‍⚕️ ติดต่อคนจริง: พิมพ์ \"แอดมิน\" ตามด้วยข้อความ", color: "#666666" },
+          { text: "🎟️ ใช้โค้ด: พิมพ์ \"โค้ด [รหัส]\"", color: "#666666" }
+        ], [
+          msgBtn("🥗 กินไรดี (AI แนะนำเมนู)", "กินไรดี"),
+          msgBtn("🎫 เติมวัน / ต่ออายุ", "เติมวัน")
         ])
       ]
     }
