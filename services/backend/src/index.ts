@@ -713,20 +713,26 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   const day = 24 * 60 * 60 * 1000;
   const since7 = Timestamp.fromMillis(nowMs - 7 * day);
   const since14 = Timestamp.fromMillis(nowMs - 14 * day);
+  const since30 = Timestamp.fromMillis(nowMs - 30 * day);
   const soon = Timestamp.fromMillis(nowMs + 7 * day);
   const { startDate: todayStart } = getBangkokDayRange(new Date());
+  const todayMs = todayStart.getTime();
+  const ms7 = since7.toMillis();
 
   // Avoid a status+createdAt composite index by fetching pending reviews
   // unordered and sorting in memory.
-  const [usersCount, activeSubs, expiring, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap] = await Promise.all([
+  const [usersCount, activeSubs, expiring, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap] = await Promise.all([
     db.collection("users").count().get(),
     db.collection("subscriptions").where("status", "==", "active").count().get(),
     db.collection("subscriptions").where("expiresAt", ">=", now).where("expiresAt", "<=", soon).count().get(),
+    db.collection("subscriptions").where("expiresAt", "<", now).count().get(),
+    db.collection("users").where("createdAt", ">=", since7).count().get(),
     db.collection("mealLogs").where("loggedAt", ">=", Timestamp.fromDate(todayStart)).count().get(),
     db.collection("paymentReviews").where("status", "==", "pending-admin-review").count().get(),
     db.collection("paymentReviews").where("status", "==", "pending-admin-review").limit(50).get(),
     db.collection("aiRuns").where("createdAt", ">=", since7).get(),
-    db.collection("mealLogs").where("loggedAt", ">=", since14).get()
+    db.collection("mealLogs").where("loggedAt", ">=", since14).get(),
+    db.collection("paymentReviews").where("createdAt", ">=", since30).get()
   ]);
 
   let aiTotal = 0, aiFallback = 0, aiFailed = 0;
@@ -737,12 +743,29 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     if (data.status === "failed") aiFailed += 1;
   });
 
+  // Distinct active users (today / last 7 days) derived from the meal snapshot.
+  const activeToday = new Set<string>();
+  const active7d = new Set<string>();
   const byDay: Record<string, number> = {};
   for (let i = 13; i >= 0; i -= 1) byDay[formatDayKey(new Date(nowMs - i * day))] = 0;
   meals14Snap.forEach((doc) => {
-    const ts = normalizeTimestamp(doc.data().loggedAt);
-    const key = ts ? formatDayKey(ts.toDate()) : "";
+    const data = doc.data();
+    const ts = normalizeTimestamp(data.loggedAt);
+    if (!ts) return;
+    const key = formatDayKey(ts.toDate());
     if (key in byDay) byDay[key] += 1;
+    const uid = String(data.canonicalUserId ?? data.userId ?? "");
+    if (!uid) return;
+    const ms = ts.toDate().getTime();
+    if (ms >= ms7) active7d.add(uid);
+    if (ms >= todayMs) activeToday.add(uid);
+  });
+
+  // Approved-slip revenue over the last 30 days.
+  let revenue30 = 0;
+  reviews30Snap.forEach((doc) => {
+    const data = doc.data();
+    if (data.status === "approved") revenue30 += Number(data.amount) || 0;
   });
 
   const pending = pendingSnap.docs.map((doc) => {
@@ -762,8 +785,13 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     generatedAt: now.toDate().toISOString(),
     cards: {
       users: usersCount.data().count,
+      newUsers7d: newUsers7.data().count,
+      activeToday: activeToday.size,
+      active7d: active7d.size,
       activeSubscriptions: activeSubs.data().count,
       expiringSoon: expiring.data().count,
+      expired: expiredSubs.data().count,
+      revenue30d: revenue30,
       pendingReviews: pendingCount.data().count,
       mealsToday: mealsToday.data().count,
       aiRuns7d: aiTotal,

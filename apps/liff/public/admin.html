@@ -96,8 +96,13 @@
         const c = d.cards;
         const cards = [
           ["ผู้ใช้ทั้งหมด", c.users, ""],
+          ["ผู้ใช้ใหม่ (7 วัน)", c.newUsers7d ?? 0, c.newUsers7d ? "ok" : ""],
+          ["Active วันนี้", c.activeToday ?? 0, ""],
+          ["Active (7 วัน)", c.active7d ?? 0, ""],
           ["Subscription active", c.activeSubscriptions, "ok"],
           ["ใกล้หมดอายุ (7 วัน)", c.expiringSoon, c.expiringSoon ? "warn" : ""],
+          ["หมดอายุแล้ว", c.expired ?? 0, ""],
+          ["รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok"],
           ["สลิปรออนุมัติ", c.pendingReviews, c.pendingReviews ? "danger" : ""],
           ["มื้อวันนี้", c.mealsToday, ""],
           ["AI runs (7 วัน)", c.aiRuns7d, ""],
