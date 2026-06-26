@@ -7,30 +7,51 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
       :root { --green: #18B98C; --green-d: #0E8A67; --ink: #1F2937; --muted: #7A8088;
-        --bg: #F4F6F5; --card: #FFFFFF; --line: #EEF0EF; --red: #E0533F; --amber: #B9770F; }
+        --bg: #F4F6F5; --card: #FFFFFF; --line: #EEF0EF; --red: #E0533F; --amber: #B9770F; --blue: #2563EB; }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--ink);
         font-family: -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; }
-      main { max-width: 880px; margin: 0 auto; padding: 20px 16px 56px; }
-      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
-      header b { font-size: 21px; }
-      header b small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
-      button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 9px 16px; }
+      main { max-width: 920px; margin: 0 auto; padding: 18px 16px 64px; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+      header b { font-size: 20px; } header b small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+      button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 8px 14px; }
       button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
       .center { text-align: center; padding: 60px 0; }
+      .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
+      .tab { padding: 9px 13px; font-size: 14px; color: var(--muted); white-space: nowrap; cursor: pointer; border-bottom: 2px solid transparent; }
+      .tab.active { color: var(--green-d); border-bottom-color: var(--green); font-weight: 600; }
+      .tabpanel { display: none; } .tabpanel.active { display: block; }
       .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-      .stat { background: var(--card); border-radius: 14px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-      .stat small { color: var(--muted); font-size: 12px; } .stat b { display: block; font-size: 26px; margin-top: 4px; }
+      .stat { position: relative; background: var(--card); border-radius: 14px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
+      .stat[data-tab] { cursor: pointer; } .stat[data-tab]:hover { box-shadow: 0 2px 10px rgba(0,0,0,.10); }
+      .stat small { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
+      .stat b { display: block; font-size: 25px; margin-top: 4px; }
+      .stat .ic { font-size: 11px; color: #B9BEC4; cursor: help; }
       .stat.warn b { color: var(--amber); } .stat.danger b { color: var(--red); } .stat.ok b { color: var(--green-d); }
-      h3 { font-size: 15px; margin: 24px 0 10px; }
+      .stat[data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 12px; right: 12px; top: -8px; transform: translateY(-100%);
+        background: #1F2937; color: #fff; font-size: 11.5px; line-height: 1.45; padding: 8px 10px; border-radius: 8px; z-index: 9; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
+      h3 { font-size: 15px; margin: 22px 0 10px; }
       .card { background: var(--card); border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
       .chartbox { position: relative; height: 220px; }
-      .prow { display: flex; justify-content: space-between; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 14px; }
-      .prow:first-child { border-top: 0; } .prow .amt { font-weight: 700; color: var(--green-d); white-space: nowrap; }
-      .prow .sub { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
+      .prow { display: flex; justify-content: space-between; gap: 10px; padding: 11px 0; border-top: 1px solid var(--line); font-size: 14px; align-items: center; }
+      .prow:first-child { border-top: 0; } .prow.click { cursor: pointer; } .prow.click:hover { background: #FAFBFB; margin: 0 -8px; padding: 11px 8px; border-radius: 8px; }
+      .prow .amt { font-weight: 700; white-space: nowrap; } .prow .sub { color: var(--muted); font-size: 12px; margin-top: 2px; word-break: break-all; }
       .empty { color: var(--muted); padding: 10px 0; font-size: 14px; }
-      #msg { margin-top: 14px; font-size: 14px; color: var(--muted); }
-      #msg.error { color: var(--red); }
+      .errdetail { font-size: 12px; color: var(--muted); padding: 0 0 11px; white-space: pre-wrap; word-break: break-word; display: none; }
+      .errdetail.show { display: block; }
+      .ai { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+      .ai:first-child { border-top: 0; } .ai .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; }
+      .badge.anthropic { background: #EDE9FE; color: #6D28D9; } .badge.gemini { background: #E0EDFF; color: #1D4ED8; }
+      .flip { font-size: 12px; padding: 6px 10px; }
+      #msg { margin-top: 14px; font-size: 14px; color: var(--muted); } #msg.error { color: var(--red); }
+      .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: flex-end; justify-content: center; z-index: 50; }
+      .modal.show { display: flex; }
+      .drawer { background: #fff; width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; padding: 18px 18px 28px; max-height: 86vh; overflow-y: auto; }
+      .drawer .x { float: right; border: 0; background: #F1F3F2; border-radius: 50%; width: 32px; height: 32px; }
+      .ava { width: 46px; height: 46px; border-radius: 50%; background: #E3F2FD; color: #15598F; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+      .mini { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 14px 0; }
+      .mini div { background: var(--bg); border-radius: 10px; padding: 9px; } .mini small { color: var(--muted); font-size: 11px; } .mini b { display: block; font-size: 16px; margin-top: 2px; }
+      .note { background: #F0F7FF; border: 1px solid #D6E6FF; color: #1D4ED8; border-radius: 12px; padding: 13px 15px; font-size: 13px; line-height: 1.6; }
     </style>
   </head>
   <body>
@@ -46,19 +67,45 @@
       </div>
 
       <div id="panel" hidden>
-        <div class="cards" id="cards"></div>
-        <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
-        <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
-        <h3>⚠️ At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย</h3>
-        <div class="card" id="atrisk"></div>
-        <h3>🛠️ Error feed (ล่าสุด)</h3>
-        <div class="card" id="errfeed"></div>
-        <h3>สลิปรออนุมัติ</h3>
-        <div class="card" id="pending"></div>
+        <div class="tabs" id="tabs"></div>
+
+        <div class="tabpanel active" data-panel="overview">
+          <div class="cards" id="ovCards"></div>
+          <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
+          <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
+        </div>
+
+        <div class="tabpanel" data-panel="retention">
+          <div class="cards" id="retCards"></div>
+          <h3>⚠️ At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย <small style="color:var(--muted);font-weight:400">(แตะดูรายละเอียด)</small></h3>
+          <div class="card" id="atrisk"></div>
+        </div>
+
+        <div class="tabpanel" data-panel="system">
+          <div class="cards" id="sysCards"></div>
+          <h3>🤖 AI provider health</h3>
+          <div class="card" id="aihealth"></div>
+          <h3>🛠️ Error feed (ล่าสุด) <small style="color:var(--muted);font-weight:400">(แตะดู detail)</small></h3>
+          <div class="card" id="errfeed"></div>
+          <h3>สลิปรออนุมัติ</h3>
+          <div class="card" id="pending"></div>
+        </div>
+
+        <div class="tabpanel" data-panel="finance">
+          <div class="cards" id="finCards"></div>
+          <div class="note" style="margin-top:16px">📈 churn rate, renewal rate, MRR trend และ new-vs-renewal จะเริ่มคำนวณได้เมื่อมีธุรกรรมจริงสะสมหลัง cutover (ประวัติเก่าจาก GAS ไม่ได้ migrate มา) — revenue เริ่มนับตั้งแต่วันนี้</div>
+        </div>
+
+        <div class="tabpanel" data-panel="growth">
+          <div class="cards" id="growCards"></div>
+          <div class="note" style="margin-top:16px">📊 funnel (สมัคร → ตั้งค่า → log แรก → จ่ายเงิน) และ trial→paid conversion จะเริ่มแสดงเมื่อมี user ใหม่หลัง cutover (มี createdAt) — ตัวเลขจะค่อยๆ เติม</div>
+        </div>
       </div>
 
       <div id="msg"></div>
     </main>
+
+    <div class="modal" id="modal"><div class="drawer" id="drawer"></div></div>
 
     <script src="/config.js"></script>
     <script type="module">
@@ -74,50 +121,88 @@
         messagingSenderId: "455239121557"
       });
       const auth = getAuth(app);
-      const MON_URL = `${window.MD_FUNCTIONS_BASE}/getAdminMonitoring`;
+      const BASE = window.MD_FUNCTIONS_BASE;
       const $ = (id) => document.getElementById(id);
-      let chart;
+      let chart, token, DATA;
+
+      const TABS = [
+        ["overview", "📊 ภาพรวม"], ["retention", "🔁 รักษาลูกค้า"], ["system", "🛠️ ระบบ"],
+        ["finance", "💰 การเงิน"], ["growth", "📈 เติบโต"]
+      ];
+      $("tabs").innerHTML = TABS.map(([k, l], i) => `<div class="tab ${i === 0 ? "active" : ""}" data-go="${k}">${l}</div>`).join("");
+      function showTab(key) {
+        document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.go === key));
+        document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.dataset.panel === key));
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+      $("tabs").onclick = (e) => { const t = e.target.closest(".tab"); if (t) showTab(t.dataset.go); };
 
       $("loginBtn").onclick = () => signInWithPopup(auth, new GoogleAuthProvider()).catch((e) => msg(e.message, true));
       $("signout").onclick = () => signOut(auth);
 
       onAuthStateChanged(auth, async (user) => {
         if (!user) { $("signin").hidden = false; $("panel").hidden = true; $("signout").hidden = true; return; }
-        $("signin").hidden = true; $("signout").hidden = false;
-        $("who").textContent = user.email;
+        $("signin").hidden = true; $("signout").hidden = false; $("who").textContent = user.email;
+        token = await user.getIdToken();
+        await load();
+      });
+
+      async function load() {
         msg("กำลังโหลด…");
         try {
-          const token = await user.getIdToken();
-          const res = await fetch(MON_URL, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          const res = await fetch(`${BASE}/getAdminMonitoring`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
           const data = await res.json();
           if (res.status === 401) throw new Error("บัญชีนี้ไม่มีสิทธิ์ admin");
           if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
-          render(data); $("panel").hidden = false; msg("");
+          DATA = data; render(data); $("panel").hidden = false; msg("");
         } catch (e) { msg(e.message || String(e), true); }
-      });
+      }
+
+      const card = (label, value, cls, tip, tab) => {
+        const v = typeof value === "number" ? value.toLocaleString() : value;
+        return `<div class="stat ${cls || ""}" ${tab ? `data-tab="${tab}"` : ""} ${tip ? `data-tip="${tip}"` : ""}>
+          <small>${label}${tip ? ' <span class="ic">ⓘ</span>' : ""}</small><b>${v}</b></div>`;
+      };
 
       function render(d) {
         const c = d.cards;
-        const cards = [
-          ["ผู้ใช้ทั้งหมด", c.users, ""],
-          ["ผู้ใช้ใหม่ (7 วัน)", c.newUsers7d ?? 0, c.newUsers7d ? "ok" : ""],
-          ["Active วันนี้", c.activeToday ?? 0, ""],
-          ["Active (7 วัน)", c.active7d ?? 0, ""],
-          ["Subscription active", c.activeSubscriptions, "ok"],
-          ["ใกล้หมดอายุ (7 วัน)", c.expiringSoon, c.expiringSoon ? "warn" : ""],
-          ["หมดอายุแล้ว", c.expired ?? 0, ""],
-          ["รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok"],
-          ["สลิปรออนุมัติ", c.pendingReviews, c.pendingReviews ? "danger" : ""],
-          ["มื้อวันนี้", c.mealsToday, ""],
-          ["Active subs log (7 วัน)", `${c.payingEngaged7dPct ?? 0}%`, (c.payingEngaged7dPct ?? 100) < 50 ? "warn" : "ok"],
-          ["At-risk (เงียบ 5+ วัน)", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : ""],
-          ["Errors (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : ""],
-          ["AI runs (7 วัน)", c.aiRuns7d, ""],
-          ["Fallback %", `${c.aiFallbackPct}%`, c.aiFallbackPct > 30 ? "warn" : ""],
-          ["AI fail (7 วัน)", c.aiFailed7d, c.aiFailed7d ? "danger" : ""]
-        ];
-        $("cards").innerHTML = cards.map(([l, v, cls]) =>
-          `<div class="stat ${cls}"><small>${l}</small><b>${typeof v === "number" ? v.toLocaleString() : v}</b></div>`).join("");
+        $("ovCards").innerHTML = [
+          card("💰 รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok", "ผลรวมยอดสลิปที่อนุมัติใน 30 วันล่าสุด", "finance"),
+          card("Subscription active", c.activeSubscriptions, "ok", "จำนวนลูกค้าที่ subscription ยังไม่หมดอายุ", "retention"),
+          card("At-risk", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : "", "ลูกค้าจ่ายเงินแต่ไม่ log อาหาร 5+ วัน — เสี่ยงเลิกใช้", "retention"),
+          card("Errors (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : "", "ข้อผิดพลาดของระบบใน 24 ชม. (AI/webhook/slip fail)", "system"),
+          card("Active วันนี้", c.activeToday ?? 0, "", "จำนวนคนที่ log อาหารวันนี้ (นับหัวจริง)", null),
+          card("ผู้ใช้ใหม่ (7 วัน)", c.newUsers7d ?? 0, c.newUsers7d ? "ok" : "", "สมัครใหม่ใน 7 วัน (เฉพาะหลัง cutover)", "growth")
+        ].join("");
+
+        $("retCards").innerHTML = [
+          card("Active subs log (7 วัน)", `${c.payingEngaged7dPct ?? 0}%`, (c.payingEngaged7dPct ?? 100) < 50 ? "warn" : "ok", "สัดส่วนลูกค้าจ่ายเงินที่ยัง log ใน 7 วัน — ต่ำ = เสี่ยง churn"),
+          card("At-risk (เงียบ 5+ วัน)", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : "", "เป้าหมาย win-back"),
+          card("ใกล้หมดอายุ (7 วัน)", c.expiringSoon, c.expiringSoon ? "warn" : "", "ควรชวนต่ออายุ"),
+          card("หมดอายุแล้ว", c.expired ?? 0, "", "pool สำหรับ win-back")
+        ].join("");
+
+        $("sysCards").innerHTML = [
+          card("Errors (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : ""),
+          card("AI runs (7 วัน)", c.aiRuns7d, ""),
+          card("Fallback %", `${c.aiFallbackPct}%`, c.aiFallbackPct > 30 ? "warn" : "", "% ที่ AI หลักล้มแล้วใช้ตัวสำรอง — สูง = provider หลักมีปัญหา"),
+          card("AI fail (7 วัน)", c.aiFailed7d, c.aiFailed7d ? "danger" : "")
+        ].join("");
+
+        $("finCards").innerHTML = [
+          card("💰 รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok"),
+          card("สลิปรออนุมัติ", c.pendingReviews, c.pendingReviews ? "danger" : ""),
+          card("Subscription active", c.activeSubscriptions, "ok"),
+          card("หมดอายุแล้ว", c.expired ?? 0, "")
+        ].join("");
+
+        $("growCards").innerHTML = [
+          card("ผู้ใช้ทั้งหมด", c.users, ""),
+          card("ผู้ใช้ใหม่ (7 วัน)", c.newUsers7d ?? 0, c.newUsers7d ? "ok" : ""),
+          card("Active วันนี้", c.activeToday ?? 0, ""),
+          card("Active (7 วัน)", c.active7d ?? 0, "")
+        ].join("");
+        document.querySelectorAll(".stat[data-tab]").forEach((el) => { el.onclick = () => showTab(el.dataset.tab); });
 
         if (chart) chart.destroy();
         chart = new Chart($("actChart"), {
@@ -129,31 +214,95 @@
 
         const ar = d.atRisk || [];
         $("atrisk").innerHTML = ar.length ? ar.map((u) =>
-          `<div class="prow"><div><div>${u.name || "Member"}</div>
-            <div class="sub">${u.canonicalUserId} · sub เหลือ ${u.expiresInDays ?? "-"} วัน</div></div>
-            <div class="amt" style="color:var(--amber)">เงียบ ${u.quietDays >= 99 ? "14+" : u.quietDays} วัน</div></div>`).join("")
+          `<div class="prow click" data-uid="${u.canonicalUserId}"><div><div>${esc(u.name) || "Member"}</div>
+            <div class="sub">sub เหลือ ${u.expiresInDays ?? "-"} วัน</div></div>
+            <div class="amt" style="color:var(--amber)">เงียบ ${u.quietDays >= 99 ? "14+" : u.quietDays} วัน ›</div></div>`).join("")
           : `<div class="empty">ไม่มีลูกค้าเสี่ยงหลุด 🎉</div>`;
+        $("atrisk").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
+
+        renderAi(d.aiConfig || {}, c.aiFallbackPct);
 
         const ef = d.errorFeed || [];
-        $("errfeed").innerHTML = ef.length ? ef.map((e) =>
-          `<div class="prow"><div><div>${e.kind || "error"}</div>
-            <div class="sub">${(e.detail || "").replace(/</g, "&lt;")}</div></div>
-            <div class="sub" style="white-space:nowrap">${fmt(e.at)}</div></div>`).join("")
+        $("errfeed").innerHTML = ef.length ? ef.map((e, i) =>
+          `<div class="prow click" data-err="${i}"><div><div>${esc(e.kind) || "error"}</div></div>
+            <div class="sub" style="white-space:nowrap">${fmt(e.at)}</div></div>
+            <div class="errdetail" id="ed${i}">${esc(e.detail || "")}</div>`).join("")
           : `<div class="empty">ไม่มี error ใน 7 วัน 🎉</div>`;
+        $("errfeed").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => $(`ed${el.dataset.err}`).classList.toggle("show"); });
 
         const p = d.pending || [];
         $("pending").innerHTML = p.length ? p.map((r) =>
           `<div class="prow"><div><div>${r.amount ? `${r.amount} บาท` : "ยอด -"}</div>
             <div class="sub">${r.lineUserId || r.canonicalUserId || "-"} · ${fmt(r.createdAt)}</div></div>
-            <div class="amt">รออนุมัติ</div></div>`).join("")
+            <div class="amt" style="color:var(--green-d)">รออนุมัติ</div></div>`).join("")
           : `<div class="empty">ไม่มีสลิปรออนุมัติ</div>`;
       }
+
+      function renderAi(cfg, fallbackPct) {
+        const agents = { mealAnalysis: "วิเคราะห์อาหาร", exerciseAnalysis: "ออกกำลังกาย", biaAnalysis: "ผล InBody", coachConsultation: "ปรึกษาโค้ช" };
+        const flippable = ["mealAnalysis", "exerciseAnalysis"];
+        const gemHint = fallbackPct >= 60 ? `<div class="note" style="margin-bottom:12px">⚠️ Fallback ${fallbackPct}% — provider หลักน่าจะ overload อยู่ พิจารณาสลับ primary</div>` : "";
+        $("aihealth").innerHTML = gemHint + Object.keys(agents).map((id) => {
+          const a = cfg[id]; if (!a) return "";
+          const canFlip = flippable.includes(id);
+          const other = a.provider === "gemini" ? "anthropic" : "gemini";
+          return `<div class="ai"><div><div>${agents[id]}</div>
+            <div class="sub">primary <span class="badge ${a.provider}">${a.provider}</span> → fallback ${a.fallback || "-"}</div></div>
+            ${canFlip ? `<button class="flip" data-flip="${id}" data-to="${other}">สลับเป็น ${other}</button>` : ""}</div>`;
+        }).join("");
+        $("aihealth").querySelectorAll(".flip").forEach((b) => { b.onclick = () => flip(b.dataset.flip, b.dataset.to, b); });
+      }
+
+      async function flip(agentId, primary, btn) {
+        btn.disabled = true; btn.textContent = "…";
+        try {
+          const res = await fetch(`${BASE}/setAiPrimary`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ agentId, primary }) });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.error || "flip failed");
+          await load();
+        } catch (e) { msg(e.message, true); btn.disabled = false; }
+      }
+
+      async function openUser(uid) {
+        $("modal").classList.add("show");
+        $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button><div class="empty">กำลังโหลด…</div>`;
+        try {
+          const res = await fetch(`${BASE}/getAdminUserDetail`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ userId: uid }) });
+          const u = await res.json();
+          if (!res.ok || !u.ok) throw new Error(u.error || "load failed");
+          const t = u.target || {};
+          const meals = (u.recentMeals || []).map((m) => `<div class="prow"><div>${esc(m.name)}</div><div class="sub">${m.kcal ? m.kcal + " kcal · " : ""}${fmt(m.at)}</div></div>`).join("") || `<div class="empty">ไม่มีมื้อ</div>`;
+          $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button>
+            <div style="display:flex;gap:11px;align-items:center"><div class="ava">${esc((u.name || "M").slice(0, 2))}</div>
+              <div><div style="font-size:16px;font-weight:600">${esc(u.name)}</div><div class="sub">${esc(uid)}</div></div></div>
+            <div class="mini">
+              <div><small>sub</small><b>${u.subscription?.status || "-"}</b></div>
+              <div><small>หมดอายุ</small><b style="font-size:13px">${u.subscription?.expiresAt ? fmt(u.subscription.expiresAt) : "-"}</b></div>
+              <div><small>streak</small><b>${u.streak?.count ?? 0} วัน</b></div>
+              <div><small>TDEE</small><b>${t.calories || "-"}</b></div>
+              <div><small>มื้อรวม</small><b>${(u.mealCount || 0).toLocaleString()}</b></div>
+              <div><small>log ล่าสุด</small><b style="font-size:13px">${u.lastLogAt ? fmt(u.lastLogAt) : "-"}</b></div>
+            </div>
+            <div style="display:flex;gap:8px;margin-bottom:14px">
+              <a href="https://mydietitian.web.app/dashboard?uid=${encodeURIComponent(u.lineUserId || uid)}" target="_blank" style="flex:1;text-align:center;padding:9px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:var(--ink);font-size:13px">↗ ดู dashboard</a>
+              <button style="flex:1;font-size:13px" onclick="navigator.clipboard.writeText('${esc(u.lineUserId || uid)}');this.textContent='คัดลอกแล้ว'">⧉ คัดลอก userId</button>
+            </div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:4px">มื้อล่าสุด</div><div class="card">${meals}</div>`;
+        } catch (e) { $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button><div class="empty" style="color:var(--red)">${e.message}</div>`; }
+      }
+      window.__closeU = () => $("modal").classList.remove("show");
+      $("modal").onclick = (e) => { if (e.target === $("modal")) window.__closeU(); };
 
       function fmt(iso) {
         if (!iso) return "-";
         try { return new Intl.DateTimeFormat("th-TH", { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Bangkok" }).format(new Date(iso)); }
         catch { return iso; }
       }
+      function esc(s) { return String(s ?? "").replace(/[<>&"]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;", '"': "&quot;" }[c])); }
       function msg(text, err) { const b = $("msg"); b.textContent = text || ""; b.classList.toggle("error", Boolean(err)); }
     </script>
   </body>

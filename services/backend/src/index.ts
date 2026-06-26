@@ -722,7 +722,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
 
   // Avoid a status+createdAt composite index by fetching pending reviews
   // unordered and sorting in memory.
-  const [usersCount, activeSubs, expiring, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap] = await Promise.all([
+  const [usersCount, activeSubs, expiring, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap] = await Promise.all([
     db.collection("users").count().get(),
     db.collection("subscriptions").where("status", "==", "active").count().get(),
     db.collection("subscriptions").where("expiresAt", ">=", now).where("expiresAt", "<=", soon).count().get(),
@@ -736,7 +736,8 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     db.collection("paymentReviews").where("createdAt", ">=", since30).get(),
     db.collection("subscriptions").where("expiresAt", ">=", now).get(),
     db.collection("profiles").get(),
-    db.collection("adminAuditLogs").orderBy("createdAt", "desc").limit(60).get()
+    db.collection("adminAuditLogs").orderBy("createdAt", "desc").limit(60).get(),
+    db.collection("aiAgents").get()
   ]);
 
   let aiTotal = 0, aiFallback = 0, aiFailed = 0;
@@ -804,6 +805,14 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   errorFeed.sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")));
   const errors24h = errorFeed.filter((e) => e.at && Date.parse(e.at) >= nowMs - day).length;
 
+  // AI provider routing (so the operator can see + flip primary on overload).
+  const aiConfig: Record<string, { provider: string; model: string; fallback: string | null }> = {};
+  aiAgentsSnap.forEach((doc) => {
+    const data = doc.data();
+    const fb = Array.isArray(data.fallbacks) && data.fallbacks[0] ? String(data.fallbacks[0].provider) : null;
+    aiConfig[doc.id] = { provider: String(data.provider ?? "?"), model: String(data.model ?? "?"), fallback: fb };
+  });
+
   const pending = pendingSnap.docs.map((doc) => {
     const data = doc.data();
     return {
@@ -838,12 +847,87 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       errors24h
     },
     activity: { labels: Object.keys(byDay), meals: Object.values(byDay) },
+    aiConfig,
     atRisk,
     errorFeed: errorFeed.slice(0, 25),
     pending
   });
   } catch (error) {
     response.status(500).json({ ok: false, error: "monitoring-failed", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Deep drill-down for one user (admin drawer): profile, subscription, streak,
+// total meals and the most recent meals. Uses the existing userId+loggedAt index.
+export const getAdminUserDetail = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+  try { await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+  try {
+    const uid = String((request.body as { userId?: string } | undefined)?.userId ?? "").trim();
+    if (!uid) { response.status(400).json({ ok: false, error: "missing-userId" }); return; }
+    const [profileSnap, subSnap, mealCount, recentMeals] = await Promise.all([
+      db.collection("profiles").doc(uid).get(),
+      db.collection("subscriptions").doc(uid).get(),
+      db.collection("mealLogs").where("userId", "==", uid).count().get(),
+      db.collection("mealLogs").where("userId", "==", uid).orderBy("loggedAt", "desc").limit(8).get()
+    ]);
+    const profile = profileSnap.data() ?? {};
+    const sub = subSnap.data() ?? {};
+    const recent = recentMeals.docs.map((doc) => {
+      const m = doc.data();
+      return {
+        name: String(m.mealNameTh ?? m.mealNameEn ?? "-"),
+        kcal: Number((m.nutrients as Record<string, unknown> | undefined)?.caloriesKcal ?? 0) || null,
+        at: timestampToIso(m.loggedAt)
+      };
+    });
+    response.json({
+      ok: true,
+      userId: uid,
+      name: String(profile.displayName ?? "Member"),
+      lineUserId: String(profile.lineUserId ?? uid),
+      target: profile.target ?? null,
+      streak: normalizeStreak(profile),
+      subscription: { status: sub.status ?? null, expiresAt: timestampToIso(sub.expiresAt) },
+      mealCount: mealCount.data().count,
+      lastLogAt: recent[0]?.at ?? null,
+      recentMeals: recent
+    });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: "user-detail-failed", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Flip an AI agent's primary provider from the admin UI (meal/exercise only) so
+// the operator can route around a Gemini overload and switch back on recovery.
+export const setAiPrimary = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+  let adminEmail: string;
+  try { adminEmail = await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+  try {
+    const body = (request.body ?? {}) as { agentId?: string; primary?: string };
+    const agentId = String(body.agentId ?? "");
+    const primary = String(body.primary ?? "");
+    if (!["mealAnalysis", "exerciseAnalysis"].includes(agentId) || !["gemini", "anthropic"].includes(primary)) {
+      response.status(400).json({ ok: false, error: "invalid-request" });
+      return;
+    }
+    const GEMINI = { provider: "gemini", model: "gemini-3.5-flash", timeoutMs: 12000 };
+    const ANTHROPIC = { provider: "anthropic", model: "claude-sonnet-4-6", timeoutMs: 20000 };
+    const ref = db.collection("aiAgents").doc(agentId);
+    const temp = Number((await ref.get()).data()?.temperature ?? 0.2);
+    const primaryCfg = primary === "gemini" ? GEMINI : ANTHROPIC;
+    const fallbackCfg = primary === "gemini" ? ANTHROPIC : GEMINI;
+    await ref.set({
+      provider: primaryCfg.provider, model: primaryCfg.model, timeoutMs: primaryCfg.timeoutMs, maxAttempts: 1,
+      fallbacks: [{ provider: fallbackCfg.provider, model: fallbackCfg.model, temperature: temp, timeoutMs: fallbackCfg.timeoutMs, maxAttempts: 1 }],
+      updatedBy: `admin:${adminEmail}`, updatedAt: Timestamp.now()
+    }, { merge: true });
+    response.json({ ok: true, agentId, primary: primaryCfg.provider });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: "set-ai-primary-failed", message: error instanceof Error ? error.message : String(error) });
   }
 });
 
