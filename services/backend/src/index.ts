@@ -1,4 +1,5 @@
 import { onRequest } from "firebase-functions/v2/https";
+import { onSchedule } from "firebase-functions/v2/scheduler";
 import { Timestamp, type Transaction } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { createHmac, timingSafeEqual } from "node:crypto";
@@ -845,6 +846,50 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     response.status(500).json({ ok: false, error: "monitoring-failed", message: error instanceof Error ? error.message : String(error) });
   }
 });
+
+// Proactive reliability alert: every 30 min, if failures spike, push a LINE
+// message to the admin (throttled so a sustained outage alerts once per hour).
+// Fires on genuine failures only (status=failed / error-tagged audit logs), not
+// Gemini->Anthropic fallbacks, which recover and complete normally.
+export const errorAlertScheduler = onSchedule(
+  { schedule: "every 30 minutes", secrets: [LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID], timeoutSeconds: 60 },
+  async () => {
+    const since = Timestamp.fromMillis(Date.now() - 35 * 60 * 1000);
+    const [aiSnap, auditSnap] = await Promise.all([
+      db.collection("aiRuns").where("createdAt", ">=", since).get(),
+      db.collection("adminAuditLogs").where("createdAt", ">=", since).get()
+    ]);
+
+    let aiFailed = 0;
+    aiSnap.forEach((doc) => { if (doc.data().status === "failed") aiFailed += 1; });
+
+    let auditErrors = 0;
+    const samples: string[] = [];
+    auditSnap.forEach((doc) => {
+      const data = doc.data();
+      const tag = `${data.type ?? ""}/${data.status ?? ""}`;
+      if (!/error|fail|reject|unhandled/i.test(tag)) return;
+      auditErrors += 1;
+      if (samples.length < 3) samples.push(String(data.type ?? tag));
+    });
+
+    const total = aiFailed + auditErrors;
+    if (total < 3) return;
+
+    const stateRef = db.collection("appConfig").doc("alertState");
+    const lastAlertMs = Number((await stateRef.get()).data()?.lastErrorAlertMs ?? 0);
+    if (Date.now() - lastAlertMs < 50 * 60 * 1000) return;
+    await stateRef.set({ lastErrorAlertMs: Date.now() }, { merge: true });
+
+    const lines = [
+      "🚨 MyDietitian alert",
+      `Error ${total} รายการใน 30 นาที (AI fail ${aiFailed}, อื่นๆ ${auditErrors})`,
+      ...(samples.length ? [`• ${samples.join("\n• ")}`] : []),
+      "เปิด admin: https://mydietitian.web.app/admin"
+    ];
+    await pushMessage(ADMIN_LINE_USER_ID.value(), lines.join("\n"));
+  }
+);
 
 export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (request, response) => {
   if (request.method !== "POST") {
