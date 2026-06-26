@@ -77,6 +77,8 @@
 
         <div class="tabpanel" data-panel="retention">
           <div class="cards" id="retCards"></div>
+          <h3>⏰ ใกล้หมดอายุ (7 วัน) <small style="color:var(--muted);font-weight:400">(แตะเพื่อต่ออายุ/ให้ VIP)</small></h3>
+          <div class="card" id="expiring"></div>
           <h3>⚠️ At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย <small style="color:var(--muted);font-weight:400">(แตะดูรายละเอียด)</small></h3>
           <div class="card" id="atrisk"></div>
         </div>
@@ -212,6 +214,14 @@
             scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
         });
 
+        const ex = d.expiringSoonList || [];
+        $("expiring").innerHTML = ex.length ? ex.map((u) =>
+          `<div class="prow click" data-uid="${u.canonicalUserId}"><div><div>${esc(u.name) || "Member"}</div>
+            <div class="sub">เงียบ ${u.quietDays >= 99 ? "14+" : u.quietDays} วัน</div></div>
+            <div class="amt" style="color:var(--red)">เหลือ ${u.expiresInDays} วัน ›</div></div>`).join("")
+          : `<div class="empty">ไม่มีใครใกล้หมดอายุใน 7 วัน 👍</div>`;
+        $("expiring").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
+
         const ar = d.atRisk || [];
         $("atrisk").innerHTML = ar.length ? ar.map((u) =>
           `<div class="prow click" data-uid="${u.canonicalUserId}"><div><div>${esc(u.name) || "Member"}</div>
@@ -220,7 +230,7 @@
           : `<div class="empty">ไม่มีลูกค้าเสี่ยงหลุด 🎉</div>`;
         $("atrisk").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
 
-        renderAi(d.aiConfig || {}, c.aiFallbackPct);
+        renderAi(d.aiConfig || {}, c.aiFallback24hPct ?? c.aiFallbackPct);
 
         const ef = d.errorFeed || [];
         $("errfeed").innerHTML = ef.length ? ef.map((e, i) =>
@@ -275,25 +285,55 @@
           const u = await res.json();
           if (!res.ok || !u.ok) throw new Error(u.error || "load failed");
           const t = u.target || {};
-          const meals = (u.recentMeals || []).map((m) => `<div class="prow"><div>${esc(m.name)}</div><div class="sub">${m.kcal ? m.kcal + " kcal · " : ""}${fmt(m.at)}</div></div>`).join("") || `<div class="empty">ไม่มีมื้อ</div>`;
+          const vip = u.subscription?.lifetime;
           $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button>
             <div style="display:flex;gap:11px;align-items:center"><div class="ava">${esc((u.name || "M").slice(0, 2))}</div>
-              <div><div style="font-size:16px;font-weight:600">${esc(u.name)}</div><div class="sub">${esc(uid)}</div></div></div>
+              <div><div style="font-size:16px;font-weight:600">${esc(u.name)}</div><div class="sub">${vip ? "👑 VIP Lifetime" : esc(uid)}</div></div></div>
             <div class="mini">
-              <div><small>sub</small><b>${u.subscription?.status || "-"}</b></div>
-              <div><small>หมดอายุ</small><b style="font-size:13px">${u.subscription?.expiresAt ? fmt(u.subscription.expiresAt) : "-"}</b></div>
+              <div><small>sub</small><b>${vip ? "Lifetime" : (u.subscription?.status || "-")}</b></div>
+              <div><small>หมดอายุ</small><b style="font-size:13px">${vip ? "ไม่มี" : (u.subscription?.expiresAt ? fmt(u.subscription.expiresAt) : "-")}</b></div>
               <div><small>streak</small><b>${u.streak?.count ?? 0} วัน</b></div>
               <div><small>TDEE</small><b>${t.calories || "-"}</b></div>
               <div><small>มื้อรวม</small><b>${(u.mealCount || 0).toLocaleString()}</b></div>
               <div><small>log ล่าสุด</small><b style="font-size:13px">${u.lastLogAt ? fmt(u.lastLogAt) : "-"}</b></div>
             </div>
-            <div style="display:flex;gap:8px;margin-bottom:14px">
-              <a href="https://mydietitian.web.app/dashboard?uid=${encodeURIComponent(u.lineUserId || uid)}" target="_blank" style="flex:1;text-align:center;padding:9px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:var(--ink);font-size:13px">↗ ดู dashboard</a>
-              <button style="flex:1;font-size:13px" onclick="navigator.clipboard.writeText('${esc(u.lineUserId || uid)}');this.textContent='คัดลอกแล้ว'">⧉ คัดลอก userId</button>
+            <div style="font-size:13px;font-weight:600;margin-bottom:6px">🎁 ต่ออายุ / มอบสิทธิ์ <small style="color:var(--muted);font-weight:400">(ลูกค้าจะได้ข้อความแจ้ง)</small></div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px">
+              <button class="flip" data-g="30">+30 วัน</button>
+              <button class="flip" data-g="90">+90 วัน</button>
+              <button class="flip" data-g="180">+180 วัน</button>
+              <button class="flip" data-g="lifetime" style="background:#FEF3C7;border-color:#FCD34D">👑 VIP Lifetime</button>
             </div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:4px">มื้อล่าสุด</div><div class="card">${meals}</div>`;
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">
+              <input id="gdays" type="number" min="1" placeholder="กำหนดเอง (วัน)" style="flex:1;padding:8px;border:1px solid var(--line);border-radius:8px;font:inherit">
+              <button class="flip" data-g="custom">ต่ออายุ</button>
+            </div>
+            <div id="gmsg" style="font-size:13px;margin-bottom:10px"></div>
+            <button style="font-size:13px" onclick="navigator.clipboard.writeText('${esc(u.lineUserId || uid)}');this.textContent='คัดลอกแล้ว'">⧉ คัดลอก userId</button>`;
+          $("drawer").querySelectorAll("[data-g]").forEach((b) => { b.onclick = () => grant(uid, b.dataset.g, b); });
         } catch (e) { $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button><div class="empty" style="color:var(--red)">${e.message}</div>`; }
       }
+
+      async function grant(uid, kind, btn) {
+        let body, label;
+        if (kind === "lifetime") { body = { userId: uid, lifetime: true }; label = "ให้สิทธิ์ VIP Lifetime"; }
+        else if (kind === "custom") {
+          const d = Math.floor(Number($("gdays").value));
+          if (!d || d <= 0) { gmsg("ใส่จำนวนวันก่อนครับ", true); return; }
+          body = { userId: uid, days: d }; label = `ต่ออายุ +${d} วัน`;
+        } else { body = { userId: uid, days: Number(kind) }; label = `ต่ออายุ +${kind} วัน`; }
+        if (!confirm(`${label}? ลูกค้าจะได้รับข้อความแจ้งทันที`)) return;
+        btn.disabled = true; const old = btn.textContent; btn.textContent = "…";
+        try {
+          const res = await fetch(`${BASE}/grantSubscriptionFromAdmin`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.message || d.error || "grant failed");
+          gmsg(d.lifetime ? "✅ ให้ VIP Lifetime + แจ้งลูกค้าแล้ว" : `✅ ต่ออายุแล้ว หมดอายุใหม่ ${fmt(d.expiresAt)} + แจ้งลูกค้าแล้ว`, false);
+          load();
+        } catch (e) { gmsg(e.message, true); btn.disabled = false; btn.textContent = old; }
+      }
+      function gmsg(text, err) { const b = $("gmsg"); if (!b) return; b.textContent = text; b.style.color = err ? "var(--red)" : "var(--green-d)"; }
       window.__closeU = () => $("modal").classList.remove("show");
       $("modal").onclick = (e) => { if (e.target === $("modal")) window.__closeU(); };
 

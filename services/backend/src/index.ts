@@ -740,12 +740,15 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     db.collection("aiAgents").get()
   ]);
 
-  let aiTotal = 0, aiFallback = 0, aiFailed = 0;
+  let aiTotal = 0, aiFallback = 0, aiFailed = 0, ai24 = 0, aiFallback24 = 0;
+  const ms24 = nowMs - day;
   aiRunsSnap.forEach((doc) => {
     const data = doc.data();
     aiTotal += 1;
     if (data.fallbackUsed) aiFallback += 1;
     if (data.status === "failed") aiFailed += 1;
+    const ts = normalizeTimestamp(data.createdAt);
+    if (ts && ts.toMillis() >= ms24) { ai24 += 1; if (data.fallbackUsed) aiFallback24 += 1; }
   });
 
   // Distinct active users + last-log time per user, derived from the meal snapshot.
@@ -779,14 +782,19 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   // the 14-day window means they're not in lastLogMs at all = highest risk.
   const names: Record<string, string> = {};
   profilesSnap.forEach((doc) => { names[doc.id] = String(doc.data().displayName ?? "Member"); });
-  const atRisk = activeSubsSnap.docs.map((doc) => {
+  const subList = activeSubsSnap.docs.map((doc) => {
     const uid = doc.id;
     const last = lastLogMs[uid];
     const quietDays = last ? Math.floor((nowMs - last) / day) : 99;
     const expiresAt = normalizeTimestamp(doc.data().expiresAt);
+    const lifetime = Boolean(doc.data().lifetime);
     const expiresInDays = expiresAt ? Math.round((expiresAt.toMillis() - nowMs) / day) : null;
-    return { canonicalUserId: uid, name: names[uid] ?? "Member", quietDays, expiresInDays };
-  }).filter((u) => u.quietDays >= 5).sort((a, b) => b.quietDays - a.quietDays).slice(0, 25);
+    return { canonicalUserId: uid, name: names[uid] ?? "Member", quietDays, expiresInDays, lifetime };
+  });
+  const atRisk = subList.filter((u) => u.quietDays >= 5).sort((a, b) => b.quietDays - a.quietDays).slice(0, 25);
+  const expiringSoonList = subList
+    .filter((u) => !u.lifetime && u.expiresInDays !== null && u.expiresInDays <= 7)
+    .sort((a, b) => (a.expiresInDays ?? 0) - (b.expiresInDays ?? 0)).slice(0, 25);
   const activeSubEngaged7d = activeSubsSnap.docs.filter((doc) => active7d.has(doc.id)).length;
 
   // Reliability: a feed of recent failures the operator should act on.
@@ -841,6 +849,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       mealsToday: mealsToday.data().count,
       aiRuns7d: aiTotal,
       aiFallbackPct: aiTotal ? Math.round((aiFallback / aiTotal) * 100) : 0,
+      aiFallback24hPct: ai24 ? Math.round((aiFallback24 / ai24) * 100) : 0,
       aiFailed7d: aiFailed,
       payingEngaged7dPct: activeSubsSnap.size ? Math.round((activeSubEngaged7d / activeSubsSnap.size) * 100) : 0,
       atRiskCount: atRisk.length,
@@ -849,6 +858,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     activity: { labels: Object.keys(byDay), meals: Object.values(byDay) },
     aiConfig,
     atRisk,
+    expiringSoonList,
     errorFeed: errorFeed.slice(0, 25),
     pending
   });
@@ -866,22 +876,17 @@ export const getAdminUserDetail = onRequest(async (request, response) => {
   try {
     const uid = String((request.body as { userId?: string } | undefined)?.userId ?? "").trim();
     if (!uid) { response.status(400).json({ ok: false, error: "missing-userId" }); return; }
-    const [profileSnap, subSnap, mealCount, recentMeals] = await Promise.all([
+    const [profileSnap, subSnap, mealCount, lastMealSnap] = await Promise.all([
       db.collection("profiles").doc(uid).get(),
       db.collection("subscriptions").doc(uid).get(),
       db.collection("mealLogs").where("userId", "==", uid).count().get(),
-      db.collection("mealLogs").where("userId", "==", uid).orderBy("loggedAt", "desc").limit(8).get()
+      db.collection("mealLogs").where("userId", "==", uid).orderBy("loggedAt", "desc").limit(1).get()
     ]);
     const profile = profileSnap.data() ?? {};
     const sub = subSnap.data() ?? {};
-    const recent = recentMeals.docs.map((doc) => {
-      const m = doc.data();
-      return {
-        name: String(m.mealNameTh ?? m.mealNameEn ?? "-"),
-        kcal: Number((m.nutrients as Record<string, unknown> | undefined)?.caloriesKcal ?? 0) || null,
-        at: timestampToIso(m.loggedAt)
-      };
-    });
+    // Privacy: return only aggregate engagement metadata for retention decisions,
+    // never the customer's meal content or a link into their personal dashboard.
+    const lastLogAt = lastMealSnap.docs[0] ? timestampToIso(lastMealSnap.docs[0].data().loggedAt) : null;
     response.json({
       ok: true,
       userId: uid,
@@ -889,10 +894,9 @@ export const getAdminUserDetail = onRequest(async (request, response) => {
       lineUserId: String(profile.lineUserId ?? uid),
       target: profile.target ?? null,
       streak: normalizeStreak(profile),
-      subscription: { status: sub.status ?? null, expiresAt: timestampToIso(sub.expiresAt) },
+      subscription: { status: sub.status ?? null, expiresAt: timestampToIso(sub.expiresAt), lifetime: Boolean(sub.lifetime) },
       mealCount: mealCount.data().count,
-      lastLogAt: recent[0]?.at ?? null,
-      recentMeals: recent
+      lastLogAt
     });
   } catch (error) {
     response.status(500).json({ ok: false, error: "user-detail-failed", message: error instanceof Error ? error.message : String(error) });
@@ -930,6 +934,55 @@ export const setAiPrimary = onRequest(async (request, response) => {
     response.status(500).json({ ok: false, error: "set-ai-primary-failed", message: error instanceof Error ? error.message : String(error) });
   }
 });
+
+// Retention/sales action: gift extra days or a lifetime/VIP grant to a customer
+// from the admin UI and notify them on LINE. Recorded as an admin-grant event
+// (no payment), distinct from slip approvals.
+export const grantSubscriptionFromAdmin = onRequest(
+  { secrets: [LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID], timeoutSeconds: 30 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+    let adminEmail: string;
+    try { adminEmail = await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+    try {
+      const body = (request.body ?? {}) as { userId?: string; days?: number; lifetime?: boolean };
+      const uid = String(body.userId ?? "").trim();
+      const lifetime = Boolean(body.lifetime);
+      const days = Math.max(0, Math.min(3650, Math.floor(Number(body.days ?? 0))));
+      if (!uid || (!lifetime && days <= 0)) { response.status(400).json({ ok: false, error: "invalid-request" }); return; }
+
+      const target = await resolveSubscriptionTarget(uid);
+      if (!target) { response.status(404).json({ ok: false, error: "target-not-found" }); return; }
+
+      const currentExpiry = await getSubscriptionExpiry(target.canonicalUserId);
+      const expiresAt = lifetime ? null : subscriptionExpiryAfterDays(days, currentExpiry);
+      const now = Timestamp.now();
+      await Promise.all([
+        db.collection("subscriptions").doc(target.canonicalUserId).set({
+          userId: target.canonicalUserId, canonicalUserId: target.canonicalUserId,
+          status: "active", entitlementType: lifetime ? "lifetime" : "gift", lifetime, expiresAt,
+          lastApprovedDays: lifetime ? null : days, lastApprovedBy: `admin:${adminEmail}`, lastApprovedAt: now, updatedAt: now
+        }, { merge: true }),
+        db.collection("profiles").doc(target.canonicalUserId).set({ expiresAt, lifetime, updatedAt: now }, { merge: true }),
+        db.collection("subscriptionEvents").add({
+          type: "admin-grant", canonicalUserId: target.canonicalUserId, lineUserId: target.lineUserId,
+          days: lifetime ? null : days, lifetime, grantedBy: `admin:${adminEmail}`, createdAt: now
+        })
+      ]);
+
+      if (target.lineUserId) {
+        const giftMessage = lifetime
+          ? "👑 ทีมงาน MyDietitian มอบสิทธิ์ VIP Lifetime ให้คุณเป็นพิเศษ! ใช้งานได้ไม่มีวันหมดอายุครับ ขอบคุณที่ไว้วางใจเรา 💚"
+          : `🎁 ทีมงาน MyDietitian มอบเวลาใช้งานเพิ่ม ${days} วันให้คุณ!\nหมดอายุใหม่: ${formatSubscriptionStatus(expiresAt)}\nขอบคุณที่อยู่กับเรานะครับ 💚`;
+        await pushMessage(target.lineUserId, giftMessage);
+      }
+      response.json({ ok: true, userId: target.canonicalUserId, lifetime, expiresAt: expiresAt ? expiresAt.toDate().toISOString() : null });
+    } catch (error) {
+      response.status(500).json({ ok: false, error: "grant-failed", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+);
 
 // Proactive reliability alert: every 30 min, if failures spike, push a LINE
 // message to the admin (throttled so a sustained outage alerts once per hour).
