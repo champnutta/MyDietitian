@@ -721,7 +721,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
 
   // Avoid a status+createdAt composite index by fetching pending reviews
   // unordered and sorting in memory.
-  const [usersCount, activeSubs, expiring, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap] = await Promise.all([
+  const [usersCount, activeSubs, expiring, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap] = await Promise.all([
     db.collection("users").count().get(),
     db.collection("subscriptions").where("status", "==", "active").count().get(),
     db.collection("subscriptions").where("expiresAt", ">=", now).where("expiresAt", "<=", soon).count().get(),
@@ -732,7 +732,10 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     db.collection("paymentReviews").where("status", "==", "pending-admin-review").limit(50).get(),
     db.collection("aiRuns").where("createdAt", ">=", since7).get(),
     db.collection("mealLogs").where("loggedAt", ">=", since14).get(),
-    db.collection("paymentReviews").where("createdAt", ">=", since30).get()
+    db.collection("paymentReviews").where("createdAt", ">=", since30).get(),
+    db.collection("subscriptions").where("expiresAt", ">=", now).get(),
+    db.collection("profiles").get(),
+    db.collection("adminAuditLogs").orderBy("createdAt", "desc").limit(60).get()
   ]);
 
   let aiTotal = 0, aiFallback = 0, aiFailed = 0;
@@ -743,9 +746,10 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     if (data.status === "failed") aiFailed += 1;
   });
 
-  // Distinct active users (today / last 7 days) derived from the meal snapshot.
+  // Distinct active users + last-log time per user, derived from the meal snapshot.
   const activeToday = new Set<string>();
   const active7d = new Set<string>();
+  const lastLogMs: Record<string, number> = {};
   const byDay: Record<string, number> = {};
   for (let i = 13; i >= 0; i -= 1) byDay[formatDayKey(new Date(nowMs - i * day))] = 0;
   meals14Snap.forEach((doc) => {
@@ -759,6 +763,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     const ms = ts.toDate().getTime();
     if (ms >= ms7) active7d.add(uid);
     if (ms >= todayMs) activeToday.add(uid);
+    if (!lastLogMs[uid] || ms > lastLogMs[uid]) lastLogMs[uid] = ms;
   });
 
   // Approved-slip revenue over the last 30 days.
@@ -767,6 +772,36 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     const data = doc.data();
     if (data.status === "approved") revenue30 += Number(data.amount) || 0;
   });
+
+  // Retention: paying users (active subscription) who have gone quiet. No meal in
+  // the 14-day window means they're not in lastLogMs at all = highest risk.
+  const names: Record<string, string> = {};
+  profilesSnap.forEach((doc) => { names[doc.id] = String(doc.data().displayName ?? "Member"); });
+  const atRisk = activeSubsSnap.docs.map((doc) => {
+    const uid = doc.id;
+    const last = lastLogMs[uid];
+    const quietDays = last ? Math.floor((nowMs - last) / day) : 99;
+    const expiresAt = normalizeTimestamp(doc.data().expiresAt);
+    const expiresInDays = expiresAt ? Math.round((expiresAt.toMillis() - nowMs) / day) : null;
+    return { canonicalUserId: uid, name: names[uid] ?? "Member", quietDays, expiresInDays };
+  }).filter((u) => u.quietDays >= 5).sort((a, b) => b.quietDays - a.quietDays).slice(0, 25);
+  const activeSubEngaged7d = activeSubsSnap.docs.filter((doc) => active7d.has(doc.id)).length;
+
+  // Reliability: a feed of recent failures the operator should act on.
+  const errorFeed: Array<{ at: string | null; kind: string; detail: string }> = [];
+  aiRunsSnap.forEach((doc) => {
+    const data = doc.data();
+    if (data.status !== "failed") return;
+    errorFeed.push({ at: timestampToIso(data.createdAt), kind: `AI ${String(data.inputType ?? "")}`.trim(), detail: String(data.error ?? "ai-run-failed").slice(0, 160) });
+  });
+  auditSnap.forEach((doc) => {
+    const data = doc.data();
+    const tag = `${data.type ?? ""}/${data.status ?? ""}`;
+    if (!/error|fail|reject|unhandled/i.test(tag)) return;
+    errorFeed.push({ at: timestampToIso(data.createdAt), kind: String(data.type ?? "event"), detail: String(data.message ?? data.error ?? tag).slice(0, 160) });
+  });
+  errorFeed.sort((a, b) => String(b.at ?? "").localeCompare(String(a.at ?? "")));
+  const errors24h = errorFeed.filter((e) => e.at && Date.parse(e.at) >= nowMs - day).length;
 
   const pending = pendingSnap.docs.map((doc) => {
     const data = doc.data();
@@ -796,9 +831,14 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       mealsToday: mealsToday.data().count,
       aiRuns7d: aiTotal,
       aiFallbackPct: aiTotal ? Math.round((aiFallback / aiTotal) * 100) : 0,
-      aiFailed7d: aiFailed
+      aiFailed7d: aiFailed,
+      payingEngaged7dPct: activeSubsSnap.size ? Math.round((activeSubEngaged7d / activeSubsSnap.size) * 100) : 0,
+      atRiskCount: atRisk.length,
+      errors24h
     },
     activity: { labels: Object.keys(byDay), meals: Object.values(byDay) },
+    atRisk,
+    errorFeed: errorFeed.slice(0, 25),
     pending
   });
   } catch (error) {

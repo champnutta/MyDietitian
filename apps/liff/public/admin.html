@@ -49,6 +49,10 @@
         <div class="cards" id="cards"></div>
         <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
         <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
+        <h3>⚠️ At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย</h3>
+        <div class="card" id="atrisk"></div>
+        <h3>🛠️ Error feed (ล่าสุด)</h3>
+        <div class="card" id="errfeed"></div>
         <h3>สลิปรออนุมัติ</h3>
         <div class="card" id="pending"></div>
       </div>
@@ -105,6 +109,9 @@
           ["รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok"],
           ["สลิปรออนุมัติ", c.pendingReviews, c.pendingReviews ? "danger" : ""],
           ["มื้อวันนี้", c.mealsToday, ""],
+          ["Active subs log (7 วัน)", `${c.payingEngaged7dPct ?? 0}%`, (c.payingEngaged7dPct ?? 100) < 50 ? "warn" : "ok"],
+          ["At-risk (เงียบ 5+ วัน)", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : ""],
+          ["Errors (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : ""],
           ["AI runs (7 วัน)", c.aiRuns7d, ""],
           ["Fallback %", `${c.aiFallbackPct}%`, c.aiFallbackPct > 30 ? "warn" : ""],
           ["AI fail (7 วัน)", c.aiFailed7d, c.aiFailed7d ? "danger" : ""]
@@ -119,6 +126,20 @@
           options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
             scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
         });
+
+        const ar = d.atRisk || [];
+        $("atrisk").innerHTML = ar.length ? ar.map((u) =>
+          `<div class="prow"><div><div>${u.name || "Member"}</div>
+            <div class="sub">${u.canonicalUserId} · sub เหลือ ${u.expiresInDays ?? "-"} วัน</div></div>
+            <div class="amt" style="color:var(--amber)">เงียบ ${u.quietDays >= 99 ? "14+" : u.quietDays} วัน</div></div>`).join("")
+          : `<div class="empty">ไม่มีลูกค้าเสี่ยงหลุด 🎉</div>`;
+
+        const ef = d.errorFeed || [];
+        $("errfeed").innerHTML = ef.length ? ef.map((e) =>
+          `<div class="prow"><div><div>${e.kind || "error"}</div>
+            <div class="sub">${(e.detail || "").replace(/</g, "&lt;")}</div></div>
+            <div class="sub" style="white-space:nowrap">${fmt(e.at)}</div></div>`).join("")
+          : `<div class="empty">ไม่มี error ใน 7 วัน 🎉</div>`;
 
         const p = d.pending || [];
         $("pending").innerHTML = p.length ? p.map((r) =>
