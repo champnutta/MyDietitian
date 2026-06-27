@@ -79,7 +79,7 @@
       .push-row .pr-badge.expiring { background: #FEF3C7; color: #92400E; }
       .push-row .pr-badge.atrisk { background: #FEF9C3; color: #713F12; }
       .push-row .pr-badge.expired { background: #F1F5F9; color: #475569; }
-      .push-sel { display: flex; gap: 6px; margin-bottom: 8px; }
+      .push-sel { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
       .push-sel button { font-size: 12px; padding: 5px 10px; }
       textarea.push-ta { width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; outline: none; }
       textarea.push-ta:focus { border-color: var(--green); }
@@ -124,6 +124,9 @@
           <div class="card">
             <div class="push-sel">
               <button id="pushSelAll">เลือกทั้งหมด</button>
+              <button id="pushSelExpiring" data-badge="expiring">+ ใกล้หมดอายุ</button>
+              <button id="pushSelExpired" data-badge="expired">+ หมดอายุ</button>
+              <button id="pushSelAtrisk" data-badge="atrisk">+ เงียบ</button>
               <button id="pushSelNone">ยกเลิก</button>
               <span id="pushCount" style="font-size:12px;color:var(--muted);margin-left:4px;align-self:center"></span>
             </div>
@@ -473,7 +476,7 @@
         const list = $("pushList");
         if (!items.length) { list.innerHTML = `<div class="push-row" style="color:var(--muted)">ไม่มีลูกค้าในกลุ่มนี้</div>`; return; }
         list.innerHTML = items.map((u) =>
-          `<label class="push-row"><input type="checkbox" class="push-cb" data-uid="${esc(u.uid)}">
+          `<label class="push-row"><input type="checkbox" class="push-cb" data-uid="${esc(u.uid)}" data-badge="${u.badge}">
             <span class="pr-name">${esc(u.name) || "Member"}</span>
             <span class="pr-badge ${u.badge}">${esc(u.label)}</span></label>`
         ).join("");
@@ -481,6 +484,10 @@
         list.querySelectorAll(".push-cb").forEach((cb) => { cb.onchange = updatePushCount; });
         $("pushSelAll").onclick = () => { list.querySelectorAll(".push-cb").forEach((c) => { c.checked = true; }); updatePushCount(); };
         $("pushSelNone").onclick = () => { list.querySelectorAll(".push-cb").forEach((c) => { c.checked = false; }); updatePushCount(); };
+        ["pushSelExpiring", "pushSelExpired", "pushSelAtrisk"].forEach((id) => {
+          const b = $(id); const badge = b.dataset.badge;
+          b.onclick = () => { list.querySelectorAll(`.push-cb[data-badge="${badge}"]`).forEach((c) => { c.checked = true; }); updatePushCount(); };
+        });
         $("promoCheck").onchange = () => { $("promoDays").disabled = !$("promoCheck").checked; };
         $("pushSendBtn").onclick = sendPush;
       }
