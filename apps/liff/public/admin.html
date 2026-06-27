@@ -395,7 +395,7 @@
         const btn = $("aiTestBtn"); const r = $("aiTestRes");
         const old = btn.innerHTML; btn.disabled = true; btn.textContent = "กำลังทดสอบ…"; r.textContent = "";
         try {
-          const res = await fetch(`${BASE}/testAiProvider`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          const res = await fetch(`${BASE}/testAiProvider`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}" });
           const d = await res.json();
           if (!res.ok || !d.ok) throw new Error(d.error || "test failed");
           const one = (p, name) => p.ok
