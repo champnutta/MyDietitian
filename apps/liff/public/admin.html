@@ -5,9 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>MyDietitian Admin</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.24.0/dist/tabler-icons.min.css" />
     <style>
-      :root { --green: #18B98C; --green-d: #0E8A67; --ink: #1F2937; --muted: #7A8088;
-        --bg: #F4F6F5; --card: #FFFFFF; --line: #EEF0EF; --red: #E0533F; --amber: #B9770F; --blue: #2563EB; }
+      /* Admin "owner console" theme — deep teal accent on cool slate, distinct from the
+         customer-facing bright green while staying in the same health family. */
+      :root { --green: #0D9488; --green-d: #0F766E; --accent-soft: #CCFBF1; --ink: #0F172A; --muted: #5B6675;
+        --bg: #F4F6FA; --card: #FFFFFF; --line: #E7EBF1; --red: #DC2626; --amber: #C2700A; --blue: #4F46E5; }
+      .ti { font-size: 1.05em; line-height: 1; vertical-align: -2px; }
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--ink);
         font-family: -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; }
@@ -61,7 +65,7 @@
       .modal.show { display: flex; }
       .drawer { background: #fff; width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; padding: 18px 18px 28px; max-height: 86vh; overflow-y: auto; }
       .drawer .x { float: right; border: 0; background: #F1F3F2; border-radius: 50%; width: 32px; height: 32px; }
-      .ava { width: 46px; height: 46px; border-radius: 50%; background: #E3F2FD; color: #15598F; display: flex; align-items: center; justify-content: center; font-weight: 700; }
+      .ava { width: 46px; height: 46px; border-radius: 50%; background: var(--accent-soft); color: var(--green-d); display: flex; align-items: center; justify-content: center; font-weight: 700; }
       .mini { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 14px 0; }
       .mini div { background: var(--bg); border-radius: 10px; padding: 9px; } .mini small { color: var(--muted); font-size: 11px; } .mini b { display: block; font-size: 16px; margin-top: 2px; }
       .note { background: #F0F7FF; border: 1px solid #D6E6FF; color: #1D4ED8; border-radius: 12px; padding: 13px 15px; font-size: 13px; line-height: 1.6; }
@@ -107,12 +111,12 @@
         <div class="tabpanel" data-panel="retention">
           <div id="retHero"></div>
           <div class="strip" id="retStrip"></div>
-          <h3>⏰ ใกล้หมดอายุ (7 วัน) <small style="color:var(--muted);font-weight:400">(แตะเพื่อต่ออายุ/ให้ VIP)</small></h3>
+          <h3><i class="ti ti-clock-hour-4"></i> ใกล้หมดอายุ (7 วัน) <small style="color:var(--muted);font-weight:400">(แตะเพื่อต่ออายุ/ให้ VIP)</small></h3>
           <div class="card" id="expiring"></div>
-          <h3>⚠️ At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย <small style="color:var(--muted);font-weight:400">(แตะดูรายละเอียด)</small></h3>
+          <h3><i class="ti ti-alert-triangle"></i> At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย <small style="color:var(--muted);font-weight:400">(แตะดูรายละเอียด)</small></h3>
           <div class="card" id="atrisk"></div>
 
-          <h3>📢 ส่ง push message <small style="color:var(--muted);font-weight:400">เลือกลูกค้าแล้วพิมพ์ข้อความ</small></h3>
+          <h3><i class="ti ti-send"></i> ส่ง push message <small style="color:var(--muted);font-weight:400">เลือกลูกค้าแล้วพิมพ์ข้อความ</small></h3>
           <div class="card">
             <div class="push-sel">
               <button id="pushSelAll">เลือกทั้งหมด</button>
@@ -142,9 +146,9 @@
         <div class="tabpanel" data-panel="system">
           <div id="sysHero"></div>
           <div class="strip" id="sysStrip"></div>
-          <h3>🤖 AI provider health</h3>
+          <h3><i class="ti ti-robot"></i> AI provider health</h3>
           <div class="card" id="aihealth"></div>
-          <h3>🛠️ Error feed (ล่าสุด) <small style="color:var(--muted);font-weight:400">(แตะดู detail)</small></h3>
+          <h3><i class="ti ti-bug"></i> Error feed (ล่าสุด) <small style="color:var(--muted);font-weight:400">(แตะดู detail)</small></h3>
           <div class="card" id="errfeed"></div>
           <h3>สลิปรออนุมัติ</h3>
           <div class="card" id="pending"></div>
@@ -152,12 +156,12 @@
 
         <div class="tabpanel" data-panel="finance">
           <div class="cards" id="finCards"></div>
-          <div class="note" style="margin-top:16px">📈 churn rate, renewal rate, MRR trend และ new-vs-renewal จะเริ่มคำนวณได้เมื่อมีธุรกรรมจริงสะสมหลัง cutover (ประวัติเก่าจาก GAS ไม่ได้ migrate มา) — revenue เริ่มนับตั้งแต่วันนี้</div>
+          <div class="note" style="margin-top:16px"><i class="ti ti-chart-line"></i> churn rate, renewal rate, MRR trend และ new-vs-renewal จะเริ่มคำนวณได้เมื่อมีธุรกรรมจริงสะสมหลัง cutover (ประวัติเก่าจาก GAS ไม่ได้ migrate มา) — revenue เริ่มนับตั้งแต่วันนี้</div>
         </div>
 
         <div class="tabpanel" data-panel="growth">
           <div class="cards" id="growCards"></div>
-          <div class="note" style="margin-top:16px">📊 funnel (สมัคร → ตั้งค่า → log แรก → จ่ายเงิน) และ trial→paid conversion จะเริ่มแสดงเมื่อมี user ใหม่หลัง cutover (มี createdAt) — ตัวเลขจะค่อยๆ เติม</div>
+          <div class="note" style="margin-top:16px"><i class="ti ti-filter"></i> funnel (สมัคร → ตั้งค่า → log แรก → จ่ายเงิน) และ trial→paid conversion จะเริ่มแสดงเมื่อมี user ใหม่หลัง cutover (มี createdAt) — ตัวเลขจะค่อยๆ เติม</div>
         </div>
       </div>
 
@@ -185,8 +189,8 @@
       let chart, token, DATA, curName;
 
       const TABS = [
-        ["overview", "📊 ภาพรวม"], ["retention", "🔁 รักษาลูกค้า"], ["system", "🛠️ ระบบ"],
-        ["finance", "💰 การเงิน"], ["growth", "📈 เติบโต"]
+        ["overview", '<i class="ti ti-layout-dashboard"></i> ภาพรวม'], ["retention", '<i class="ti ti-users"></i> รักษาลูกค้า'], ["system", '<i class="ti ti-server"></i> ระบบ'],
+        ["finance", '<i class="ti ti-coin"></i> การเงิน'], ["growth", '<i class="ti ti-trending-up"></i> เติบโต']
       ];
       const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
       $("tabs").innerHTML = TABS.map(([k, l], i) => `<button class="tab ${i === 0 ? "active" : ""}" role="tab" aria-selected="${i === 0}" data-go="${k}">${l}</button>`).join("");
@@ -272,7 +276,7 @@
         ].join("");
 
         $("finCards").innerHTML = [
-          card("💰 รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok"),
+          card("รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok"),
           card("สลิปรออนุมัติ", c.pendingReviews, c.pendingReviews ? "danger" : ""),
           card("Subscription active", c.activeSubscriptions, "ok"),
           card("หมดอายุแล้ว", c.expired ?? 0, "")
@@ -289,7 +293,7 @@
         if (chart) chart.destroy();
         chart = new Chart($("actChart"), {
           type: "bar",
-          data: { labels: d.activity.labels, datasets: [{ label: "มื้อ", data: d.activity.meals, backgroundColor: "#18B98C", borderRadius: 5 }] },
+          data: { labels: d.activity.labels, datasets: [{ label: "มื้อ", data: d.activity.meals, backgroundColor: "#0D9488", borderRadius: 5 }] },
           options: { responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : undefined, plugins: { legend: { display: false } },
             scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
         });
@@ -385,7 +389,7 @@
               <div><small>มื้อรวม</small><b>${(u.mealCount || 0).toLocaleString()}</b></div>
               <div><small>log ล่าสุด</small><b style="font-size:13px">${u.lastLogAt ? fmt(u.lastLogAt) : "-"}</b></div>
             </div>
-            <div style="font-size:13px;font-weight:600;margin-bottom:6px">🎁 ต่ออายุ / มอบสิทธิ์ <small style="color:var(--muted);font-weight:400">(ลูกค้าจะได้ข้อความแจ้ง)</small></div>
+            <div style="font-size:13px;font-weight:600;margin-bottom:6px"><i class="ti ti-gift"></i> ต่ออายุ / มอบสิทธิ์ <small style="color:var(--muted);font-weight:400">(ลูกค้าจะได้ข้อความแจ้ง)</small></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:9px">
               <button class="flip" data-g="30">+30 วัน</button>
               <button class="flip" data-g="90">+90 วัน</button>
