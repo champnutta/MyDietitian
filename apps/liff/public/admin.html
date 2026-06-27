@@ -78,6 +78,7 @@
       .push-row .pr-badge { font-size: 11px; padding: 2px 7px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
       .push-row .pr-badge.expiring { background: #FEF3C7; color: #92400E; }
       .push-row .pr-badge.atrisk { background: #FEF9C3; color: #713F12; }
+      .push-row .pr-badge.expired { background: #F1F5F9; color: #475569; }
       .push-sel { display: flex; gap: 6px; margin-bottom: 8px; }
       .push-sel button { font-size: 12px; padding: 5px 10px; }
       textarea.push-ta { width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; outline: none; }
@@ -103,6 +104,7 @@
 
         <div class="tabpanel active" data-panel="overview">
           <div id="ovHero"></div>
+          <div id="ovTodo"></div>
           <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
           <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
           <div class="strip" id="ovStrip" style="margin-top:14px"></div>
@@ -115,6 +117,8 @@
           <div class="card" id="expiring"></div>
           <h3><i class="ti ti-alert-triangle"></i> At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย <small style="color:var(--muted);font-weight:400">(แตะดูรายละเอียด)</small></h3>
           <div class="card" id="atrisk"></div>
+          <h3><i class="ti ti-user-off"></i> หมดอายุแล้ว (60 วันล่าสุด) <small style="color:var(--muted);font-weight:400">(แตะเพื่อต่ออายุ/ส่ง promo win-back)</small></h3>
+          <div class="card" id="expiredList"></div>
 
           <h3><i class="ti ti-send"></i> ส่ง push message <small style="color:var(--muted);font-weight:400">เลือกลูกค้าแล้วพิมพ์ข้อความ</small></h3>
           <div class="card">
@@ -256,6 +260,18 @@
           card("รายได้ 30วัน", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "", "สลิปที่อนุมัติใน 30 วัน", "finance")
         ].join("");
 
+        const todos = [];
+        if (c.pendingReviews) todos.push(["ti-receipt-2", "red", `สลิปรออนุมัติ ${c.pendingReviews} รายการ`, "system"]);
+        if (c.errors24h) todos.push(["ti-bug", "red", `error ${c.errors24h} รายการใน 24 ชม.`, "system"]);
+        if (c.expiringSoon) todos.push(["ti-clock-hour-4", "amber", `ลูกค้าใกล้หมดอายุ ${c.expiringSoon} คน`, "retention"]);
+        if (c.atRiskCount) todos.push(["ti-user-exclamation", "amber", `at-risk ${c.atRiskCount} คน — ควร win-back`, "retention"]);
+        $("ovTodo").innerHTML = `<div class="card" style="margin-bottom:12px">
+          <div style="font-size:13px;font-weight:600${todos.length ? ";margin-bottom:6px" : ""}"><i class="ti ti-checklist"></i> ต้องทำวันนี้</div>
+          ${todos.length ? todos.map(([ic, col, label, tab]) =>
+            `<div class="prow click" data-go2="${tab}"><div><i class="ti ${ic}" style="margin-right:7px;color:var(--${col})"></i>${label}</div><div class="amt" style="color:var(--muted);font-weight:400">›</div></div>`).join("")
+            : `<div class="empty" style="padding:2px 0">ไม่มีงานค้าง ✓</div>`}</div>`;
+        $("ovTodo").querySelectorAll("[data-go2]").forEach((el) => { el.onclick = () => showTab(el.dataset.go2); });
+
         const eng = c.payingEngaged7dPct ?? 0;
         $("retHero").innerHTML = hero(
           "ลูกค้าจ่ายเงินที่ยัง log ใน 7 วัน", `${eng}%`, eng < 50 ? "warn" : "ok",
@@ -314,7 +330,15 @@
           : `<div class="empty">ไม่มีลูกค้าเสี่ยงหลุด 🎉</div>`;
         $("atrisk").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
 
-        renderPushList(d.expiringSoonList || [], d.atRisk || []);
+        const exp = d.expiredList || [];
+        $("expiredList").innerHTML = exp.length ? exp.map((u) =>
+          `<div class="prow click" data-uid="${u.canonicalUserId}"><div><div>${esc(u.name) || "Member"}</div>
+            <div class="sub">log ล่าสุด ${u.quietDays >= 99 ? "14+" : u.quietDays} วันก่อน</div></div>
+            <div class="amt" style="color:var(--muted)">หมดอายุไป ${u.daysExpired} วัน ›</div></div>`).join("")
+          : `<div class="empty">ไม่มีใครหมดอายุใน 60 วันล่าสุด</div>`;
+        $("expiredList").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
+
+        renderPushList(d.expiringSoonList || [], d.atRisk || [], d.expiredList || []);
         renderAi(d.aiConfig || {}, c.aiFallback24hPct ?? c.aiFallbackPct);
 
         const ef = d.errorFeed || [];
@@ -428,13 +452,18 @@
       }
       function gmsg(text, err) { const b = $("gmsg"); if (!b) return; b.textContent = text; b.style.color = err ? "var(--red)" : "var(--green-d)"; }
 
-      function renderPushList(expiring, atRisk) {
+      function renderPushList(expiring, atRisk, expired) {
         const seen = new Set();
         const items = [];
         for (const u of expiring) {
           if (seen.has(u.canonicalUserId)) continue;
           seen.add(u.canonicalUserId);
           items.push({ uid: u.canonicalUserId, name: u.name, badge: "expiring", label: `เหลือ ${u.expiresInDays} วัน` });
+        }
+        for (const u of (expired || [])) {
+          if (seen.has(u.canonicalUserId)) continue;
+          seen.add(u.canonicalUserId);
+          items.push({ uid: u.canonicalUserId, name: u.name, badge: "expired", label: `หมดอายุ ${u.daysExpired} วัน` });
         }
         for (const u of atRisk) {
           if (seen.has(u.canonicalUserId)) continue;

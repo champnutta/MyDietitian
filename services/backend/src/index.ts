@@ -797,6 +797,23 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     .sort((a, b) => (a.expiresInDays ?? 0) - (b.expiresInDays ?? 0)).slice(0, 25);
   const activeSubEngaged7d = activeSubsSnap.docs.filter((doc) => active7d.has(doc.id)).length;
 
+  // Recently-expired subscriptions (win-back targets): expired within 60 days.
+  const expiredRecentSnap = await db.collection("subscriptions")
+    .where("expiresAt", "<", now)
+    .where("expiresAt", ">=", Timestamp.fromMillis(nowMs - 60 * day))
+    .get();
+  const expiredList = expiredRecentSnap.docs.map((doc) => {
+    const uid = doc.id;
+    const expiresAt = normalizeTimestamp(doc.data().expiresAt);
+    const last = lastLogMs[uid];
+    return {
+      canonicalUserId: uid,
+      name: names[uid] ?? "Member",
+      daysExpired: expiresAt ? Math.floor((nowMs - expiresAt.toMillis()) / day) : null,
+      quietDays: last ? Math.floor((nowMs - last) / day) : 99
+    };
+  }).filter((u) => u.daysExpired !== null).sort((a, b) => (a.daysExpired ?? 0) - (b.daysExpired ?? 0)).slice(0, 30);
+
   // Reliability: a feed of recent failures the operator should act on.
   const errorFeed: Array<{ at: string | null; kind: string; detail: string }> = [];
   aiRunsSnap.forEach((doc) => {
@@ -859,6 +876,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     aiConfig,
     atRisk,
     expiringSoonList,
+    expiredList,
     errorFeed: errorFeed.slice(0, 25),
     pending
   });
@@ -980,6 +998,62 @@ export const grantSubscriptionFromAdmin = onRequest(
       response.json({ ok: true, userId: target.canonicalUserId, lifetime, expiresAt: expiresAt ? expiresAt.toDate().toISOString() : null });
     } catch (error) {
       response.status(500).json({ ok: false, error: "grant-failed", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+);
+
+// Admin-initiated LINE push to a list of users (win-back / retention campaign).
+// Body: { userIds: string[], message: string, promoDays?: number }
+// If promoDays > 0, grants subscription extension first then appends promo line to message.
+// Returns: { ok, sent, failed, skipped }
+export const adminPushToUsers = onRequest(
+  { secrets: [LINE_CHANNEL_ACCESS_TOKEN, ADMIN_LINE_USER_ID], timeoutSeconds: 120 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+    let adminEmail: string;
+    try { adminEmail = await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+    try {
+      const body = (request.body ?? {}) as { userIds?: string[]; message?: string; promoDays?: number };
+      const userIds: string[] = Array.isArray(body.userIds) ? body.userIds.map(String).filter(Boolean) : [];
+      const message = String(body.message ?? "").trim();
+      const promoDays = Math.max(0, Math.min(365, Math.floor(Number(body.promoDays ?? 0))));
+      if (!userIds.length || !message) { response.status(400).json({ ok: false, error: "invalid-request" }); return; }
+      if (userIds.length > 100) { response.status(400).json({ ok: false, error: "too-many-users", max: 100 }); return; }
+
+      const now = Timestamp.now();
+      let sent = 0, failed = 0, skipped = 0;
+      for (const uid of userIds) {
+        const target = await resolveSubscriptionTarget(uid).catch(() => null);
+        if (!target?.lineUserId) { skipped++; continue; }
+        try {
+          let finalMessage = message;
+          if (promoDays > 0) {
+            const currentExpiry = await getSubscriptionExpiry(target.canonicalUserId);
+            const expiresAt = subscriptionExpiryAfterDays(promoDays, currentExpiry);
+            await Promise.all([
+              db.collection("subscriptions").doc(target.canonicalUserId).set({
+                userId: target.canonicalUserId, canonicalUserId: target.canonicalUserId,
+                status: "active", entitlementType: "promo", lifetime: false, expiresAt,
+                lastApprovedDays: promoDays, lastApprovedBy: `admin:${adminEmail}`, lastApprovedAt: now, updatedAt: now
+              }, { merge: true }),
+              db.collection("profiles").doc(target.canonicalUserId).set({ expiresAt, updatedAt: now }, { merge: true }),
+              db.collection("subscriptionEvents").add({
+                type: "admin-promo", canonicalUserId: target.canonicalUserId, lineUserId: target.lineUserId,
+                days: promoDays, grantedBy: `admin:${adminEmail}`, createdAt: now
+              })
+            ]);
+            finalMessage = `${message}\n\n🎁 ทีมงานมอบเวลาใช้งานเพิ่ม ${promoDays} วันให้คุณโดยอัตโนมัติแล้ว!\nหมดอายุใหม่: ${formatSubscriptionStatus(expiresAt)} 💚`;
+          }
+          await pushMessage(target.lineUserId, finalMessage);
+          sent++;
+        } catch {
+          failed++;
+        }
+      }
+      response.json({ ok: true, sent, failed, skipped, promoDays });
+    } catch (error) {
+      response.status(500).json({ ok: false, error: "push-failed", message: error instanceof Error ? error.message : String(error) });
     }
   }
 );
