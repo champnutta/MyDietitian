@@ -428,8 +428,22 @@
               <button class="flip" data-g="custom">ต่ออายุ</button>
             </div>
             <div id="gmsg" style="font-size:13px;margin-bottom:10px"></div>
-            <button style="font-size:13px" onclick="navigator.clipboard.writeText('${esc(u.lineUserId || uid)}');this.textContent='คัดลอกแล้ว'">⧉ คัดลอก userId</button>`;
+            <div style="border-top:1px solid var(--line);margin-top:4px;padding-top:14px">
+              <div style="font-size:13px;font-weight:600;margin-bottom:6px"><i class="ti ti-send"></i> ส่งข้อความถึงลูกค้า</div>
+              <textarea id="duMsg" class="push-ta" placeholder="พิมพ์ข้อความที่จะส่งผ่าน LINE…" style="min-height:62px"></textarea>
+              <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer"><input type="checkbox" id="duPromo" style="width:16px;height:16px;accent-color:var(--green)"> แนบโปรฯ ให้ฟรี</label>
+                <input id="duPromoDays" type="number" min="1" value="3" disabled style="width:58px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px"><span style="font-size:13px">วัน</span>
+              </div>
+              <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
+                <button class="primary" id="duSendBtn" style="font-size:13px;padding:7px 14px">ส่งข้อความ</button>
+                <div id="duRes" style="font-size:13px"></div>
+              </div>
+            </div>
+            <div style="margin-top:14px"><button style="font-size:13px" onclick="navigator.clipboard.writeText('${esc(u.lineUserId || uid)}');this.textContent='คัดลอกแล้ว'">⧉ คัดลอก userId</button></div>`;
           $("drawer").querySelectorAll("[data-g]").forEach((b) => { b.onclick = () => grant(uid, b.dataset.g, b); });
+          $("duPromo").onchange = () => { $("duPromoDays").disabled = !$("duPromo").checked; };
+          $("duSendBtn").onclick = () => drawerPush(uid);
           $("drawer").querySelector(".x")?.focus();
         } catch (e) { $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button><div class="empty" style="color:var(--red)">${e.message}</div>`; }
       }
@@ -454,6 +468,29 @@
         } catch (e) { gmsg(e.message, true); btn.disabled = false; btn.textContent = old; }
       }
       function gmsg(text, err) { const b = $("gmsg"); if (!b) return; b.textContent = text; b.style.color = err ? "var(--red)" : "var(--green-d)"; }
+
+      async function drawerPush(uid) {
+        const r = $("duRes");
+        const message = $("duMsg").value.trim();
+        if (!message) { r.textContent = "พิมพ์ข้อความก่อนครับ"; r.style.color = "var(--red)"; return; }
+        const withPromo = $("duPromo").checked;
+        const promoDays = withPromo ? Math.max(1, Math.floor(Number($("duPromoDays").value) || 3)) : 0;
+        const label = withPromo ? `ส่งข้อความ + ให้ฟรี ${promoDays} วัน` : "ส่งข้อความ";
+        if (!confirm(`${label} ถึง "${curName}"?`)) return;
+        const btn = $("duSendBtn"); btn.disabled = true; const old = btn.textContent; btn.textContent = "…"; r.textContent = "";
+        try {
+          const res = await fetch(`${BASE}/adminPushToUsers`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ userIds: [uid], message, promoDays }) });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.message || d.error || "ส่งไม่สำเร็จ");
+          r.style.color = "var(--green-d)";
+          r.textContent = d.sent ? `✅ ส่งแล้ว${d.promoDays ? ` + ให้ฟรี ${d.promoDays} วัน` : ""}` : `ส่งไม่สำเร็จ (ข้าม ${d.skipped || 0})`;
+          $("duMsg").value = "";
+          if (withPromo && d.promoDays) load();
+        } catch (e) { r.style.color = "var(--red)"; r.textContent = e.message; }
+        btn.disabled = false; btn.textContent = old;
+      }
 
       function renderPushList(expiring, atRisk, expired) {
         const seen = new Set();
