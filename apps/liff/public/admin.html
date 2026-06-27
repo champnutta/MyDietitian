@@ -342,7 +342,7 @@
         $("expiredList").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
 
         renderPushList(d.expiringSoonList || [], d.atRisk || [], d.expiredList || []);
-        renderAi(d.aiConfig || {}, c.aiFallback24hPct ?? c.aiFallbackPct);
+        renderAi(d.aiConfig || {}, c.aiFallback24hPct ?? c.aiFallbackPct, d.aiStats || {});
 
         const ef = d.errorFeed || [];
         $("errfeed").innerHTML = ef.length ? ef.map((e, i) =>
@@ -365,19 +365,45 @@
         });
       }
 
-      function renderAi(cfg, fallbackPct) {
+      function renderAi(cfg, fallbackPct, stats) {
         const agents = { mealAnalysis: "วิเคราะห์อาหาร", exerciseAnalysis: "ออกกำลังกาย", biaAnalysis: "ผล InBody", coachConsultation: "ปรึกษาโค้ช" };
         const flippable = ["mealAnalysis", "exerciseAnalysis"];
-        const gemHint = fallbackPct >= 60 ? `<div class="note" style="margin-bottom:12px">⚠️ Fallback ${fallbackPct}% — provider หลักน่าจะ overload อยู่ พิจารณาสลับ primary</div>` : "";
-        $("aihealth").innerHTML = gemHint + Object.keys(agents).map((id) => {
+        const gemHint = fallbackPct >= 60 ? `<div class="note" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Fallback ${fallbackPct}% (24ชม.) — provider หลักน่าจะ overload พิจารณาสลับ primary</div>` : "";
+        const testBar = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+          <button id="aiTestBtn" class="flip"><i class="ti ti-activity-heartbeat"></i> ทดสอบ provider เดี๋ยวนี้</button>
+          <div id="aiTestRes" style="font-size:13px;color:var(--muted)">เช็คว่า Gemini กลับมาหรือยัง (มันเป็น fallback แล้ว สถิติไม่บอก)</div></div>`;
+        $("aihealth").innerHTML = testBar + gemHint + Object.keys(agents).map((id) => {
           const a = cfg[id]; if (!a) return "";
           const canFlip = flippable.includes(id);
           const other = a.provider === "gemini" ? "anthropic" : "gemini";
-          return `<div class="ai"><div><div>${agents[id]}</div>
-            <div class="sub">primary <span class="badge ${a.provider}">${a.provider}</span> → fallback ${a.fallback || "-"}</div></div>
+          const s = stats[id] || {};
+          const fb7 = s.runs7d ? Math.round((s.fallback7d / s.runs7d) * 100) : 0;
+          const fb24 = s.runs24h ? Math.round((s.fallback24h / s.runs24h) * 100) : 0;
+          const statLine = s.runs7d
+            ? `${s.runs7d} ครั้ง/7วัน · fallback ${fb7}% (24ชม. ${fb24}%)${s.failed7d ? ` · fail ${s.failed7d}` : ""}${s.lastFallbackAt ? ` · fallback ล่าสุด ${fmt(s.lastFallbackAt)}` : ""}`
+            : "ยังไม่มีการใช้งานใน 7 วัน";
+          return `<div class="ai"><div style="flex:1;min-width:0"><div>${agents[id]}</div>
+            <div class="sub">primary <span class="badge ${a.provider}">${a.provider}</span> → fallback ${a.fallback || "-"}</div>
+            <div class="sub" style="margin-top:3px">${statLine}</div></div>
             ${canFlip ? `<button class="flip btn-quiet" data-flip="${id}" data-to="${other}">สลับเป็น ${other}</button>` : ""}</div>`;
         }).join("");
-        $("aihealth").querySelectorAll(".flip").forEach((b) => { b.onclick = () => flip(b.dataset.flip, b.dataset.to, b); });
+        $("aihealth").querySelectorAll(".flip[data-flip]").forEach((b) => { b.onclick = () => flip(b.dataset.flip, b.dataset.to, b); });
+        $("aiTestBtn").onclick = testAi;
+      }
+
+      async function testAi() {
+        const btn = $("aiTestBtn"); const r = $("aiTestRes");
+        const old = btn.innerHTML; btn.disabled = true; btn.textContent = "กำลังทดสอบ…"; r.textContent = "";
+        try {
+          const res = await fetch(`${BASE}/testAiProvider`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.error || "test failed");
+          const one = (p, name) => p.ok
+            ? `<span style="color:var(--green-d)">🟢 ${name} ปกติ (${p.ms}ms)</span>`
+            : `<span style="color:var(--red)">🔴 ${name} ล่ม: ${esc((p.error || "").slice(0, 90))}</span>`;
+          r.innerHTML = `${one(d.gemini, "Gemini")} · ${one(d.anthropic, "Anthropic")}`;
+        } catch (e) { r.style.color = "var(--red)"; r.textContent = e.message; }
+        btn.disabled = false; btn.innerHTML = old;
       }
 
       async function flip(agentId, primary, btn) {

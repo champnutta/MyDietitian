@@ -742,13 +742,22 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
 
   let aiTotal = 0, aiFallback = 0, aiFailed = 0, ai24 = 0, aiFallback24 = 0;
   const ms24 = nowMs - day;
+  // Per-agent breakdown so the operator sees exactly which AI tasks are degraded.
+  const aiByAgent: Record<string, { runs7d: number; fallback7d: number; failed7d: number; runs24h: number; fallback24h: number; lastFallbackAt: string | null }> = {};
   aiRunsSnap.forEach((doc) => {
     const data = doc.data();
     aiTotal += 1;
     if (data.fallbackUsed) aiFallback += 1;
     if (data.status === "failed") aiFailed += 1;
     const ts = normalizeTimestamp(data.createdAt);
-    if (ts && ts.toMillis() >= ms24) { ai24 += 1; if (data.fallbackUsed) aiFallback24 += 1; }
+    const within24 = Boolean(ts && ts.toMillis() >= ms24);
+    if (within24) { ai24 += 1; if (data.fallbackUsed) aiFallback24 += 1; }
+    const agent = String(data.agentId ?? "unknown");
+    const a = aiByAgent[agent] ?? (aiByAgent[agent] = { runs7d: 0, fallback7d: 0, failed7d: 0, runs24h: 0, fallback24h: 0, lastFallbackAt: null });
+    a.runs7d += 1;
+    if (data.fallbackUsed) { a.fallback7d += 1; const iso = timestampToIso(data.createdAt); if (iso && (!a.lastFallbackAt || iso > a.lastFallbackAt)) a.lastFallbackAt = iso; }
+    if (data.status === "failed") a.failed7d += 1;
+    if (within24) { a.runs24h += 1; if (data.fallbackUsed) a.fallback24h += 1; }
   });
 
   // Distinct active users + last-log time per user, derived from the meal snapshot.
@@ -874,6 +883,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     },
     activity: { labels: Object.keys(byDay), meals: Object.values(byDay) },
     aiConfig,
+    aiStats: aiByAgent,
     atRisk,
     expiringSoonList,
     expiredList,
@@ -952,6 +962,42 @@ export const setAiPrimary = onRequest(async (request, response) => {
     response.status(500).json({ ok: false, error: "set-ai-primary-failed", message: error instanceof Error ? error.message : String(error) });
   }
 });
+
+// Live provider health probe: ping Gemini and Anthropic with a tiny request so
+// the operator can see, in real time, whether Gemini has recovered from an
+// outage (it's the fallback now, so the dashboard fallback% no longer reflects
+// its health). Returns each provider's ok/latency/error.
+export const testAiProvider = onRequest(
+  { secrets: AI_PROVIDER_SECRETS, timeoutSeconds: 30 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+    try { await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+
+    const probe = async (fn: () => Promise<void>) => {
+      const t0 = Date.now();
+      try { await fn(); return { ok: true, ms: Date.now() - t0, error: null as string | null }; }
+      catch (error) { return { ok: false, ms: Date.now() - t0, error: (error instanceof Error ? error.message : String(error)).slice(0, 220) }; }
+    };
+
+    const gemini = await probe(async () => {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY.value()}`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 5 } })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 140)}`);
+    });
+    const anthropic = await probe(async () => {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY.value(), "anthropic-version": "2023-06-01" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 5, messages: [{ role: "user", content: "ping" }] })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 140)}`);
+    });
+
+    response.json({ ok: true, testedAt: new Date().toISOString(), gemini, anthropic });
+  }
+);
 
 // Retention/sales action: gift extra days or a lifetime/VIP grant to a customer
 // from the admin UI and notify them on LINE. Recorded as an admin-grant event
