@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-06-26T00:00:00.000Z",
+  "title": "Design System: MyDietitian",
+  "extensions": {
+    "colorMeta": {
+      "vital-green": { "role": "primary", "displayName": "Vital Green", "canonical": "#18B98C", "tonalRamp": ["#04382A", "#075240", "#0A6E55", "#0E8A67", "#18B98C", "#5FD3B2", "#9BE6CF", "#D6F7EC"] },
+      "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1F2937", "tonalRamp": ["#0E141C", "#1F2937", "#33404F", "#4B5A6B", "#7A8088", "#A6ADB4", "#CFD4D8", "#EEF0F2"] },
+      "bg": { "role": "neutral", "displayName": "Cool Field", "canonical": "#F4F6F5", "tonalRamp": ["#1A1D1C", "#33403B", "#5A655F", "#828B86", "#AEB6B1", "#D4DAD7", "#F4F6F5", "#FFFFFF"] },
+      "danger": { "role": "semantic", "displayName": "Signal Coral-Red", "canonical": "#E0533F", "tonalRamp": ["#3F140D", "#5E2117", "#8A3122", "#B5402E", "#E0533F", "#EC8576", "#F4B4AB", "#FBE2DD"] },
+      "warn": { "role": "semantic", "displayName": "Caution Amber", "canonical": "#B9770F", "tonalRamp": ["#3A2503", "#583906", "#7B4F0A", "#9C640C", "#B9770F", "#E0A23F", "#F0C988", "#FBEBD0"] },
+      "data-carb": { "role": "tertiary", "displayName": "Carb Amber", "canonical": "#F2A93B", "tonalRamp": ["#4A3008", "#6E480C", "#946112", "#C4811C", "#F2A93B", "#F6C275", "#FADCAC", "#FDF0DC"] },
+      "data-fat": { "role": "tertiary", "displayName": "Fat Coral", "canonical": "#F0705F", "tonalRamp": ["#491A14", "#6D281E", "#94372A", "#C24A39", "#F0705F", "#F49A8D", "#F9C2BA", "#FDE7E3"] },
+      "data-fiber": { "role": "tertiary", "displayName": "Fiber Violet", "canonical": "#845EF7", "tonalRamp": ["#241646", "#352168", "#48308C", "#6444C0", "#845EF7", "#A98DF9", "#CBB9FB", "#E9E2FD"] },
+      "data-calorie": { "role": "tertiary", "displayName": "Calorie Blue", "canonical": "#185FA5", "tonalRamp": ["#06243F", "#0A375E", "#0F4A7E", "#13549A", "#185FA5", "#4A87C4", "#8BB3DC", "#D2E2F1"] }
+    },
+    "typographyMeta": {
+      "metric": { "displayName": "Metric", "purpose": "The single big glanceable number on a stat card." },
+      "label": { "displayName": "Label", "purpose": "Muted captions, stat labels, badges, timestamps." }
+    },
+    "shadows": [
+      { "name": "resting-card", "value": "0 1px 3px rgba(0,0,0,0.05)", "purpose": "Default whisper lift under every card and stat tile." },
+      { "name": "hover-lift", "value": "0 2px 10px rgba(0,0,0,0.10)", "purpose": "Clickable cards on hover only." },
+      { "name": "float", "value": "0 4px 14px rgba(0,0,0,0.18)", "purpose": "Floating tooltips and the bottom-sheet drawer above the dim backdrop." }
+    ],
+    "motion": [
+      { "name": "state", "value": "0.15s ease", "purpose": "Hover/active state washes on rows and inputs." },
+      { "name": "fill", "value": "width 0.5s ease", "purpose": "Progress/gauge fill animation on the dashboard." }
+    ],
+    "breakpoints": [
+      { "name": "phone", "value": "360px" },
+      { "name": "content-max", "value": "920px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single most important action on a surface (sign in, save, send).",
+      "html": "<button class=\"ds-btn-primary\">เข้าสู่ระบบด้วย Google</button>",
+      "css": ".ds-btn-primary { font: inherit; font-weight: 600; color: #fff; background: #18B98C; border: 1px solid #18B98C; border-radius: 10px; padding: 8px 14px; cursor: pointer; transition: background 0.15s ease; } .ds-btn-primary:hover { background: #0E8A67; border-color: #0E8A67; } .ds-btn-primary:focus-visible { outline: 2px solid #18B98C; outline-offset: 2px; } .ds-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default control for most actions (tab actions, flips, day-grants).",
+      "html": "<button class=\"ds-btn-secondary\">+30 วัน</button>",
+      "css": ".ds-btn-secondary { font: inherit; color: #1F2937; background: #fff; border: 1px solid #EEF0EF; border-radius: 10px; padding: 8px 14px; cursor: pointer; transition: background 0.15s ease; } .ds-btn-secondary:hover { background: #F4F6F5; } .ds-btn-secondary:focus-visible { outline: 2px solid #18B98C; outline-offset: 2px; }"
+    },
+    {
+      "name": "Stat Card",
+      "kind": "card",
+      "refersTo": "stat-card",
+      "description": "A single headline metric: muted label over a large value. Clickable variant lifts and routes to a section.",
+      "html": "<div class=\"ds-stat\"><small>At-risk <span class=\"ds-ic\">&#9432;</span></small><b>19</b></div>",
+      "css": ".ds-stat { position: relative; background: #fff; border-radius: 14px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); cursor: pointer; transition: box-shadow 0.15s ease; } .ds-stat:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.10); } .ds-stat small { display: flex; align-items: center; gap: 4px; color: #7A8088; font-size: 12px; } .ds-stat .ds-ic { color: #B9BEC4; font-size: 11px; } .ds-stat b { display: block; font-size: 25px; font-weight: 700; color: #B9770F; margin-top: 4px; }"
+    },
+    {
+      "name": "Tab Bar",
+      "kind": "nav",
+      "refersTo": "tab-bar",
+      "description": "Horizontal label-only tabs with a green underline on the active item; scrolls on overflow.",
+      "html": "<div class=\"ds-tabs\"><div class=\"ds-tab\">ภาพรวม</div><div class=\"ds-tab active\">รักษาลูกค้า</div><div class=\"ds-tab\">ระบบ</div></div>",
+      "css": ".ds-tabs { display: flex; gap: 4px; border-bottom: 1px solid #EEF0EF; overflow-x: auto; } .ds-tab { padding: 9px 13px; font-size: 14px; color: #7A8088; white-space: nowrap; cursor: pointer; border-bottom: 2px solid transparent; } .ds-tab:hover { color: #1F2937; } .ds-tab.active { color: #0E8A67; font-weight: 600; border-bottom-color: #18B98C; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "Pill tag with tinted fill and same-hue dark text; never gray on color.",
+      "html": "<span class=\"ds-badge ds-badge-expiring\">เหลือ 3 วัน</span>",
+      "css": ".ds-badge { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 999px; } .ds-badge-expiring { background: #FEF3C7; color: #92400E; }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "White field with hairline border; border shifts to green on focus.",
+      "html": "<input class=\"ds-input\" type=\"number\" placeholder=\"กำหนดเอง (วัน)\" />",
+      "css": ".ds-input { font: inherit; font-size: 13px; color: #1F2937; background: #fff; border: 1px solid #EEF0EF; border-radius: 10px; padding: 9px 10px; outline: none; transition: border-color 0.15s ease; } .ds-input::placeholder { color: #7A8088; } .ds-input:focus { border-color: #18B98C; }"
+    },
+    {
+      "name": "List Row",
+      "kind": "custom",
+      "refersTo": "list-row",
+      "description": "Flush record row divided by a hairline; clickable rows wash on hover with a trailing chevron and a right-aligned bold value.",
+      "html": "<div class=\"ds-row\"><div><div>Nonti</div><div class=\"ds-sub\">sub เหลือ 221 วัน</div></div><div class=\"ds-amt\">เงียบ 14+ วัน &rsaquo;</div></div>",
+      "css": ".ds-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #EEF0EF; font-size: 14px; color: #1F2937; cursor: pointer; transition: background 0.15s ease; } .ds-row:first-child { border-top: 0; } .ds-row:hover { background: #FAFBFB; } .ds-row .ds-sub { color: #7A8088; font-size: 12px; margin-top: 2px; } .ds-row .ds-amt { font-weight: 700; white-space: nowrap; color: #B9770F; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Calm Coach",
+    "overview": "MyDietitian is a paid nutrition-coaching service that lives inside LINE. Its surfaces should feel like a calm, expert coach who already knows you: warm and encouraging, quietly precise, never clinical and never shouting. The premium quality is carried by space, restraint, and a single confident green — not by more chrome, more cards, or more color. Density is low for customer surfaces (one glanceable focal point per screen on a phone) and earns the right to be denser only in admin, where the owner scans the business.",
+    "keyCharacteristics": [
+      "One vital green carries identity and primary action; everything else is neutral or reserved data color.",
+      "Soft 14–18px corners, near-flat surfaces, whisper-light shadows.",
+      "Phone-first, Thai-first; glanceable before detailed.",
+      "Warmth from green, copy, and roundness — never from a warm-tinted background.",
+      "Restraint as the premium signal: space over decoration."
+    ],
+    "rules": [
+      { "name": "The One Green Rule", "body": "There is exactly one brand green: Vital Green #18B98C. The settings surface's brighter LINE-green (#1db446) on warm paper (#fffdf5) is drift to reconcile, not a second accent.", "section": "colors" },
+      { "name": "The Reserved-Data Rule", "body": "Amber, coral, violet, and calorie-blue are data colors only — macros, gauges, charts. Forbidden as decoration, button color, or section accent.", "section": "colors" },
+      { "name": "The Fixed-Scale Rule", "body": "Sizes are fixed px, never fluid clamp(). A heading that shrinks inside a panel looks worse, not designed.", "section": "typography" },
+      { "name": "The Thai-Headroom Rule", "body": "Never set line-height below 1.3 on Thai headings; test real Thai copy and long member names at 360px before shipping.", "section": "typography" },
+      { "name": "The Whisper Shadow Rule", "body": "Surfaces are flat at rest (0 1px 3px / 0.05). A heavier shadow is a response to state (hover, float), never decoration.", "section": "elevation" },
+      { "name": "The Flush-List Rule", "body": "Repeated records are flush rows divided by hairlines — never a grid of identical cards. The card grid is reserved for a handful of headline stats.", "section": "components" }
+    ],
+    "dos": [
+      "Do keep one vital green (#18B98C) as the only identity + primary-action color; everything else neutral or reserved data hue.",
+      "Do lead each surface with a single glanceable focal point and let the rest recede.",
+      "Do use flush hairline-divided rows for lists; reserve the card grid for a handful of headline stats.",
+      "Do keep surfaces flat at rest (0 1px 3px / 0.05); let shadow appear only on hover/float.",
+      "Do put :hover, :focus-visible, :active, and :disabled on every interactive element.",
+      "Do test real Thai copy and long member names at 360px before shipping."
+    ],
+    "donts": [
+      "Don't build a generic SaaS dashboard — endless identical icon-heading-number cards in a uniform grid.",
+      "Don't drift toward clinical / hospital coldness — sterile blue-white, sharp grids, lab-report sterility.",
+      "Don't ship cluttered number-walls — dense data with no hierarchy where everything is the same weight.",
+      "Don't use a warm cream/paper/parchment background; the field is the cool off-white #F4F6F5.",
+      "Don't introduce a second green (#1db446) or use data colors as decoration or buttons.",
+      "Don't reach for a centered modal when a bottom-sheet drawer or inline expansion will do.",
+      "Don't set muted gray (#7A8088) as body text on a tinted fill without checking 4.5:1."
+    ]
+  }
+}

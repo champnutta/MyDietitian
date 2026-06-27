@@ -18,17 +18,28 @@
       button.primary { background: var(--green); border-color: var(--green); color: #fff; font-weight: 600; }
       .center { text-align: center; padding: 60px 0; }
       .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
-      .tab { padding: 9px 13px; font-size: 14px; color: var(--muted); white-space: nowrap; cursor: pointer; border-bottom: 2px solid transparent; }
+      .tab { padding: 9px 13px; font: inherit; font-size: 14px; color: var(--muted); white-space: nowrap; cursor: pointer; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
       .tab.active { color: var(--green-d); border-bottom-color: var(--green); font-weight: 600; }
+      .tab:focus-visible, .stat:focus-visible, .prow:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
       .tabpanel { display: none; } .tabpanel.active { display: block; }
+      /* Hero: the single focal metric that leads each tab. */
+      .hero { position: relative; background: var(--card); border-radius: 18px; padding: 22px 22px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.05); margin-bottom: 12px; }
+      .hero .hlabel { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 5px; }
+      .hero .hval { display: block; font-size: 44px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.05; margin-top: 6px; }
+      .hero .hsub { color: var(--muted); font-size: 13px; margin-top: 6px; }
+      .hero.warn .hval { color: var(--amber); } .hero.danger .hval { color: var(--red); } .hero.ok .hval { color: var(--green-d); }
+      /* Secondary strip: the demoted metrics — quiet, compact, hairline-joined. */
+      .strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(116px, 1fr)); gap: 1px; background: var(--line); border-radius: 14px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
       .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
       .stat { position: relative; background: var(--card); border-radius: 14px; padding: 15px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
-      .stat[data-tab] { cursor: pointer; } .stat[data-tab]:hover { box-shadow: 0 2px 10px rgba(0,0,0,.10); }
+      .strip .stat { border-radius: 0; box-shadow: none; padding: 13px 14px; }
+      .stat[data-tab] { cursor: pointer; } .stat[data-tab]:hover { box-shadow: 0 2px 10px rgba(0,0,0,.10); } .strip .stat[data-tab]:hover { box-shadow: none; background: #FAFBFB; }
       .stat small { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 4px; }
-      .stat b { display: block; font-size: 25px; margin-top: 4px; }
+      .stat b { display: block; font-size: 22px; margin-top: 4px; }
+      .strip .stat b { font-size: 19px; }
       .stat .ic { font-size: 11px; color: #B9BEC4; cursor: help; }
       .stat.warn b { color: var(--amber); } .stat.danger b { color: var(--red); } .stat.ok b { color: var(--green-d); }
-      .stat[data-tip]:hover::after { content: attr(data-tip); position: absolute; left: 12px; right: 12px; top: -8px; transform: translateY(-100%);
+      .stat[data-tip]:hover::after, .stat[data-tip]:focus-within::after, .stat[data-tip].tip-open::after { content: attr(data-tip); position: absolute; left: 12px; right: 12px; top: -8px; transform: translateY(-100%);
         background: #1F2937; color: #fff; font-size: 11.5px; line-height: 1.45; padding: 8px 10px; border-radius: 8px; z-index: 9; box-shadow: 0 4px 14px rgba(0,0,0,.18); }
       h3 { font-size: 15px; margin: 22px 0 10px; }
       .card { background: var(--card); border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.05); }
@@ -43,6 +54,8 @@
       .ai:first-child { border-top: 0; } .ai .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; }
       .badge.anthropic { background: #EDE9FE; color: #6D28D9; } .badge.gemini { background: #E0EDFF; color: #1D4ED8; }
       .flip { font-size: 12px; padding: 6px 10px; }
+      .btn-quiet { border-color: transparent; background: transparent; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; padding: 6px 4px; }
+      .btn-quiet:hover { color: var(--ink); }
       #msg { margin-top: 14px; font-size: 14px; color: var(--muted); } #msg.error { color: var(--red); }
       .modal { position: fixed; inset: 0; background: rgba(15,23,42,.45); display: none; align-items: flex-end; justify-content: center; z-index: 50; }
       .modal.show { display: flex; }
@@ -52,6 +65,21 @@
       .mini { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin: 14px 0; }
       .mini div { background: var(--bg); border-radius: 10px; padding: 9px; } .mini small { color: var(--muted); font-size: 11px; } .mini b { display: block; font-size: 16px; margin-top: 2px; }
       .note { background: #F0F7FF; border: 1px solid #D6E6FF; color: #1D4ED8; border-radius: 12px; padding: 13px 15px; font-size: 13px; line-height: 1.6; }
+      .push-list { max-height: 240px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; }
+      .push-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-top: 1px solid var(--line); font-size: 13px; cursor: pointer; }
+      .push-row:first-child { border-top: 0; }
+      .push-row:hover { background: #FAFBFB; }
+      .push-row input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--green); cursor: pointer; flex-shrink: 0; }
+      .push-row .pr-name { flex: 1; min-width: 0; }
+      .push-row .pr-badge { font-size: 11px; padding: 2px 7px; border-radius: 20px; white-space: nowrap; flex-shrink: 0; }
+      .push-row .pr-badge.expiring { background: #FEF3C7; color: #92400E; }
+      .push-row .pr-badge.atrisk { background: #FEF9C3; color: #713F12; }
+      .push-sel { display: flex; gap: 6px; margin-bottom: 8px; }
+      .push-sel button { font-size: 12px; padding: 5px 10px; }
+      textarea.push-ta { width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; outline: none; }
+      textarea.push-ta:focus { border-color: var(--green); }
+      #pushResult { font-size: 13px; margin-top: 8px; }
+      @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; } }
     </style>
   </head>
   <body>
@@ -67,24 +95,53 @@
       </div>
 
       <div id="panel" hidden>
-        <div class="tabs" id="tabs"></div>
+        <div class="tabs" id="tabs" role="tablist" aria-label="หมวดข้อมูล"></div>
 
         <div class="tabpanel active" data-panel="overview">
-          <div class="cards" id="ovCards"></div>
+          <div id="ovHero"></div>
           <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
           <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
+          <div class="strip" id="ovStrip" style="margin-top:14px"></div>
         </div>
 
         <div class="tabpanel" data-panel="retention">
-          <div class="cards" id="retCards"></div>
+          <div id="retHero"></div>
+          <div class="strip" id="retStrip"></div>
           <h3>⏰ ใกล้หมดอายุ (7 วัน) <small style="color:var(--muted);font-weight:400">(แตะเพื่อต่ออายุ/ให้ VIP)</small></h3>
           <div class="card" id="expiring"></div>
           <h3>⚠️ At-risk — ลูกค้าจ่ายเงินแต่เงียบหาย <small style="color:var(--muted);font-weight:400">(แตะดูรายละเอียด)</small></h3>
           <div class="card" id="atrisk"></div>
+
+          <h3>📢 ส่ง push message <small style="color:var(--muted);font-weight:400">เลือกลูกค้าแล้วพิมพ์ข้อความ</small></h3>
+          <div class="card">
+            <div class="push-sel">
+              <button id="pushSelAll">เลือกทั้งหมด</button>
+              <button id="pushSelNone">ยกเลิก</button>
+              <span id="pushCount" style="font-size:12px;color:var(--muted);margin-left:4px;align-self:center"></span>
+            </div>
+            <div class="push-list" id="pushList"></div>
+            <div style="margin-top:12px">
+              <textarea class="push-ta" id="pushMsg" placeholder="พิมพ์ข้อความที่จะส่งผ่าน LINE…"></textarea>
+            </div>
+            <div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+              <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+                <input type="checkbox" id="promoCheck" style="width:16px;height:16px;accent-color:var(--green)">
+                แนบโปรโมชัน ให้ฟรี
+              </label>
+              <input id="promoDays" type="number" min="1" max="365" value="3" style="width:64px;padding:6px 8px;border:1px solid var(--line);border-radius:8px;font:inherit;font-size:13px" disabled>
+              <span style="font-size:13px">วัน</span>
+              <span style="font-size:11px;color:var(--muted)">(ต่ออายุอัตโนมัติ ไม่ต้องกด)</span>
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;align-items:center">
+              <button class="primary" id="pushSendBtn">ส่งข้อความ</button>
+              <div id="pushResult"></div>
+            </div>
+          </div>
         </div>
 
         <div class="tabpanel" data-panel="system">
-          <div class="cards" id="sysCards"></div>
+          <div id="sysHero"></div>
+          <div class="strip" id="sysStrip"></div>
           <h3>🤖 AI provider health</h3>
           <div class="card" id="aihealth"></div>
           <h3>🛠️ Error feed (ล่าสุด) <small style="color:var(--muted);font-weight:400">(แตะดู detail)</small></h3>
@@ -107,7 +164,7 @@
       <div id="msg"></div>
     </main>
 
-    <div class="modal" id="modal"><div class="drawer" id="drawer"></div></div>
+    <div class="modal" id="modal"><div class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="รายละเอียดลูกค้า"></div></div>
 
     <script src="/config.js"></script>
     <script type="module">
@@ -125,17 +182,22 @@
       const auth = getAuth(app);
       const BASE = window.MD_FUNCTIONS_BASE;
       const $ = (id) => document.getElementById(id);
-      let chart, token, DATA;
+      let chart, token, DATA, curName;
 
       const TABS = [
         ["overview", "📊 ภาพรวม"], ["retention", "🔁 รักษาลูกค้า"], ["system", "🛠️ ระบบ"],
         ["finance", "💰 การเงิน"], ["growth", "📈 เติบโต"]
       ];
-      $("tabs").innerHTML = TABS.map(([k, l], i) => `<div class="tab ${i === 0 ? "active" : ""}" data-go="${k}">${l}</div>`).join("");
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      $("tabs").innerHTML = TABS.map(([k, l], i) => `<button class="tab ${i === 0 ? "active" : ""}" role="tab" aria-selected="${i === 0}" data-go="${k}">${l}</button>`).join("");
       function showTab(key) {
-        document.querySelectorAll(".tab").forEach((t) => t.classList.toggle("active", t.dataset.go === key));
+        document.querySelectorAll(".tab").forEach((t) => {
+          const on = t.dataset.go === key;
+          t.classList.toggle("active", on);
+          t.setAttribute("aria-selected", on);
+        });
         document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.dataset.panel === key));
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
       }
       $("tabs").onclick = (e) => { const t = e.target.closest(".tab"); if (t) showTab(t.dataset.go); };
 
@@ -157,38 +219,56 @@
           if (res.status === 401) throw new Error("บัญชีนี้ไม่มีสิทธิ์ admin");
           if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
           DATA = data; render(data); $("panel").hidden = false; msg("");
-        } catch (e) { msg(e.message || String(e), true); }
+        } catch (e) {
+          $("msg").classList.add("error");
+          $("msg").innerHTML = `โหลดข้อมูลไม่สำเร็จ: ${esc(e.message || String(e))} <button id="retryBtn" class="primary" style="margin-left:8px;padding:6px 14px">ลองใหม่</button>`;
+          $("retryBtn").onclick = load;
+        }
       }
 
       const card = (label, value, cls, tip, tab) => {
         const v = typeof value === "number" ? value.toLocaleString() : value;
-        return `<div class="stat ${cls || ""}" ${tab ? `data-tab="${tab}"` : ""} ${tip ? `data-tip="${tip}"` : ""}>
+        const focusable = tip && !tab ? ' tabindex="0"' : "";
+        return `<div class="stat ${cls || ""}"${focusable} ${tab ? `data-tab="${tab}"` : ""} ${tip ? `data-tip="${tip}"` : ""}>
           <small>${label}${tip ? ' <span class="ic">ⓘ</span>' : ""}</small><b>${v}</b></div>`;
+      };
+
+      const hero = (label, value, cls, sub, tab) => {
+        const v = typeof value === "number" ? value.toLocaleString() : value;
+        return `<div class="hero ${cls || ""}" ${tab ? `data-tab="${tab}"` : ""}>
+          <div class="hlabel">${label}</div><div class="hval">${v}</div>${sub ? `<div class="hsub">${sub}</div>` : ""}</div>`;
       };
 
       function render(d) {
         const c = d.cards;
-        $("ovCards").innerHTML = [
-          card("💰 รายได้ (30 วัน)", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "ok", "ผลรวมยอดสลิปที่อนุมัติใน 30 วันล่าสุด", "finance"),
-          card("Subscription active", c.activeSubscriptions, "ok", "จำนวนลูกค้าที่ subscription ยังไม่หมดอายุ", "retention"),
-          card("At-risk", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : "", "ลูกค้าจ่ายเงินแต่ไม่ log อาหาร 5+ วัน — เสี่ยงเลิกใช้", "retention"),
-          card("Errors (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : "", "ข้อผิดพลาดของระบบใน 24 ชม. (AI/webhook/slip fail)", "system"),
-          card("Active วันนี้", c.activeToday ?? 0, "", "จำนวนคนที่ log อาหารวันนี้ (นับหัวจริง)", null),
-          card("ผู้ใช้ใหม่ (7 วัน)", c.newUsers7d ?? 0, c.newUsers7d ? "ok" : "", "สมัครใหม่ใน 7 วัน (เฉพาะหลัง cutover)", "growth")
+        $("ovHero").innerHTML = hero(
+          "ลูกค้าที่ยังใช้งานอยู่ (active subscriptions)", c.activeSubscriptions, "ok",
+          `${(c.atRiskCount ?? 0).toLocaleString()} คนเสี่ยงหลุด · ฿${Number(c.revenue30d || 0).toLocaleString()} รายได้ 30 วัน`, "retention");
+        $("ovStrip").innerHTML = [
+          card("At-risk", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : "", "ลูกค้าจ่ายเงินแต่ไม่ log อาหาร 5+ วัน", "retention"),
+          card("Errors (24ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : "", "AI/webhook/slip fail ใน 24 ชม.", "system"),
+          card("Active วันนี้", c.activeToday ?? 0, "", "คนที่ log อาหารวันนี้", null),
+          card("ผู้ใช้ใหม่ (7วัน)", c.newUsers7d ?? 0, c.newUsers7d ? "ok" : "", "สมัครใหม่ (หลัง cutover)", "growth"),
+          card("รายได้ 30วัน", `฿${Number(c.revenue30d || 0).toLocaleString()}`, "", "สลิปที่อนุมัติใน 30 วัน", "finance")
         ].join("");
 
-        $("retCards").innerHTML = [
-          card("Active subs log (7 วัน)", `${c.payingEngaged7dPct ?? 0}%`, (c.payingEngaged7dPct ?? 100) < 50 ? "warn" : "ok", "สัดส่วนลูกค้าจ่ายเงินที่ยัง log ใน 7 วัน — ต่ำ = เสี่ยง churn"),
-          card("At-risk (เงียบ 5+ วัน)", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : "", "เป้าหมาย win-back"),
-          card("ใกล้หมดอายุ (7 วัน)", c.expiringSoon, c.expiringSoon ? "warn" : "", "ควรชวนต่ออายุ"),
+        const eng = c.payingEngaged7dPct ?? 0;
+        $("retHero").innerHTML = hero(
+          "ลูกค้าจ่ายเงินที่ยัง log ใน 7 วัน", `${eng}%`, eng < 50 ? "warn" : "ok",
+          `${(c.atRiskCount ?? 0).toLocaleString()} คนเงียบหาย · ${(c.expiringSoon ?? 0).toLocaleString()} คนใกล้หมดอายุ — ยิ่งต่ำยิ่งเสี่ยง churn`);
+        $("retStrip").innerHTML = [
+          card("At-risk", c.atRiskCount ?? 0, c.atRiskCount ? "warn" : "", "เงียบ 5+ วัน — เป้า win-back"),
+          card("ใกล้หมดอายุ", c.expiringSoon, c.expiringSoon ? "warn" : "", "ภายใน 7 วัน — ชวนต่ออายุ"),
           card("หมดอายุแล้ว", c.expired ?? 0, "", "pool สำหรับ win-back")
         ].join("");
 
-        $("sysCards").innerHTML = [
-          card("Errors (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : ""),
-          card("AI runs (7 วัน)", c.aiRuns7d, ""),
-          card("Fallback %", `${c.aiFallbackPct}%`, c.aiFallbackPct > 30 ? "warn" : "", "% ที่ AI หลักล้มแล้วใช้ตัวสำรอง — สูง = provider หลักมีปัญหา"),
-          card("AI fail (7 วัน)", c.aiFailed7d, c.aiFailed7d ? "danger" : "")
+        $("sysHero").innerHTML = hero(
+          "ข้อผิดพลาดระบบ (24 ชม.)", c.errors24h ?? 0, c.errors24h ? "danger" : "ok",
+          c.errors24h ? "AI / webhook / slip fail — แตะ Error feed ด้านล่างเพื่อดูรายละเอียด" : "ระบบทำงานปกติ ไม่มี error ใน 24 ชม.");
+        $("sysStrip").innerHTML = [
+          card("AI runs (7วัน)", c.aiRuns7d, ""),
+          card("Fallback %", `${c.aiFallbackPct}%`, c.aiFallbackPct > 30 ? "warn" : "", "AI หลักล้มแล้วใช้ตัวสำรอง — สูง = provider มีปัญหา"),
+          card("AI fail (7วัน)", c.aiFailed7d, c.aiFailed7d ? "danger" : "")
         ].join("");
 
         $("finCards").innerHTML = [
@@ -210,7 +290,7 @@
         chart = new Chart($("actChart"), {
           type: "bar",
           data: { labels: d.activity.labels, datasets: [{ label: "มื้อ", data: d.activity.meals, backgroundColor: "#18B98C", borderRadius: 5 }] },
-          options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+          options: { responsive: true, maintainAspectRatio: false, animation: reduceMotion ? false : undefined, plugins: { legend: { display: false } },
             scales: { y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } } }, x: { ticks: { font: { size: 10 } } } } }
         });
 
@@ -230,6 +310,7 @@
           : `<div class="empty">ไม่มีลูกค้าเสี่ยงหลุด 🎉</div>`;
         $("atrisk").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
 
+        renderPushList(d.expiringSoonList || [], d.atRisk || []);
         renderAi(d.aiConfig || {}, c.aiFallback24hPct ?? c.aiFallbackPct);
 
         const ef = d.errorFeed || [];
@@ -246,6 +327,11 @@
             <div class="sub">${r.lineUserId || r.canonicalUserId || "-"} · ${fmt(r.createdAt)}</div></div>
             <div class="amt" style="color:var(--green-d)">รออนุมัติ</div></div>`).join("")
           : `<div class="empty">ไม่มีสลิปรออนุมัติ</div>`;
+
+        document.querySelectorAll(".prow.click").forEach((el) => {
+          el.tabIndex = 0; el.setAttribute("role", "button");
+          el.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); el.click(); } };
+        });
       }
 
       function renderAi(cfg, fallbackPct) {
@@ -258,7 +344,7 @@
           const other = a.provider === "gemini" ? "anthropic" : "gemini";
           return `<div class="ai"><div><div>${agents[id]}</div>
             <div class="sub">primary <span class="badge ${a.provider}">${a.provider}</span> → fallback ${a.fallback || "-"}</div></div>
-            ${canFlip ? `<button class="flip" data-flip="${id}" data-to="${other}">สลับเป็น ${other}</button>` : ""}</div>`;
+            ${canFlip ? `<button class="flip btn-quiet" data-flip="${id}" data-to="${other}">สลับเป็น ${other}</button>` : ""}</div>`;
         }).join("");
         $("aihealth").querySelectorAll(".flip").forEach((b) => { b.onclick = () => flip(b.dataset.flip, b.dataset.to, b); });
       }
@@ -276,6 +362,7 @@
       }
 
       async function openUser(uid) {
+        window.__opener = document.activeElement;
         $("modal").classList.add("show");
         $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button><div class="empty">กำลังโหลด…</div>`;
         try {
@@ -286,6 +373,7 @@
           if (!res.ok || !u.ok) throw new Error(u.error || "load failed");
           const t = u.target || {};
           const vip = u.subscription?.lifetime;
+          curName = u.name || "ลูกค้า";
           $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button>
             <div style="display:flex;gap:11px;align-items:center"><div class="ava">${esc((u.name || "M").slice(0, 2))}</div>
               <div><div style="font-size:16px;font-weight:600">${esc(u.name)}</div><div class="sub">${vip ? "👑 VIP Lifetime" : esc(uid)}</div></div></div>
@@ -311,6 +399,7 @@
             <div id="gmsg" style="font-size:13px;margin-bottom:10px"></div>
             <button style="font-size:13px" onclick="navigator.clipboard.writeText('${esc(u.lineUserId || uid)}');this.textContent='คัดลอกแล้ว'">⧉ คัดลอก userId</button>`;
           $("drawer").querySelectorAll("[data-g]").forEach((b) => { b.onclick = () => grant(uid, b.dataset.g, b); });
+          $("drawer").querySelector(".x")?.focus();
         } catch (e) { $("drawer").innerHTML = `<button class="x" onclick="window.__closeU()">✕</button><div class="empty" style="color:var(--red)">${e.message}</div>`; }
       }
 
@@ -322,7 +411,7 @@
           if (!d || d <= 0) { gmsg("ใส่จำนวนวันก่อนครับ", true); return; }
           body = { userId: uid, days: d }; label = `ต่ออายุ +${d} วัน`;
         } else { body = { userId: uid, days: Number(kind) }; label = `ต่ออายุ +${kind} วัน`; }
-        if (!confirm(`${label}? ลูกค้าจะได้รับข้อความแจ้งทันที`)) return;
+        if (!confirm(`${label} ให้ "${curName}"?\nลูกค้าจะได้รับข้อความแจ้งทันที`)) return;
         btn.disabled = true; const old = btn.textContent; btn.textContent = "…";
         try {
           const res = await fetch(`${BASE}/grantSubscriptionFromAdmin`, { method: "POST",
@@ -334,8 +423,72 @@
         } catch (e) { gmsg(e.message, true); btn.disabled = false; btn.textContent = old; }
       }
       function gmsg(text, err) { const b = $("gmsg"); if (!b) return; b.textContent = text; b.style.color = err ? "var(--red)" : "var(--green-d)"; }
-      window.__closeU = () => $("modal").classList.remove("show");
+
+      function renderPushList(expiring, atRisk) {
+        const seen = new Set();
+        const items = [];
+        for (const u of expiring) {
+          if (seen.has(u.canonicalUserId)) continue;
+          seen.add(u.canonicalUserId);
+          items.push({ uid: u.canonicalUserId, name: u.name, badge: "expiring", label: `เหลือ ${u.expiresInDays} วัน` });
+        }
+        for (const u of atRisk) {
+          if (seen.has(u.canonicalUserId)) continue;
+          seen.add(u.canonicalUserId);
+          items.push({ uid: u.canonicalUserId, name: u.name, badge: "atrisk", label: `เงียบ ${u.quietDays >= 99 ? "14+" : u.quietDays} วัน` });
+        }
+        const list = $("pushList");
+        if (!items.length) { list.innerHTML = `<div class="push-row" style="color:var(--muted)">ไม่มีลูกค้าในกลุ่มนี้</div>`; return; }
+        list.innerHTML = items.map((u) =>
+          `<label class="push-row"><input type="checkbox" class="push-cb" data-uid="${esc(u.uid)}">
+            <span class="pr-name">${esc(u.name) || "Member"}</span>
+            <span class="pr-badge ${u.badge}">${esc(u.label)}</span></label>`
+        ).join("");
+        updatePushCount();
+        list.querySelectorAll(".push-cb").forEach((cb) => { cb.onchange = updatePushCount; });
+        $("pushSelAll").onclick = () => { list.querySelectorAll(".push-cb").forEach((c) => { c.checked = true; }); updatePushCount(); };
+        $("pushSelNone").onclick = () => { list.querySelectorAll(".push-cb").forEach((c) => { c.checked = false; }); updatePushCount(); };
+        $("promoCheck").onchange = () => { $("promoDays").disabled = !$("promoCheck").checked; };
+        $("pushSendBtn").onclick = sendPush;
+      }
+
+      function updatePushCount() {
+        const n = $("pushList").querySelectorAll(".push-cb:checked").length;
+        $("pushCount").textContent = n ? `เลือก ${n} คน` : "";
+      }
+
+      async function sendPush() {
+        const checked = [...$("pushList").querySelectorAll(".push-cb:checked")];
+        const userIds = checked.map((c) => c.dataset.uid);
+        const message = $("pushMsg").value.trim();
+        const res = $("pushResult");
+        if (!userIds.length) { res.textContent = "กรุณาเลือกลูกค้าอย่างน้อย 1 คน"; res.style.color = "var(--red)"; return; }
+        if (!message) { res.textContent = "กรุณาพิมพ์ข้อความก่อน"; res.style.color = "var(--red)"; return; }
+        const withPromo = $("promoCheck").checked;
+        const promoDays = withPromo ? Math.max(1, Math.floor(Number($("promoDays").value) || 3)) : 0;
+        const confirmMsg = withPromo
+          ? `ส่งข้อความ + ให้ฟรี ${promoDays} วัน กับลูกค้า ${userIds.length} คน?\n\n"${message.slice(0, 80)}${message.length > 80 ? "…" : ""}"`
+          : `ส่งข้อความให้ลูกค้า ${userIds.length} คน?\n\n"${message.slice(0, 80)}${message.length > 80 ? "…" : ""}"`;
+        if (!confirm(confirmMsg)) return;
+        const btn = $("pushSendBtn"); btn.disabled = true; btn.textContent = "…"; res.textContent = "";
+        try {
+          const r = await fetch(`${BASE}/adminPushToUsers`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ userIds, message, promoDays }) });
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.message || d.error || "ส่งไม่สำเร็จ");
+          const promoNote = d.promoDays ? ` · ต่ออายุ +${d.promoDays} วัน` : "";
+          res.textContent = `✅ ส่งสำเร็จ ${d.sent} คน${promoNote}${d.failed ? ` · ล้มเหลว ${d.failed}` : ""}${d.skipped ? ` · ข้าม ${d.skipped}` : ""}`;
+          res.style.color = "var(--green-d)";
+          $("pushMsg").value = "";
+          $("pushList").querySelectorAll(".push-cb").forEach((c) => { c.checked = false; });
+          updatePushCount();
+        } catch (e) { res.textContent = e.message; res.style.color = "var(--red)"; }
+        btn.disabled = false; btn.textContent = "ส่งข้อความ";
+      }
+      window.__closeU = () => { $("modal").classList.remove("show"); window.__opener?.focus?.(); };
       $("modal").onclick = (e) => { if (e.target === $("modal")) window.__closeU(); };
+      document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("modal").classList.contains("show")) window.__closeU(); });
 
       function fmt(iso) {
         if (!iso) return "-";
