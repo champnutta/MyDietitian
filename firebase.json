@@ -39,7 +39,7 @@
         ]
       },
       {
-        "source": "/@(settings|dashboard)",
+        "source": "/@(settings|dashboard|admin)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
         ]
