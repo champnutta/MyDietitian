@@ -367,7 +367,7 @@
 
       function renderAi(cfg, fallbackPct, stats) {
         const agents = { mealAnalysis: "วิเคราะห์อาหาร", exerciseAnalysis: "ออกกำลังกาย", biaAnalysis: "ผล InBody", coachConsultation: "ปรึกษาโค้ช" };
-        const flippable = ["mealAnalysis", "exerciseAnalysis"];
+        const flippable = ["mealAnalysis", "exerciseAnalysis", "biaAnalysis", "coachConsultation"];
         const gemHint = fallbackPct >= 60 ? `<div class="note" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Fallback ${fallbackPct}% (24ชม.) — provider หลักน่าจะ overload พิจารณาสลับ primary</div>` : "";
         const testBar = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
           <button id="aiTestBtn" class="flip"><i class="ti ti-activity-heartbeat"></i> ทดสอบ provider เดี๋ยวนี้</button>

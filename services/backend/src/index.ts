@@ -942,12 +942,14 @@ export const setAiPrimary = onRequest(async (request, response) => {
     const body = (request.body ?? {}) as { agentId?: string; primary?: string };
     const agentId = String(body.agentId ?? "");
     const primary = String(body.primary ?? "");
-    if (!["mealAnalysis", "exerciseAnalysis"].includes(agentId) || !["gemini", "anthropic"].includes(primary)) {
+    if (!["mealAnalysis", "exerciseAnalysis", "biaAnalysis", "coachConsultation"].includes(agentId) || !["gemini", "anthropic"].includes(primary)) {
       response.status(400).json({ ok: false, error: "invalid-request" });
       return;
     }
-    const GEMINI = { provider: "gemini", model: "gemini-3.5-flash", timeoutMs: 12000 };
-    const ANTHROPIC = { provider: "anthropic", model: "claude-sonnet-4-6", timeoutMs: 20000 };
+    // BIA (InBody PDF) and coach payloads are heavier, so they need longer timeouts.
+    const heavy = agentId === "biaAnalysis" || agentId === "coachConsultation";
+    const GEMINI = { provider: "gemini", model: "gemini-3.5-flash", timeoutMs: heavy ? 20000 : 12000 };
+    const ANTHROPIC = { provider: "anthropic", model: "claude-sonnet-4-6", timeoutMs: heavy ? 45000 : 20000 };
     const ref = db.collection("aiAgents").doc(agentId);
     const temp = Number((await ref.get()).data()?.temperature ?? 0.2);
     const primaryCfg = primary === "gemini" ? GEMINI : ANTHROPIC;
