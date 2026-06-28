@@ -931,6 +931,51 @@ export const getAdminUserDetail = onRequest(async (request, response) => {
   }
 });
 
+// Full customer directory for the admin "all customers" tab: profile + current
+// subscription + snapshot stats (first/last log, meal count) joined per user.
+// Returns aggregate metadata only (no meal content). Searched/sorted client-side.
+export const getAdminCustomers = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+  try { await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+  try {
+    const now = Date.now();
+    const day = 24 * 60 * 60 * 1000;
+    const [profilesSnap, subsSnap] = await Promise.all([
+      db.collection("profiles").get(),
+      db.collection("subscriptions").get()
+    ]);
+    const subs: Record<string, FirebaseFirestore.DocumentData> = {};
+    subsSnap.forEach((doc) => { subs[doc.id] = doc.data(); });
+    const customers = profilesSnap.docs.map((doc) => {
+      const p = doc.data();
+      if (!p.canonicalUserId && !p.userId && !p.displayName) return null;
+      const sub = subs[doc.id] ?? {};
+      const expiresAt = normalizeTimestamp(sub.expiresAt);
+      const lifetime = Boolean(sub.lifetime);
+      const stats = (p.stats ?? {}) as Record<string, unknown>;
+      const streak = (p.streak ?? {}) as Record<string, unknown>;
+      return {
+        canonicalUserId: doc.id,
+        lineUserId: String(p.lineUserId ?? doc.id),
+        name: String(p.displayName ?? "Member"),
+        status: lifetime ? "lifetime" : (sub.status ?? null),
+        lifetime,
+        daysToExpiry: lifetime ? null : (expiresAt ? Math.round((expiresAt.toMillis() - now) / day) : null),
+        expiresAt: timestampToIso(sub.expiresAt),
+        streak: Math.max(0, Number(streak.count ?? 0)),
+        firstLogAt: timestampToIso(stats.firstLogAt),
+        lastLogAt: timestampToIso(stats.lastLogAt),
+        mealCount: Math.max(0, Number(stats.mealCount ?? 0)),
+        createdAt: timestampToIso(p.createdAt)
+      };
+    }).filter((x): x is NonNullable<typeof x> => x !== null);
+    response.json({ ok: true, count: customers.length, customers });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: "customers-failed", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 // Flip an AI agent's primary provider from the admin UI (meal/exercise only) so
 // the operator can route around a Gemini overload and switch back on recovery.
 export const setAiPrimary = onRequest(async (request, response) => {

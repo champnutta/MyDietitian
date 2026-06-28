@@ -150,6 +150,22 @@
           </div>
         </div>
 
+        <div class="tabpanel" data-panel="customers">
+          <div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center">
+            <input id="custSearch" placeholder="ค้นหาชื่อลูกค้า…" style="flex:1;min-width:150px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:14px;outline:none">
+            <select id="custSort" style="padding:9px 10px;border:1px solid var(--line);border-radius:10px;font:inherit;font-size:13px;background:#fff;color:var(--ink)">
+              <option value="expiry">เรียง: ใกล้หมดอายุ</option>
+              <option value="streak">เรียง: streak มากสุด</option>
+              <option value="started">เรียง: เพิ่งเริ่มใช้</option>
+              <option value="startedOld">เรียง: ใช้มานานสุด</option>
+              <option value="joined">เรียง: เพิ่งสมัคร</option>
+              <option value="name">เรียง: ชื่อ ก-ฮ</option>
+            </select>
+          </div>
+          <div id="custCount" style="font-size:12px;color:var(--muted);margin-bottom:6px"></div>
+          <div class="card" id="custList"></div>
+        </div>
+
         <div class="tabpanel" data-panel="system">
           <div id="sysHero"></div>
           <div class="strip" id="sysStrip"></div>
@@ -193,11 +209,11 @@
       const auth = getAuth(app);
       const BASE = window.MD_FUNCTIONS_BASE;
       const $ = (id) => document.getElementById(id);
-      let chart, token, DATA, curName;
+      let chart, token, DATA, curName, CUSTOMERS = null;
 
       const TABS = [
-        ["overview", '<i class="ti ti-layout-dashboard"></i> ภาพรวม'], ["retention", '<i class="ti ti-users"></i> รักษาลูกค้า'], ["system", '<i class="ti ti-server"></i> ระบบ'],
-        ["finance", '<i class="ti ti-coin"></i> การเงิน'], ["growth", '<i class="ti ti-trending-up"></i> เติบโต']
+        ["overview", '<i class="ti ti-layout-dashboard"></i> ภาพรวม'], ["retention", '<i class="ti ti-users"></i> รักษาลูกค้า'], ["customers", '<i class="ti ti-address-book"></i> ลูกค้า'],
+        ["system", '<i class="ti ti-server"></i> ระบบ'], ["finance", '<i class="ti ti-coin"></i> การเงิน'], ["growth", '<i class="ti ti-trending-up"></i> เติบโต']
       ];
       const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
       $("tabs").innerHTML = TABS.map(([k, l], i) => `<button class="tab ${i === 0 ? "active" : ""}" role="tab" aria-selected="${i === 0}" data-go="${k}">${l}</button>`).join("");
@@ -209,6 +225,7 @@
         });
         document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.dataset.panel === key));
         window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+        if (key === "customers" && !CUSTOMERS) loadCustomers();
       }
       $("tabs").onclick = (e) => { const t = e.target.closest(".tab"); if (t) showTab(t.dataset.go); };
 
@@ -589,6 +606,48 @@
         } catch (e) { res.textContent = e.message; res.style.color = "var(--red)"; }
         btn.disabled = false; btn.textContent = "ส่งข้อความ";
       }
+      async function loadCustomers() {
+        $("custList").innerHTML = `<div class="empty">กำลังโหลด…</div>`;
+        try {
+          const res = await fetch(`${BASE}/getAdminCustomers`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.message || d.error || "โหลดไม่สำเร็จ");
+          CUSTOMERS = d.customers || [];
+          $("custSearch").oninput = renderCustomers;
+          $("custSort").onchange = renderCustomers;
+          renderCustomers();
+        } catch (e) { $("custList").innerHTML = `<div class="empty" style="color:var(--red)">${esc(e.message)}</div>`; }
+      }
+      function renderCustomers() {
+        if (!CUSTOMERS) return;
+        const q = ($("custSearch").value || "").trim().toLowerCase();
+        const sort = $("custSort").value;
+        const big = 1e15;
+        const list = CUSTOMERS.filter((u) => !q || (u.name || "").toLowerCase().includes(q));
+        const cmp = {
+          expiry: (a, b) => (a.lifetime ? big : (a.daysToExpiry == null ? big - 1 : a.daysToExpiry)) - (b.lifetime ? big : (b.daysToExpiry == null ? big - 1 : b.daysToExpiry)),
+          streak: (a, b) => b.streak - a.streak,
+          started: (a, b) => (b.firstLogAt || "").localeCompare(a.firstLogAt || ""),
+          startedOld: (a, b) => (a.firstLogAt || "zzzz").localeCompare(b.firstLogAt || "zzzz"),
+          joined: (a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""),
+          name: (a, b) => (a.name || "").localeCompare(b.name || "", "th")
+        }[sort] || (() => 0);
+        list.sort(cmp);
+        $("custCount").textContent = `${list.length} คน${q ? ` (ค้น "${q}")` : ""}`;
+        $("custList").innerHTML = list.length ? list.map((u) => {
+          const exp = u.lifetime ? "Lifetime" : (u.daysToExpiry == null ? "-" : (u.daysToExpiry < 0 ? `หมด ${-u.daysToExpiry}ว` : `เหลือ ${u.daysToExpiry}ว`));
+          const col = u.lifetime ? "var(--green-d)" : (u.daysToExpiry == null ? "var(--muted)" : (u.daysToExpiry < 0 ? "var(--red)" : (u.daysToExpiry <= 7 ? "var(--amber)" : "var(--muted)")));
+          return `<div class="prow click" data-uid="${esc(u.canonicalUserId)}"><div style="min-width:0"><div>${esc(u.name) || "Member"}${u.lifetime ? ' <span class="pr-badge" style="background:#FEF3C7;color:#92400E">VIP</span>' : ""}</div>
+            <div class="sub">streak ${u.streak} · ${(u.mealCount || 0).toLocaleString()} มื้อ · เริ่ม ${u.firstLogAt ? fmt(u.firstLogAt) : "-"}</div></div>
+            <div class="amt" style="color:${col};font-weight:400;white-space:nowrap">${exp} ›</div></div>`;
+        }).join("") : `<div class="empty">ไม่พบลูกค้า</div>`;
+        $("custList").querySelectorAll(".prow.click").forEach((el) => {
+          el.onclick = () => openUser(el.dataset.uid);
+          el.tabIndex = 0; el.setAttribute("role", "button");
+          el.onkeydown = (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); el.click(); } };
+        });
+      }
+
       window.__closeU = () => { $("modal").classList.remove("show"); window.__opener?.focus?.(); };
       $("modal").onclick = (e) => { if (e.target === $("modal")) window.__closeU(); };
       document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("modal").classList.contains("show")) window.__closeU(); });
