@@ -580,10 +580,11 @@ function delay(ms: number): Promise<void> {
 
 function buildMealPrompt(request: AnalyzeMealRequest): string {
   const inputHint = request.inputType === "image"
-    ? `Identify the SPECIFIC dish in the image from its distinctive visual cues — broth/sauce COLOR, toppings, garnishes, noodle/rice type, and cooking style.
-- Name the exact dish, e.g. "เย็นตาโฟผัดแห้ง" (recognisable by its pink fermented-tofu sauce), not the generic "ก๋วยเตี๋ยวแห้ง".
+    ? `STEP 1 — Inventory: scan the WHOLE image and list every distinct edible item, in EVERY container (the main bowl/plate AND any side dish, bag, or packet beside it). When more than one protein is present (e.g. fish AND pork ribs in the same bowl), keep them as SEPARATE items — do not collapse different-looking pieces into one ingredient, and do not assume the only protein is the one in the dish name.
+STEP 2 — Identify the SPECIFIC main dish from its distinctive visual cues — broth/sauce COLOR, toppings, garnishes, noodle/rice type, and cooking style.
+- Name the exact dish, e.g. "เย็นตาโฟผัดแห้ง" (recognisable by its pink fermented-tofu sauce), not the generic "ก๋วยเตี๋ยวแห้ง". If several items are present, name the main dish but list the extra proteins/sides in "portion_description".
 - Distinguish look-alikes by colour/sauce/topping: ผัดซีอิ๊ว vs ราดหน้า vs ผัดไทย, ข้าวมันไก่ vs ข้าวหมูแดง, ต้มยำ vs ต้มข่า.
-- Count the portion ACTUALLY on the plate (the visible amount; if it is half-eaten, count what remains). If a nutrition label is visible, use its exact values.`
+- Count the portion of ALL edible items ACTUALLY visible across every container (the visible amount; if it is half-eaten, count what remains). NEVER ignore a visible protein or side item just because it is not part of the dish name. If a nutrition label is visible, use its exact values.`
     : `Analyze this food the user described in Thai: "${request.text ?? ""}".
 - Estimate nutrients for the described portion. Words like "นิดเดียว", "น้อย", "ครึ่ง" mean a smaller portion (reduce calories accordingly).`;
 
@@ -592,9 +593,10 @@ function buildMealPrompt(request: AnalyzeMealRequest): string {
 ${inputHint}
 
 Analysis priority:
-1. Identify the specific dish as described above.
-2. Hidden calories: INCLUDE the oil, sugar, coconut milk, and sauce absorbed INTO the food even if not separately visible — Thai food hides calories here. A dipping sauce (น้ำจิ้ม) is small in volume but can be high in sugar and sodium.
-3. You MUST estimate "fiber_g" as a realistic number (e.g. 0.5, 3.2), not 0 by default.
+1. Inventory every edible item across all containers, then identify the specific main dish (as described above).
+2. The nutrient totals MUST be the SUM of ALL items you inventoried — every protein, side, and the contents of any separate bag/packet — not just the main dish.
+3. Hidden calories: INCLUDE the oil, sugar, coconut milk, and sauce absorbed INTO the food even if not separately visible — Thai food hides calories here. A dipping sauce (น้ำจิ้ม) is small in volume but can be high in sugar and sodium.
+4. You MUST estimate "fiber_g" as a realistic number (e.g. 0.5, 3.2), not 0 by default.
 
 Health score (1-10):
 - 1-3: deep-fried, high sugar, heavy oil/grease.
