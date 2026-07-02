@@ -3828,6 +3828,42 @@ async function subtractLatestMealLeftover(input: {
   }
 }
 
+function parseLineMessageId(imageUrl: unknown): string | null {
+  const match = String(imageUrl ?? "").match(/^line-message:\/\/(.+)$/);
+  return match ? match[1] : null;
+}
+
+// Re-download the original LINE photo and re-analyse it with the corrected dish
+// name as ground truth. Returns null (so the caller can fall back to text-only)
+// if the LINE content has expired or any step fails.
+async function reanalyzeCorrectionFromImage(
+  userId: string,
+  messageId: string,
+  correctedText: string
+): Promise<SavedMealAnalysis | null> {
+  try {
+    const content = await downloadLineContent(messageId);
+    return await analyzeAndSaveMeal({
+      userId,
+      canonicalUserId: userId,
+      source: "line",
+      inputType: "image",
+      imageUrl: `line-message://${messageId}`,
+      imageBase64: content.base64,
+      mimeType: content.mimeType,
+      confirmedDishName: correctedText
+    });
+  } catch (error) {
+    await db.collection("adminAuditLogs").add({
+      type: "meal-correction-image-refetch-failed",
+      messageId,
+      error: error instanceof Error ? error.message : String(error),
+      createdAt: Timestamp.now()
+    });
+    return null;
+  }
+}
+
 async function replaceLatestMealWithCorrection(
   userId: string,
   correctedText: string,
@@ -3839,7 +3875,17 @@ async function replaceLatestMealWithCorrection(
   }
 
   const previousData = latest.data();
-  const saved = await analyzeAndSaveMeal({
+
+  // Prefer re-analysing the ORIGINAL photo (portion + side items stay intact),
+  // anchoring identity to the user's correction. Fall back to text-only when the
+  // original was not an image or the LINE content is no longer downloadable.
+  const originalMessageId = previousData.inputType === "image"
+    ? parseLineMessageId(previousData.imageUrl)
+    : null;
+  const imageSaved = originalMessageId
+    ? await reanalyzeCorrectionFromImage(userId, originalMessageId, correctedText)
+    : null;
+  const saved = imageSaved ?? await analyzeAndSaveMeal({
     userId,
     canonicalUserId: userId,
     source: "line",

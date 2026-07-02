@@ -77,6 +77,9 @@ export interface AnalyzeMealRequest {
   imageUrl?: string;
   imageBase64?: string;
   mimeType?: string;
+  // Set when the user corrected the dish identity ("ไม่ใช่ X แต่เป็น Y"). The
+  // prompt must treat this name as ground truth and not rename it.
+  confirmedDishName?: string;
 }
 
 export interface AnalyzeExerciseRequest {

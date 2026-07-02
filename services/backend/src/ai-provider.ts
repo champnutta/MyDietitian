@@ -588,9 +588,13 @@ STEP 2 — Identify the SPECIFIC main dish from its distinctive visual cues — 
     : `Analyze this food the user described in Thai: "${request.text ?? ""}".
 - Estimate nutrients for the described portion. Words like "นิดเดียว", "น้อย", "ครึ่ง" mean a smaller portion (reduce calories accordingly).`;
 
+  const correctionHint = request.confirmedDishName
+    ? `\n\nUSER CORRECTION — the user has confirmed this dish IS "${request.confirmedDishName}". Treat that as GROUND TRUTH: use it for "dish_name.th" and do NOT rename or second-guess the identity. Still estimate the portion and every side item from what is actually visible.`
+    : "";
+
   return `Act as an expert nutritionist specialized in global cuisines (Thai, Chinese, Japanese, Korean, Western, etc.) as commonly served in Thailand. You can recognise specific named dishes, not just generic food categories.
 
-${inputHint}
+${inputHint}${correctionHint}
 
 Analysis priority:
 1. Inventory every edible item across all containers, then identify the specific main dish (as described above).
