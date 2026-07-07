@@ -68,6 +68,47 @@ export interface SaveSettingsFromWebRequest {
   };
 }
 
+export type ProgramMacro = "carbs" | "fat" | "protein";
+
+// Weekly CUT/Bulk periodization program stored on the profile. Each week the
+// chosen macro (and calories) shift by a fixed kcal step, e.g. a trainer's
+// "cut carbs 100 kcal/week for 8 weeks". `baseline` is the week-1 target
+// snapshot; the effective daily target is derived from the current week.
+export interface WeeklyProgram {
+  type: "cut" | "bulk";
+  startDate: string; // "YYYY-MM-DD" Bangkok calendar day the program begins
+  weeks: number;
+  stepKcalPerWeek: number; // magnitude (> 0); direction comes from `type`
+  adjustMacro: ProgramMacro;
+  baseline: {
+    calories: number;
+    proteinG: number;
+    carbsG: number;
+    fatG: number;
+    fiberG: number;
+  };
+  status: "active" | "completed" | "paused";
+}
+
+export interface SaveWeeklyProgramRequest {
+  userId: string;
+  canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
+  type: "cut" | "bulk";
+  weeks: number;
+  stepKcalPerWeek: number;
+  adjustMacro: ProgramMacro;
+  startDate?: string; // defaults to today (Bangkok) when omitted
+}
+
+export interface CancelWeeklyProgramRequest {
+  userId: string;
+  canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
+}
+
 export interface AnalyzeMealRequest {
   userId: string;
   canonicalUserId?: string;
@@ -77,9 +118,10 @@ export interface AnalyzeMealRequest {
   imageUrl?: string;
   imageBase64?: string;
   mimeType?: string;
-  // Set when the user corrected the dish identity ("ไม่ใช่ X แต่เป็น Y"). The
-  // prompt must treat this name as ground truth and not rename it.
-  confirmedDishName?: string;
+  // The user's full free-text correction of a previous analysis (e.g. "มันคือ
+  // น้ำมันมะกอกกับบัลซามิก ไม่ใช่น้ำตาล"). Passed verbatim so the prompt can
+  // reconcile it against the image — fixes dish name, condiments, and macros.
+  userCorrection?: string;
 }
 
 export interface AnalyzeExerciseRequest {

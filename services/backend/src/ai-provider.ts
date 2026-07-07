@@ -588,8 +588,8 @@ STEP 2 — Identify the SPECIFIC main dish from its distinctive visual cues — 
     : `Analyze this food the user described in Thai: "${request.text ?? ""}".
 - Estimate nutrients for the described portion. Words like "นิดเดียว", "น้อย", "ครึ่ง" mean a smaller portion (reduce calories accordingly).`;
 
-  const correctionHint = request.confirmedDishName
-    ? `\n\nUSER CORRECTION — the user has confirmed this dish IS "${request.confirmedDishName}". Treat that as GROUND TRUTH: use it for "dish_name.th" and do NOT rename or second-guess the identity. Still estimate the portion and every side item from what is actually visible.`
+  const correctionHint = request.userCorrection
+    ? `\n\nUSER CORRECTION — the person who ate this reviewed a previous analysis and says: "${request.userCorrection}". Treat this as authoritative first-hand information. Fix the dish name, the condiments/toppings (e.g. a drizzle they say is honey or olive oil and NOT sugar/syrup, or vice versa), AND the macros to match what they say. Where their note conflicts with your visual guess, THEY are right.`
     : "";
 
   return `Act as an expert nutritionist specialized in global cuisines (Thai, Chinese, Japanese, Korean, Western, etc.) as commonly served in Thailand. You can recognise specific named dishes, not just generic food categories.
@@ -600,7 +600,8 @@ Analysis priority:
 1. Inventory every edible item across all containers, then identify the specific main dish (as described above).
 2. The nutrient totals MUST be the SUM of ALL items you inventoried — every protein, side, and the contents of any separate bag/packet — not just the main dish.
 3. Hidden calories: INCLUDE the oil, sugar, coconut milk, and sauce absorbed INTO the food even if not separately visible — Thai food hides calories here. A dipping sauce (น้ำจิ้ม) is small in volume but can be high in sugar and sodium.
-4. You MUST estimate "fiber_g" as a realistic number (e.g. 0.5, 3.2), not 0 by default.
+4. Do NOT over-assume a visible drizzle/dressing/topping: balsamic glaze, syrup, honey, soy, and oil look alike in a photo. When it is ambiguous, do not default to "sugar" or a large oil load — pick the most neutral plausible option, keep its macro and health-score impact modest, and describe it tentatively in "portion_description" (e.g. "ราดซอสเข้ม อาจเป็นบัลซามิก/น้ำเชื่อม") instead of stating a specific sweetener or oil as fact.
+5. You MUST estimate "fiber_g" as a realistic number (e.g. 0.5, 3.2), not 0 by default.
 
 Health score (1-10):
 - 1-3: deep-fried, high sugar, heavy oil/grease.

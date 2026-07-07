@@ -15,11 +15,15 @@ import {
 import type {
   AnalyzeExerciseRequest,
   AnalyzeMealRequest,
+  CancelWeeklyProgramRequest,
   CoachConsultationRequest,
   DashboardDataRequest,
   LineWebhookEvent,
+  ProgramMacro,
   SaveSettingsFromWebRequest,
-  UpdateProfileRequest
+  SaveWeeklyProgramRequest,
+  UpdateProfileRequest,
+  WeeklyProgram
 } from "./contracts.js";
 import { resolveCanonicalUserId, resolveLineCanonicalUserId } from "./identity-service.js";
 import {
@@ -283,6 +287,10 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
     const firebaseAuthUid = owner.firebaseAuthUid ?? body.firebaseAuthUid;
     const target = buildTargetFromSettingsConfig(body.config);
     const now = Timestamp.now();
+    // If a weekly program is running, rebase it onto the new target so the plan
+    // keeps its type/duration/start but recomputes from the fresh week-1 numbers.
+    const existingProfileSnap = await db.collection("profiles").doc(canonicalUserId).get();
+    const activeProgram = normalizeProgram(existingProfileSnap.exists ? existingProfileSnap.data() ?? {} : {});
     const subscriptionState = await getSubscriptionState(canonicalUserId);
     const expiresAt = subscriptionState.expiresAt ?? (subscriptionState.lifetime ? null : subscriptionExpiryAfterDays(3, null));
     const profilePayload = {
@@ -302,7 +310,23 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
       authVerified: owner.verified,
       authProvider: owner.provider,
       updatedAt: now,
-      createdAt: now
+      createdAt: now,
+      // Deep-merged: refreshes only the running program's baseline, leaving its
+      // type/start/duration/notification state intact.
+      ...(activeProgram
+        ? {
+            program: {
+              baseline: {
+                calories: target.calories,
+                proteinG: target.proteinG,
+                carbsG: target.carbsG,
+                fatG: target.fatG,
+                fiberG: target.fiberG
+              },
+              updatedAt: now
+            }
+          }
+        : {})
     };
 
     const writes: Array<Promise<unknown>> = [
@@ -397,6 +421,158 @@ export const saveSettingsFromWeb = onRequest(async (request, response) => {
     response.status(isValidationError ? 400 : isAuthError ? 401 : 500).json({
       ok: false,
       error: isValidationError ? "invalid-settings" : isAuthError ? "profile-auth-failed" : "save-settings-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Saves a weekly CUT/Bulk periodization program on the profile. The baseline is
+// read from the profile's currently saved target (so the user sets targets
+// first, then layers the program on top). Returns the full week-by-week
+// schedule so the client can confirm before the plan takes effect.
+export const saveWeeklyProgram = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  const body = request.body as SaveWeeklyProgramRequest;
+  if (!body?.userId) {
+    response.status(400).json({ ok: false, error: "missing-user-id" });
+    return;
+  }
+
+  try {
+    if (!isSafePublicId(body.userId)) throw new SettingsValidationError("invalid userId");
+    if (body.canonicalUserId && !isSafePublicId(body.canonicalUserId)) {
+      throw new SettingsValidationError("invalid canonicalUserId");
+    }
+    if (body.lineUserId && !isSafePublicId(body.lineUserId)) throw new SettingsValidationError("invalid lineUserId");
+    if (body.firebaseAuthUid && !isSafePublicId(body.firebaseAuthUid)) {
+      throw new SettingsValidationError("invalid firebaseAuthUid");
+    }
+
+    const type = body.type === "bulk" ? "bulk" : body.type === "cut" ? "cut" : null;
+    if (!type) throw new SettingsValidationError("invalid program type");
+    const weeks = Math.round(Number(body.weeks));
+    const stepKcalPerWeek = Math.abs(Number(body.stepKcalPerWeek));
+    assertNumberInRange("weeks", weeks, 1, 52);
+    assertNumberInRange("stepKcalPerWeek", stepKcalPerWeek, 10, 1000);
+    const adjustMacro: ProgramMacro =
+      body.adjustMacro === "fat" || body.adjustMacro === "protein" ? body.adjustMacro : "carbs";
+    const startDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.startDate ?? ""))
+      ? String(body.startDate)
+      : bangkokDateString(new Date());
+
+    const owner = await verifyProfileOwnership(request, {
+      userId: body.userId,
+      canonicalUserId: body.canonicalUserId,
+      lineUserId: body.lineUserId,
+      firebaseAuthUid: body.firebaseAuthUid
+    });
+    const canonicalUserId = owner.canonicalUserId ?? body.canonicalUserId ??
+      (body.lineUserId || body.userId.startsWith("U") ? await resolveLineCanonicalUserId(body.lineUserId ?? body.userId) : body.userId);
+    const lineUserId = owner.lineUserId ?? body.lineUserId ?? (body.userId.startsWith("U") ? body.userId : undefined);
+
+    const profileSnap = await db.collection("profiles").doc(canonicalUserId).get();
+    const baseTarget = normalizeTarget(profileSnap.exists ? profileSnap.data() ?? {} : {});
+    if (baseTarget.cal <= 0 || baseTarget.p <= 0 || baseTarget.c <= 0 || baseTarget.f <= 0) {
+      throw new SettingsValidationError("set-targets-first");
+    }
+
+    const baseline: ProgramBaseline = {
+      calories: baseTarget.cal,
+      proteinG: baseTarget.p,
+      carbsG: baseTarget.c,
+      fatG: baseTarget.f,
+      fiberG: baseTarget.fib
+    };
+    const program: WeeklyProgram = { type, startDate, weeks, stepKcalPerWeek, adjustMacro, baseline, status: "active" };
+    const schedule = buildProgramScheduleRows(baseline, program);
+    const now = Timestamp.now();
+
+    await Promise.all([
+      db.collection("profiles").doc(canonicalUserId).set(
+        // lastNotifiedWeek starts at 1: week-1 is already in effect at save time,
+        // so the weekly notifier only pushes when the plan advances to week 2+.
+        { program: { ...program, lastNotifiedWeek: 1, updatedAt: now, createdAt: now }, updatedAt: now },
+        { merge: true }
+      ),
+      db.collection("profileEvents").add({
+        type: "weekly-program-save",
+        canonicalUserId,
+        lineUserId: lineUserId ?? null,
+        program,
+        authVerified: owner.verified,
+        authProvider: owner.provider,
+        createdAt: now
+      })
+    ]);
+    await writeProfileAuthAudit("saveWeeklyProgram", canonicalUserId, owner);
+
+    response.json({ ok: true, canonicalUserId, program, schedule });
+  } catch (error) {
+    const isValidationError = error instanceof SettingsValidationError;
+    const isAuthError = error instanceof ProfileAuthError;
+    response.status(isValidationError ? 400 : isAuthError ? 401 : 500).json({
+      ok: false,
+      error: isValidationError ? "invalid-program" : isAuthError ? "profile-auth-failed" : "save-program-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// Ends an active weekly program. Marks it "completed" (deep-merged) rather than
+// deleting the map, so the schedule history stays on the profile but the plain
+// saved target applies again from now on.
+export const cancelWeeklyProgram = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  const body = request.body as CancelWeeklyProgramRequest;
+  if (!body?.userId) {
+    response.status(400).json({ ok: false, error: "missing-user-id" });
+    return;
+  }
+
+  try {
+    if (!isSafePublicId(body.userId)) throw new SettingsValidationError("invalid userId");
+    if (body.canonicalUserId && !isSafePublicId(body.canonicalUserId)) {
+      throw new SettingsValidationError("invalid canonicalUserId");
+    }
+    if (body.lineUserId && !isSafePublicId(body.lineUserId)) throw new SettingsValidationError("invalid lineUserId");
+    if (body.firebaseAuthUid && !isSafePublicId(body.firebaseAuthUid)) {
+      throw new SettingsValidationError("invalid firebaseAuthUid");
+    }
+
+    const owner = await verifyProfileOwnership(request, {
+      userId: body.userId,
+      canonicalUserId: body.canonicalUserId,
+      lineUserId: body.lineUserId,
+      firebaseAuthUid: body.firebaseAuthUid
+    });
+    const canonicalUserId = owner.canonicalUserId ?? body.canonicalUserId ??
+      (body.lineUserId || body.userId.startsWith("U") ? await resolveLineCanonicalUserId(body.lineUserId ?? body.userId) : body.userId);
+    const now = Timestamp.now();
+
+    await db.collection("profiles").doc(canonicalUserId).set(
+      { program: { status: "completed", updatedAt: now }, updatedAt: now },
+      { merge: true }
+    );
+
+    response.json({ ok: true, canonicalUserId });
+  } catch (error) {
+    const isValidationError = error instanceof SettingsValidationError;
+    const isAuthError = error instanceof ProfileAuthError;
+    response.status(isValidationError ? 400 : isAuthError ? 401 : 500).json({
+      ok: false,
+      error: isValidationError ? "invalid-program" : isAuthError ? "profile-auth-failed" : "cancel-program-failed",
       message: error instanceof Error ? error.message : String(error)
     });
   }
@@ -586,7 +762,7 @@ export const getDashboardData = onRequest(async (request, response) => {
   const history = buildDailyHistory(startDate, endDate);
   const profileSnap = await db.collection("profiles").doc(canonicalUserId).get();
   const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
-  const target = normalizeTarget(profile);
+  const target = resolveEffectiveTarget(profile);
 
   await fillMealHistory(canonicalUserId, startDate, endDate, history);
   await fillExerciseHistory(canonicalUserId, startDate, endDate, history);
@@ -656,6 +832,7 @@ export const getDashboardData = onRequest(async (request, response) => {
       target,
       streak: normalizeStreak(profile)
     },
+    program: target.program,
     current: { weight: currentWeight, streak: normalizeStreak(profile) },
     labels,
     calories,
@@ -1192,6 +1369,76 @@ export const errorAlertScheduler = onSchedule(
       "เปิด admin: https://mydietitian.web.app/admin"
     ];
     await pushMessage(ADMIN_LINE_USER_ID.value(), lines.join("\n"));
+  }
+);
+
+// Daily tick that advances weekly CUT/Bulk programs: when a user crosses into a
+// new week it pushes the new target via LINE, and when the program's weeks are
+// up it marks the plan completed and prompts the user to set up what's next.
+// Boundary is compared by whole weeks (not exact %7), so a missed run catches
+// up instead of skipping a week's notification.
+export const weeklyProgramTick = onSchedule(
+  { schedule: "30 8 * * *", timeZone: "Asia/Bangkok", secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 300 },
+  async () => {
+    const snap = await db.collection("profiles").where("program.status", "==", "active").get();
+    if (snap.empty) return;
+
+    const appConfig = await getAppRuntimeConfig();
+    const todayYmd = bangkokDateString(new Date());
+
+    for (const doc of snap.docs) {
+      try {
+        const profile = doc.data() ?? {};
+        const program = normalizeProgram(profile);
+        if (!program) continue;
+
+        const lineUserId = typeof profile.lineUserId === "string" ? profile.lineUserId : "";
+        const diffDays = daysBetweenDateStrings(program.startDate, todayYmd);
+        if (diffDays <= 0) continue; // program hasn't started advancing yet
+
+        const programState = (profile.program ?? {}) as Record<string, unknown>;
+        const lastNotifiedWeek = Number(programState.lastNotifiedWeek ?? 1);
+        const now = Timestamp.now();
+
+        if (diffDays >= program.weeks * 7) {
+          // Whole plan elapsed: revert to the baseline target and ask what's next.
+          if (lineUserId) {
+            const link = `${appConfig.liffSettingsUrl}&uid=${encodeURIComponent(lineUserId)}`;
+            await pushMessage(lineUserId, [
+              `🎉 จบโปรแกรม ${program.type === "cut" ? "CUT" : "Bulk"} ครบ ${program.weeks} สัปดาห์แล้วครับ!`,
+              `ตอนนี้กลับมาใช้เป้าหมายตั้งต้น ${program.baseline.calories} kcal`,
+              "จะต่อโปรแกรมใหม่ ปรับเป้าหมาย หรือเข้าสู่ช่วง maintain — ตั้งค่าที่นี่ครับ:",
+              link
+            ].join("\n"));
+          }
+          await doc.ref.set(
+            { program: { status: "completed", completedAt: now, updatedAt: now }, updatedAt: now },
+            { merge: true }
+          );
+          continue;
+        }
+
+        const currentWeek = Math.min(Math.floor(diffDays / 7) + 1, program.weeks);
+        if (currentWeek <= lastNotifiedWeek) continue; // already announced this week
+
+        if (lineUserId) {
+          const wk = applyProgramWeek(program.baseline, program, currentWeek - 1);
+          const macroLabel = PROGRAM_MACRO_LABEL_TH[program.adjustMacro];
+          const macroG = program.adjustMacro === "fat" ? wk.fatG : program.adjustMacro === "protein" ? wk.proteinG : wk.carbsG;
+          await pushMessage(lineUserId, [
+            `📅 เข้าสัปดาห์ที่ ${currentWeek}/${program.weeks} ของโปรแกรม ${program.type === "cut" ? "CUT" : "Bulk"} แล้วครับ`,
+            `เป้าหมายวันนี้: ${wk.calories} kcal`,
+            `${macroLabel} ${macroG} g • โปรตีน ${wk.proteinG} g • ไขมัน ${wk.fatG} g`
+          ].join("\n"));
+        }
+        await doc.ref.set(
+          { program: { lastNotifiedWeek: currentWeek, updatedAt: now }, updatedAt: now },
+          { merge: true }
+        );
+      } catch (error) {
+        console.error("weeklyProgramTick failed for", doc.id, error);
+      }
+    }
   }
 );
 
@@ -3391,7 +3638,7 @@ async function getUserReadiness(userId: string): Promise<UserReadiness> {
     getSubscriptionState(userId)
   ]);
   const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
-  const target = normalizeTarget(profile);
+  const target = resolveEffectiveTarget(profile);
   return {
     profileComplete: Boolean(profileSnap.exists && target.cal > 0 && target.p > 0 && target.c > 0 && target.f > 0),
     subscriptionActive: subscriptionState.active,
@@ -3405,7 +3652,7 @@ async function getUserProfile(userId: string): Promise<UserProfile> {
     getSubscriptionState(userId)
   ]);
   const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
-  const target = normalizeTarget(profile);
+  const target = resolveEffectiveTarget(profile);
 
   return {
     name: String(profile.displayName ?? profile.name ?? "Member"),
@@ -3609,31 +3856,20 @@ function buildPortionAdjustment(ratio: number, rawLabel: string): { ratio: numbe
   };
 }
 
+// Detects a correction of the latest meal ("ไม่ใช่ X แต่เป็น Y", "คือ X ไม่ใช่ Y",
+// "แก้เป็น ...", etc.) and returns the user's FULL cleaned sentence. We pass the
+// whole sentence downstream (not a regex-extracted fragment) so the analysis can
+// reconcile it against the original photo — extracting a single word here is
+// what previously grabbed the NEGATED item (e.g. "ไม่ใช่น้ำตาล" -> "น้ำตาล").
 function parseMealCorrectionText(text: string): string | null {
   const trimmed = text.trim();
-  const patterns = [
-    /(?:ไม่ใช่|ผิด|แก้เป็น|เปลี่ยนเป็น|จริงๆ|จริง ๆ)\s*(.+)$/i,
-    /(?:not|wrong|actually|change to|correct to|it is)\s+(.+)$/i
-  ];
+  const isCorrection =
+    /(?:ไม่ใช่|ผิด|แก้เป็น|เปลี่ยนเป็น|จริงๆ|จริง ๆ)/.test(trimmed) ||
+    /(?:^|\s)(?:not|wrong|actually|change to|correct to|it is)\b/i.test(trimmed);
+  if (!isCorrection) return null;
 
-  const explicitReplace = trimmed.match(/(?:ไม่ใช่|ผิด).{0,30}?(?:เป็น|คือ)\s*(.+)$/i);
-  if (explicitReplace?.[1]) return sanitizeCorrectionFoodText(explicitReplace[1]);
-
-  for (const pattern of patterns) {
-    const match = trimmed.match(pattern);
-    if (match?.[1]) return sanitizeCorrectionFoodText(match[1]);
-  }
-
-  return null;
-}
-
-function sanitizeCorrectionFoodText(text: string): string | null {
-  const cleaned = text
-    .replace(/^[:：\-–—\s]+/, "")
-    .replace(/^(อาหาร|เมนู|จาน)\s*/, "")
-    .trim();
-  if (!cleaned || cleaned.length < 2) return null;
-  if (/^(ครับ|ค่ะ|คับ|จ้า|นะ)$/.test(cleaned)) return null;
+  const cleaned = trimmed.replace(/[\s,]*(ครับ|ค่ะ|คับ|จ้า|นะ|น่ะ|ค่า)\s*$/i, "").trim();
+  if (cleaned.length < 4) return null;
   return cleaned;
 }
 
@@ -3833,13 +4069,14 @@ function parseLineMessageId(imageUrl: unknown): string | null {
   return match ? match[1] : null;
 }
 
-// Re-download the original LINE photo and re-analyse it with the corrected dish
-// name as ground truth. Returns null (so the caller can fall back to text-only)
-// if the LINE content has expired or any step fails.
+// Re-download the original LINE photo and re-analyse it, passing the user's full
+// correction as authoritative context so the model reconciles it against the
+// image (dish name, condiments, and macros). Returns null (so the caller can
+// fall back to text-only) if the LINE content has expired or any step fails.
 async function reanalyzeCorrectionFromImage(
   userId: string,
   messageId: string,
-  correctedText: string
+  userCorrection: string
 ): Promise<SavedMealAnalysis | null> {
   try {
     const content = await downloadLineContent(messageId);
@@ -3851,7 +4088,7 @@ async function reanalyzeCorrectionFromImage(
       imageUrl: `line-message://${messageId}`,
       imageBase64: content.base64,
       mimeType: content.mimeType,
-      confirmedDishName: correctedText
+      userCorrection
     });
   } catch (error) {
     await db.collection("adminAuditLogs").add({
@@ -3885,12 +4122,15 @@ async function replaceLatestMealWithCorrection(
   const imageSaved = originalMessageId
     ? await reanalyzeCorrectionFromImage(userId, originalMessageId, correctedText)
     : null;
+  // Text fallback (image expired / original was text): analyse the correction
+  // sentence and flag it as a correction so the prompt reconciles it.
   const saved = imageSaved ?? await analyzeAndSaveMeal({
     userId,
     canonicalUserId: userId,
     source: "line",
     inputType: "text",
-    text: correctedText
+    text: correctedText,
+    userCorrection: correctedText
   });
   const now = Timestamp.now();
   await db.collection("mealLogs").doc(saved.mealLogId).set(
@@ -4872,6 +5112,174 @@ function normalizeTarget(profile: Record<string, unknown>) {
     f: Number(target.fatG ?? target.f ?? 0),
     fib: Number(target.fiberG ?? target.fib ?? 25)
   };
+}
+
+// Minimum grams we never cut below, so a long CUT can't drive a macro to zero.
+// Fat has a hormonal-health floor; carbs/protein floors keep the diet sane.
+const PROGRAM_MACRO_FLOOR_G: Record<ProgramMacro, number> = {
+  protein: 40,
+  carbs: 20,
+  fat: 20
+};
+const PROGRAM_MIN_CALORIES = 1000;
+const PROGRAM_MACRO_LABEL_TH: Record<ProgramMacro, string> = {
+  carbs: "คาร์บ",
+  fat: "ไขมัน",
+  protein: "โปรตีน"
+};
+
+type ProgramBaseline = WeeklyProgram["baseline"];
+
+// Returns the active program map or null. A program is only in effect when its
+// type is valid and status is "active"; a completed/paused program is ignored
+// so the plain saved target applies.
+function normalizeProgram(profile: Record<string, unknown>): WeeklyProgram | null {
+  const raw = profile.program;
+  if (!raw || typeof raw !== "object") return null;
+  const p = raw as Record<string, unknown>;
+  const type = p.type === "bulk" ? "bulk" : p.type === "cut" ? "cut" : null;
+  const status = typeof p.status === "string" ? p.status : "active";
+  if (!type || status !== "active") return null;
+
+  const weeks = Math.round(Number(p.weeks));
+  const stepKcalPerWeek = Math.abs(Number(p.stepKcalPerWeek));
+  const startDate = String(p.startDate ?? "");
+  const adjustMacro: ProgramMacro =
+    p.adjustMacro === "fat" || p.adjustMacro === "protein" ? p.adjustMacro : "carbs";
+  const baselineRaw = (p.baseline ?? {}) as Record<string, unknown>;
+  const baseline: ProgramBaseline = {
+    calories: Number(baselineRaw.calories ?? 0),
+    proteinG: Number(baselineRaw.proteinG ?? 0),
+    carbsG: Number(baselineRaw.carbsG ?? 0),
+    fatG: Number(baselineRaw.fatG ?? 0),
+    fiberG: Number(baselineRaw.fiberG ?? 25)
+  };
+
+  if (
+    !Number.isFinite(weeks) || weeks < 1 || weeks > 52 ||
+    !Number.isFinite(stepKcalPerWeek) || stepKcalPerWeek <= 0 ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(startDate) ||
+    baseline.calories <= 0
+  ) {
+    return null;
+  }
+
+  return { type, startDate, weeks, stepKcalPerWeek, adjustMacro, baseline, status: "active" };
+}
+
+// Bangkok calendar day as "YYYY-MM-DD" (en-CA yields that format directly).
+function bangkokDateString(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+// Whole-day difference between two "YYYY-MM-DD" strings, computed at UTC midnight
+// to sidestep timezone/DST drift (both inputs are already Bangkok calendar days).
+function daysBetweenDateStrings(fromYmd: string, toYmd: string): number {
+  const from = fromYmd.split("-").map(Number);
+  const to = toYmd.split("-").map(Number);
+  if (from.length !== 3 || to.length !== 3 || [...from, ...to].some((value) => !Number.isFinite(value))) {
+    return 0;
+  }
+  const fromMs = Date.UTC(from[0], from[1] - 1, from[2]);
+  const toMs = Date.UTC(to[0], to[1] - 1, to[2]);
+  return Math.round((toMs - fromMs) / 86400000);
+}
+
+// 0-based week the program is currently in, clamped to [0, weeks-1]. Before the
+// start date the program holds at week 0 (baseline); after the last week it
+// holds at the final week's target rather than continuing to cut/bulk forever.
+function resolveProgramWeekIndex(program: WeeklyProgram, now: Date): number {
+  const diffDays = daysBetweenDateStrings(program.startDate, bangkokDateString(now));
+  if (diffDays < 0) return 0;
+  return Math.min(Math.floor(diffDays / 7), program.weeks - 1);
+}
+
+// Applies `weekIndex` steps of the program to the baseline. The kcal delta is
+// absorbed entirely by the chosen macro (protein/fat kept per the trainer's
+// instruction), clamped at its floor; calories move by the *actual* clamped
+// delta so week 1 always equals the baseline exactly.
+function applyProgramWeek(baseline: ProgramBaseline, program: WeeklyProgram, weekIndex: number) {
+  const sign = program.type === "cut" ? -1 : 1;
+  const targetDeltaKcal = sign * program.stepKcalPerWeek * weekIndex;
+  const kcalPerG = program.adjustMacro === "fat" ? 9 : 4;
+  const floor = PROGRAM_MACRO_FLOOR_G[program.adjustMacro];
+  const macroBaseG =
+    program.adjustMacro === "fat" ? baseline.fatG :
+    program.adjustMacro === "protein" ? baseline.proteinG :
+    baseline.carbsG;
+  const clampedG = Math.max(floor, Math.round(macroBaseG + targetDeltaKcal / kcalPerG));
+  const actualDeltaKcal = (clampedG - macroBaseG) * kcalPerG;
+
+  const result = {
+    calories: Math.max(PROGRAM_MIN_CALORIES, Math.round(baseline.calories + actualDeltaKcal)),
+    proteinG: baseline.proteinG,
+    carbsG: baseline.carbsG,
+    fatG: baseline.fatG,
+    fiberG: baseline.fiberG
+  };
+  if (program.adjustMacro === "fat") result.fatG = clampedG;
+  else if (program.adjustMacro === "protein") result.proteinG = clampedG;
+  else result.carbsG = clampedG;
+  return result;
+}
+
+// The daily target every consumer should use: the plain saved target when there
+// is no active program, otherwise the current program week applied on top of the
+// week-1 baseline. Same {cal,p,c,f,fib} shape as normalizeTarget, plus `program`
+// metadata (week N of M) for the UI.
+function resolveEffectiveTarget(profile: Record<string, unknown>, now: Date = new Date()) {
+  const base = normalizeTarget(profile);
+  const program = normalizeProgram(profile);
+  if (!program) {
+    return { cal: base.cal, p: base.p, c: base.c, f: base.f, fib: base.fib, program: null };
+  }
+
+  const baseline: ProgramBaseline = {
+    calories: program.baseline.calories || base.cal,
+    proteinG: program.baseline.proteinG || base.p,
+    carbsG: program.baseline.carbsG || base.c,
+    fatG: program.baseline.fatG || base.f,
+    fiberG: program.baseline.fiberG || base.fib
+  };
+  const weekIndex = resolveProgramWeekIndex(program, now);
+  const wk = applyProgramWeek(baseline, program, weekIndex);
+  return {
+    cal: wk.calories,
+    p: wk.proteinG,
+    c: wk.carbsG,
+    f: wk.fatG,
+    fib: wk.fiberG,
+    program: {
+      type: program.type,
+      week: weekIndex + 1,
+      weeks: program.weeks,
+      startDate: program.startDate,
+      adjustMacro: program.adjustMacro,
+      stepKcalPerWeek: program.stepKcalPerWeek,
+      status: program.status,
+      baseline
+    }
+  };
+}
+
+// Full week-by-week schedule (for the settings preview table and the audit
+// event), so the user sees exactly where each week lands before saving.
+function buildProgramScheduleRows(baseline: ProgramBaseline, program: WeeklyProgram) {
+  const rows: Array<{ week: number; calories: number; proteinG: number; carbsG: number; fatG: number }> = [];
+  for (let index = 0; index < program.weeks; index += 1) {
+    const wk = applyProgramWeek(baseline, program, index);
+    rows.push({ week: index + 1, calories: wk.calories, proteinG: wk.proteinG, carbsG: wk.carbsG, fatG: wk.fatG });
+  }
+  return rows;
 }
 
 function timestampDayKey(value: unknown): string | null {
