@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <title>หักของเหลือ | MyDietitian</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+      :root { --green:#1f8a43; --green-d:#146e33; --bg:#f4f6f5; --ink:#1f2937; --muted:#6b7280; --line:#dfe7e2; --danger:#c33d2d; --orange:#c76a12; }
+      * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans Thai",sans-serif; }
+      main { max-width:560px; margin:0 auto; padding:20px 16px 36px; } h1 { margin:0; font-size:23px; } h2 { margin:0; font-size:18px; } p { line-height:1.5; }
+      .eyebrow { color:var(--green-d); font-size:13px; font-weight:700; margin-bottom:6px; } .hint,.muted { color:var(--muted); font-size:14px; }
+      .card { background:#fff; border-radius:18px; padding:18px; margin:15px 0; box-shadow:0 1px 3px rgba(0,0,0,.06); } .target { color:var(--green-d); background:#eff8f1; border-radius:11px; padding:11px 12px; margin-top:12px; font-size:15px; font-weight:650; }
+      .camera { display:grid; place-items:center; min-height:168px; border:2px dashed #a8cdb3; border-radius:16px; background:#f7fbf8; color:var(--green-d); cursor:pointer; margin-top:14px; padding:20px; text-align:center; } .camera b { display:block;font-size:17px;margin-top:8px; }.camera span { font-size:36px; }.camera small { color:var(--muted); margin-top:7px; }
+      img { display:block; max-width:100%; max-height:310px; border-radius:14px; margin:14px auto 0; }.hidden { display:none!important; }
+      button.primary, button.secondary { width:100%; min-height:50px; border:0; border-radius:12px; font:inherit; font-size:16px; font-weight:700; cursor:pointer; margin-top:14px; } button.primary { background:var(--green); color:#fff; } button.secondary { background:#fff; color:var(--green-d); border:1px solid #b8d9c2; } button:disabled { opacity:.55; cursor:wait; }
+      #status { min-height:20px; margin:12px 2px; font-size:14px; color:var(--green-d); } #status.error { color:var(--danger); }.row { display:flex; justify-content:space-between; border-top:1px solid var(--line); padding:10px 0; font-size:15px; }.row:first-of-type { border-top:0; }.row b { color:var(--green-d); }.notice { background:#fff7e8; color:#83500b; padding:10px 12px; border-radius:10px; font-size:14px; margin-top:12px; }.success { text-align:center; padding:28px 12px; }.check { width:58px;height:58px;border-radius:50%;background:#e7f7ed;color:var(--green-d);display:grid;place-items:center;font-size:32px;margin:0 auto 14px; }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <div class="eyebrow">MYDIETITIAN</div>
+      <h1>หักของเหลือ</h1>
+      <p class="hint">ถ่ายภาพจานหรือส่วนที่กินไม่หมด แล้วตรวจยอดก่อนหักจริง</p>
+      <div class="card" id="loadingCard"><p class="muted">กำลังเปิดข้อมูลมื้ออาหาร…</p></div>
+      <section class="card hidden" id="captureCard">
+        <h2>หักจากรายการนี้</h2>
+        <div class="target" id="mealName"></div>
+        <label class="camera" for="imageInput"><span>📷</span><b>ถ่ายรูปของเหลือ</b><small>หรือเลือกภาพจากอัลบั้ม</small></label>
+        <input class="hidden" id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+        <img class="hidden" id="previewImage" alt="ภาพของเหลือที่เลือก">
+        <button class="primary hidden" id="analyze" type="button">ประเมินของเหลือ</button>
+        <button class="secondary" id="close" type="button">กลับไปที่แชต</button>
+      </section>
+      <section class="card hidden" id="resultCard">
+        <h2>ตรวจสอบก่อนหัก</h2>
+        <p class="hint" id="resultDescription"></p>
+        <div class="row"><span>พลังงานที่จะหัก</span><b id="subtractCal"></b></div>
+        <div class="row"><span>โปรตีน / คาร์บ / ไขมัน</span><b id="subtractMacro"></b></div>
+        <div class="row"><span>หลังหัก มื้อนี้เหลือ</span><b id="afterCal"></b></div>
+        <div class="notice">ยืนยันเฉพาะเมื่อภาพนี้เป็นของเหลือจากมื้อที่ระบุด้านบน</div>
+        <button class="primary" id="confirm" type="button">ยืนยันหักของเหลือ</button>
+        <button class="secondary" id="retake" type="button">เลือกภาพใหม่</button>
+      </section>
+      <div id="status" aria-live="polite"></div>
+    </main>
+    <script src="/config.js"></script>
+    <script>
+      const LIFF_ID = "2009365288-Aua3Fli1";
+      const API = `${window.MD_FUNCTIONS_BASE}/`;
+      const mealLogId = new URLSearchParams(location.search).get("mealId") || "";
+      const state = { idToken:"", lineUserId:"", meal:null, file:null, preview:null };
+      const $ = (id) => document.getElementById(id);
+      $("imageInput").addEventListener("change", chooseImage);
+      $("analyze").addEventListener("click", analyze);
+      $("confirm").addEventListener("click", confirm);
+      $("retake").addEventListener("click", () => { $("resultCard").classList.add("hidden"); $("captureCard").classList.remove("hidden"); });
+      $("close").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
+      init();
+
+      async function init() {
+        try {
+          if (!mealLogId) throw new Error("ไม่พบมื้ออาหารที่ต้องการหักของเหลือ");
+          await liff.init({ liffId: LIFF_ID });
+          if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+          state.idToken = liff.getIDToken() || "";
+          const profile = await liff.getProfile(); state.lineUserId = profile.userId || "";
+          if (!state.idToken || !state.lineUserId) throw new Error("ไม่สามารถยืนยันตัวตนผ่าน LINE ได้");
+          const result = await request("getMealForLiff", { mealLogId }); state.meal = result.meal;
+          $("mealName").textContent = `${state.meal.mealNameTh} · ${state.meal.nutrients.caloriesKcal} kcal`;
+          $("loadingCard").classList.add("hidden"); $("captureCard").classList.remove("hidden");
+        } catch (error) { setStatus(error.message || "เปิดข้อมูลไม่สำเร็จ", true); }
+      }
+
+      async function request(path, body) {
+        const response = await fetch(API + path, { method:"POST", headers:{ "Content-Type":"application/json", "X-Line-Id-Token":state.idToken }, body:JSON.stringify({ userId:state.lineUserId, lineUserId:state.lineUserId, ...body }) });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || result.error || "ทำรายการไม่สำเร็จ");
+        return result;
+      }
+
+      function chooseImage(event) {
+        const file = event.target.files && event.target.files[0]; if (!file) return;
+        if (!/^image\/(jpeg|png|webp)$/.test(file.type)) { setStatus("กรุณาเลือกไฟล์รูปภาพ", true); return; }
+        state.file = file; $("previewImage").src = URL.createObjectURL(file); $("previewImage").classList.remove("hidden"); $("analyze").classList.remove("hidden"); setStatus("");
+      }
+
+      async function analyze() {
+        const button = $("analyze");
+        try {
+          if (!state.file) throw new Error("กรุณาถ่ายหรือเลือกภาพก่อน");
+          button.disabled = true; setStatus("กำลังประเมินของเหลือ…");
+          const image = await compressImage(state.file);
+          const result = await request("previewLeftoverFromLiff", { mealLogId, imageBase64:image.base64, mimeType:image.mimeType });
+          state.preview = result.preview; renderResult(result.preview);
+          $("captureCard").classList.add("hidden"); $("resultCard").classList.remove("hidden"); setStatus("");
+        } catch (error) { setStatus(error.message || "ประเมินไม่สำเร็จ", true); button.disabled = false; }
+      }
+
+      function renderResult(preview) {
+        const s = preview.subtract, a = preview.after;
+        $("resultDescription").textContent = `${preview.leftoverNameTh}${preview.portionDescription ? ` — ${preview.portionDescription}` : ""}`;
+        $("subtractCal").textContent = `−${s.caloriesKcal} kcal`;
+        $("subtractMacro").textContent = `P ${s.proteinG}g · C ${s.carbsG}g · F ${s.fatG}g`;
+        $("afterCal").textContent = `${a.caloriesKcal} kcal`;
+      }
+
+      async function confirm() {
+        const button = $("confirm");
+        try {
+          button.disabled = true; setStatus("กำลังหักของเหลือ…");
+          await request("confirmLeftoverFromLiff", { previewId:state.preview.previewId });
+          $("app").innerHTML = '<div class="success"><div class="check">✓</div><h1>หักของเหลือแล้ว</h1><p class="hint">ยอดโภชนาการของวันนี้ได้รับการปรับแล้ว</p><button class="primary" id="done">กลับไปที่แชต</button></div>';
+          $("done").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
+        } catch (error) { setStatus(error.message || "หักของเหลือไม่สำเร็จ", true); button.disabled = false; }
+      }
+
+      function compressImage(file) {
+        return new Promise((resolve, reject) => {
+          const image = new Image(); image.onload = () => {
+            const max = 1600, scale = Math.min(1, max / Math.max(image.width, image.height));
+            const canvas = document.createElement("canvas"); canvas.width = Math.round(image.width * scale); canvas.height = Math.round(image.height * scale);
+            canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+            let quality = .82, dataUrl = canvas.toDataURL("image/jpeg", quality);
+            while (dataUrl.length > 2_650_000 && quality > .45) { quality -= .1; dataUrl = canvas.toDataURL("image/jpeg", quality); }
+            if (dataUrl.length > 2_750_000) return reject(new Error("รูปมีขนาดใหญ่เกินไป กรุณาถ่ายใหม่ให้ใกล้ขึ้น"));
+            resolve({ mimeType:"image/jpeg", base64:dataUrl.split(",")[1] });
+          }; image.onerror = () => reject(new Error("ไม่สามารถอ่านรูปภาพได้")); image.src = URL.createObjectURL(file);
+        });
+      }
+      function setStatus(message, error = false) { const el = $("status"); el.textContent = message; el.classList.toggle("error", error); }
+    </script>
+  </body>
+</html>

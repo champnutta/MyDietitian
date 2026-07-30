@@ -5,17 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>ตั้งค่า MyDietitian</title>
     <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <style>
       :root {
-        --leaf: #1db446;
-        --leaf-dark: #12743a;
-        --ink: #17231c;
-        --muted: #647067;
-        --paper: #fffdf5;
-        --mist: #edf7ef;
-        --line: #dbe9dc;
-        --warn: #b45309;
+        --leaf: #1F8A43;
+        --leaf-dark: #146E33;
+        --orange: #E5861C;
+        --orange-dark: #C76A12;
+        --ink: #1F2937;
+        --muted: #7A8088;
+        --paper: #F4F6F5;
+        --mist: #E7F7F0;
+        --line: #EEF0EF;
+        --warn: #B9770F;
       }
 
       * { box-sizing: border-box; }
@@ -23,11 +24,9 @@
       body {
         margin: 0;
         min-height: 100vh;
-        font-family: "Kanit", sans-serif;
+        font-family: -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif;
         color: var(--ink);
-        background:
-          radial-gradient(circle at 8% 8%, rgba(29, 180, 70, 0.18), transparent 28%),
-          linear-gradient(145deg, #f8fbf4 0%, #eef8ee 44%, #fff8e7 100%);
+        background: var(--paper);
       }
 
       main {
@@ -37,27 +36,25 @@
       }
 
       .hero {
-        padding: 26px 22px;
-        border: 1px solid rgba(29, 180, 70, 0.18);
-        border-radius: 28px;
-        background: rgba(255, 253, 245, 0.82);
-        box-shadow: 0 18px 50px rgba(23, 35, 28, 0.12);
-        backdrop-filter: blur(14px);
+        padding: 24px 20px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: #ffffff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
       }
 
       .eyebrow {
         margin: 0 0 8px;
         color: var(--leaf-dark);
         font-size: 13px;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
+        font-weight: 600;
       }
 
       h1 {
         margin: 0;
-        font-size: clamp(30px, 8vw, 48px);
-        line-height: 1.05;
+        font-size: 26px;
+        font-weight: 700;
+        line-height: 1.3;
       }
 
       .hint {
@@ -90,8 +87,7 @@
 
       .tab.active {
         color: #ffffff;
-        background: linear-gradient(135deg, var(--leaf), var(--leaf-dark));
-        box-shadow: 0 12px 24px rgba(29, 180, 70, 0.22);
+        background: var(--leaf);
       }
 
       .panel {
@@ -118,12 +114,18 @@
       input, select {
         width: 100%;
         padding: 13px 14px;
-        border-radius: 15px;
+        border-radius: 12px;
         border: 1px solid var(--line);
         background: #ffffff;
         color: var(--ink);
         font-family: inherit;
         font-size: 16px;
+      }
+
+      input:focus, select:focus {
+        outline: none;
+        border-color: var(--leaf);
+        box-shadow: 0 0 0 3px rgba(31, 138, 67, 0.15);
       }
 
       .macro-row {
@@ -138,9 +140,11 @@
         padding: 16px;
         color: #ffffff;
         font-size: 17px;
-        background: linear-gradient(135deg, var(--leaf), var(--leaf-dark));
-        box-shadow: 0 18px 32px rgba(29, 180, 70, 0.28);
+        background: var(--leaf);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
       }
+
+      .submit:hover { background: var(--leaf-dark); }
 
       .submit:disabled {
         cursor: wait;
@@ -180,6 +184,86 @@
         color: #ffffff;
         font-size: 42px;
         background: var(--leaf);
+      }
+
+      .program {
+        margin-top: 26px;
+        padding-top: 22px;
+        border-top: 1px solid var(--line);
+        display: grid;
+        gap: 14px;
+      }
+
+      .program-title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        color: var(--leaf-dark);
+      }
+
+      .ghost {
+        width: 100%;
+        margin-top: 2px;
+        padding: 14px;
+        color: var(--warn);
+        background: #fff;
+        border: 1px solid var(--line);
+        display: none;
+      }
+
+      .ghost.show { display: block; }
+
+      .preview {
+        display: none;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+        background: #fff;
+      }
+
+      .preview.show { display: block; }
+
+      .preview table { width: 100%; border-collapse: collapse; font-size: 13px; }
+
+      .preview th, .preview td {
+        padding: 9px 10px;
+        text-align: right;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .preview th:first-child, .preview td:first-child { text-align: left; }
+
+      .preview thead th {
+        background: var(--mist);
+        color: var(--leaf-dark);
+        font-weight: 700;
+      }
+
+      .preview tbody tr:last-child td { border-bottom: 0; }
+
+      .preview tr.current td {
+        background: rgba(31, 138, 67, 0.12);
+        font-weight: 700;
+        color: var(--ink);
+      }
+
+      .preview .note { padding: 14px 16px; color: var(--muted); font-size: 13px; }
+
+      label.check {
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 10px;
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      label.check input {
+        width: 20px;
+        height: 20px;
+        flex: 0 0 auto;
+        accent-color: var(--leaf);
       }
 
       @media (max-width: 640px) {
@@ -270,6 +354,49 @@
           <button class="submit" id="submitBtn" type="submit">บันทึกการตั้งค่า</button>
           <div class="status" id="statusBox"></div>
         </form>
+
+        <section class="program" id="programSection">
+          <p class="eyebrow">โปรแกรมรายสัปดาห์</p>
+          <h2 class="program-title">CUT / Bulk รายสัปดาห์</h2>
+          <p class="hint" id="programHint">ปรับเป้าหมายอัตโนมัติทีละสัปดาห์ เช่น ลดคาร์บ 100 kcal ทุกสัปดาห์ × 8 สัปดาห์ (คำนวณต่อยอดจากเป้าหมายที่บันทึกไว้ด้านบน)</p>
+
+          <div class="grid">
+            <label>ชนิดโปรแกรม
+              <select id="progType">
+                <option value="cut">CUT — ลดทีละสัปดาห์</option>
+                <option value="bulk">Bulk — เพิ่มทีละสัปดาห์</option>
+              </select>
+            </label>
+            <label>ปรับจาก macro
+              <select id="progMacro">
+                <option value="carbs">คาร์บ</option>
+                <option value="fat">ไขมัน</option>
+                <option value="protein">โปรตีน</option>
+              </select>
+            </label>
+          </div>
+          <div class="grid">
+            <label>kcal ต่อสัปดาห์
+              <input id="progStep" type="number" min="10" max="1000" step="10" value="100">
+            </label>
+            <label>จำนวนสัปดาห์
+              <input id="progWeeks" type="number" min="1" max="52" value="8">
+            </label>
+          </div>
+          <label>วันเริ่มโปรแกรม
+            <input id="progStart" type="date">
+          </label>
+          <label class="check">
+            <input id="progImmediate" type="checkbox" checked>
+            <span>เริ่มปรับตั้งแต่สัปดาห์แรก (สัปดาห์ที่ 1 ปรับ 1 สเต็ปทันที)</span>
+          </label>
+
+          <div id="programPreview" class="preview"></div>
+
+          <button class="submit" id="progSaveBtn" type="button">บันทึกโปรแกรม</button>
+          <button class="ghost" id="progCancelBtn" type="button">ยกเลิกโปรแกรมที่ทำงานอยู่</button>
+          <div class="status" id="progStatus"></div>
+        </section>
       </section>
     </main>
 
@@ -277,12 +404,20 @@
     <script>
       const LIFF_ID = "2009365288-Aua3Fli1";
       const SAVE_SETTINGS_URL = `${window.MD_FUNCTIONS_BASE}/saveSettingsFromWeb`;
+      const DASHBOARD_URL = `${window.MD_FUNCTIONS_BASE}/getDashboardData`;
+      const SAVE_PROGRAM_URL = `${window.MD_FUNCTIONS_BASE}/saveWeeklyProgram`;
+      const CANCEL_PROGRAM_URL = `${window.MD_FUNCTIONS_BASE}/cancelWeeklyProgram`;
+
+      // Must mirror the backend guardrails in resolveEffectiveTarget().
+      const PROGRAM_FLOOR_G = { protein: 40, carbs: 20, fat: 20 };
+      const PROGRAM_MIN_CAL = 1000;
 
       const state = {
         mode: "auto",
         lineUserId: new URLSearchParams(location.search).get("uid") || "",
         displayName: "",
-        idToken: ""
+        idToken: "",
+        baseline: null // {cal,p,c,f,fib} used for the weekly preview
       };
 
       const $ = (id) => document.getElementById(id);
@@ -290,23 +425,72 @@
       $("tabAuto").addEventListener("click", () => setMode("auto"));
       $("tabCustom").addEventListener("click", () => setMode("custom"));
       $("settingsForm").addEventListener("submit", submitSettings);
+      $("progSaveBtn").addEventListener("click", saveProgram);
+      $("progCancelBtn").addEventListener("click", cancelProgram);
+      ["progType", "progMacro", "progStep", "progWeeks", "progStart", "progImmediate"].forEach((id) =>
+        $(id).addEventListener("input", renderPreview)
+      );
+      $("progImmediate").addEventListener("change", renderPreview);
+      $("progStart").value = todayLocalYmd();
 
       initLiff();
 
       async function initLiff() {
         try {
           await liff.init({ liffId: LIFF_ID });
-          if (liff.isLoggedIn()) {
-            state.idToken = liff.getIDToken() || "";
-            const profile = await liff.getProfile();
-            state.lineUserId = profile.userId || state.lineUserId;
-            state.displayName = profile.displayName || "";
-            $("profileHint").textContent = `สวัสดีครับ ${state.displayName || "สมาชิก"} ระบบจะบันทึกด้วย LINE ID ที่ยืนยันแล้ว`;
+          if (!liff.isLoggedIn()) {
+            $("profileHint").textContent = "กำลังเปิด LINE เพื่อยืนยันตัวตน...";
+            liff.login({ redirectUri: window.location.href });
             return;
           }
-          $("profileHint").textContent = "กรุณาเปิดผ่าน LINE หรือ login เพื่อยืนยันตัวตน";
+          state.idToken = liff.getIDToken() || "";
+          if (!state.idToken) throw new Error("LINE ID token is unavailable");
+          const profile = await liff.getProfile();
+          state.lineUserId = profile.userId || "";
+          state.displayName = profile.displayName || "";
+          if (!state.lineUserId) throw new Error("LINE profile is unavailable");
+          $("profileHint").textContent = `สวัสดีครับ ${state.displayName || "สมาชิก"} ระบบจะบันทึกด้วย LINE ID ที่ยืนยันแล้ว`;
+          loadBaseline();
         } catch (error) {
-          $("profileHint").textContent = "ยังยืนยัน LINE ไม่สำเร็จ แต่สามารถบันทึก staging ด้วย uid จากลิงก์ได้";
+          $("profileHint").textContent = "กรุณาเปิดหน้านี้จากปุ่มใน LINE เพื่อยืนยันตัวตน";
+          console.warn(error);
+        }
+        if (state.lineUserId) loadBaseline();
+      }
+
+      // Pulls the saved target (the program baseline) plus any active program so
+      // the preview and controls reflect the user's current plan.
+      async function loadBaseline() {
+        if (!state.lineUserId || state.lineUserId.length < 5) return;
+        try {
+          const headers = { "Content-Type": "application/json" };
+          if (state.idToken) headers["X-Line-Id-Token"] = state.idToken;
+          const response = await fetch(DASHBOARD_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ userId: state.lineUserId })
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) return;
+          const program = result.program;
+          if (program && program.baseline) {
+            // Active program: use its true week-1 baseline and prefill controls.
+            const b = program.baseline;
+            state.baseline = { cal: b.calories, p: b.proteinG, c: b.carbsG, f: b.fatG, fib: b.fiberG };
+            $("progType").value = program.type || "cut";
+            $("progMacro").value = program.adjustMacro || "carbs";
+            $("progStep").value = program.stepKcalPerWeek || 100;
+            $("progWeeks").value = program.weeks || 8;
+            $("progImmediate").checked = program.immediateStart !== false;
+            if (program.startDate) $("progStart").value = program.startDate;
+            $("progCancelBtn").classList.add("show");
+            $("progSaveBtn").textContent = "อัปเดตโปรแกรม";
+          } else {
+            const t = (result.profile && result.profile.target) || {};
+            if (t.cal > 0) state.baseline = { cal: t.cal, p: t.p, c: t.c, f: t.f, fib: t.fib };
+          }
+          renderPreview();
+        } catch (error) {
           console.warn(error);
         }
       }
@@ -407,6 +591,169 @@
 
       function setStatus(message, isError = false) {
         const box = $("statusBox");
+        box.textContent = message;
+        box.classList.toggle("show", Boolean(message));
+        box.classList.toggle("error", isError);
+      }
+
+      // ----- Weekly CUT/Bulk program -----
+
+      function todayLocalYmd() {
+        const now = new Date();
+        const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+        return local.toISOString().slice(0, 10);
+      }
+
+      function daysBetween(fromYmd, toYmd) {
+        const from = fromYmd.split("-").map(Number);
+        const to = toYmd.split("-").map(Number);
+        if (from.length !== 3 || to.length !== 3) return 0;
+        return Math.round((Date.UTC(to[0], to[1] - 1, to[2]) - Date.UTC(from[0], from[1] - 1, from[2])) / 86400000);
+      }
+
+      function programWeekIndex(startYmd, weeks) {
+        const diff = daysBetween(startYmd, todayLocalYmd());
+        if (diff < 0) return 0;
+        return Math.min(Math.floor(diff / 7), weeks - 1);
+      }
+
+      function readProgramInputs() {
+        return {
+          type: $("progType").value === "bulk" ? "bulk" : "cut",
+          macro: $("progMacro").value,
+          step: Math.abs(Number($("progStep").value)),
+          weeks: Math.round(Number($("progWeeks").value)),
+          start: $("progStart").value || todayLocalYmd(),
+          immediate: $("progImmediate").checked
+        };
+      }
+
+      // Mirrors backend applyProgramWeek(): the kcal step is absorbed by the
+      // chosen macro, clamped at its floor, and calories move by the actual delta.
+      function previewWeek(baseline, opts, weekIndex) {
+        const sign = opts.type === "cut" ? -1 : 1;
+        const steps = weekIndex + (opts.immediate ? 1 : 0);
+        const targetDelta = sign * opts.step * steps;
+        const kcalPerG = opts.macro === "fat" ? 9 : 4;
+        const floor = PROGRAM_FLOOR_G[opts.macro] ?? 20;
+        const baseG = opts.macro === "fat" ? baseline.f : opts.macro === "protein" ? baseline.p : baseline.c;
+        const clampedG = Math.max(floor, Math.round(baseG + targetDelta / kcalPerG));
+        const actualDelta = (clampedG - baseG) * kcalPerG;
+        const row = {
+          week: weekIndex + 1,
+          cal: Math.max(PROGRAM_MIN_CAL, Math.round(baseline.cal + actualDelta)),
+          p: baseline.p,
+          c: baseline.c,
+          f: baseline.f
+        };
+        if (opts.macro === "fat") row.f = clampedG;
+        else if (opts.macro === "protein") row.p = clampedG;
+        else row.c = clampedG;
+        return row;
+      }
+
+      function renderPreview() {
+        const box = $("programPreview");
+        box.classList.add("show");
+        if (!state.baseline) {
+          box.innerHTML = `<div class="note">บันทึกเป้าหมายด้านบนก่อน ระบบจะใช้เป็นค่าตั้งต้นของสัปดาห์ที่ 1</div>`;
+          return;
+        }
+        const opts = readProgramInputs();
+        if (!Number.isFinite(opts.weeks) || opts.weeks < 1 || opts.weeks > 52 || !Number.isFinite(opts.step) || opts.step < 10) {
+          box.innerHTML = `<div class="note">กรอก kcal/สัปดาห์ (10-1000) และจำนวนสัปดาห์ (1-52) ให้ถูกต้อง</div>`;
+          return;
+        }
+        const currentIdx = programWeekIndex(opts.start, opts.weeks);
+        const macroLabel = { carbs: "คาร์บ", fat: "ไขมัน", protein: "โปรตีน" }[opts.macro];
+        let rows = "";
+        for (let i = 0; i < opts.weeks; i += 1) {
+          const w = previewWeek(state.baseline, opts, i);
+          const macroG = opts.macro === "fat" ? w.f : opts.macro === "protein" ? w.p : w.c;
+          rows += `<tr class="${i === currentIdx ? "current" : ""}"><td>สัปดาห์ ${w.week}${i === currentIdx ? " • ตอนนี้" : ""}</td><td>${w.cal}</td><td>${macroG} g</td></tr>`;
+        }
+        box.innerHTML = `
+          <table>
+            <thead><tr><th>ช่วง</th><th>kcal</th><th>${macroLabel}</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>`;
+      }
+
+      async function saveProgram() {
+        const button = $("progSaveBtn");
+        try {
+          if (!state.lineUserId || state.lineUserId.length < 5) {
+            throw new Error("ไม่พบ LINE user id กรุณาเปิดฟอร์มจาก LINE อีกครั้ง");
+          }
+          const opts = readProgramInputs();
+          if (!Number.isFinite(opts.weeks) || opts.weeks < 1 || opts.weeks > 52) throw new Error("จำนวนสัปดาห์ต้องอยู่ระหว่าง 1-52");
+          if (!Number.isFinite(opts.step) || opts.step < 10 || opts.step > 1000) throw new Error("kcal ต่อสัปดาห์ต้องอยู่ระหว่าง 10-1000");
+
+          button.disabled = true;
+          button.textContent = "กำลังบันทึก...";
+          setProgStatus("กำลังบันทึกโปรแกรม...");
+          const headers = { "Content-Type": "application/json" };
+          if (state.idToken) headers["X-Line-Id-Token"] = state.idToken;
+
+          const response = await fetch(SAVE_PROGRAM_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              userId: state.lineUserId,
+              lineUserId: state.lineUserId,
+              type: opts.type,
+              weeks: opts.weeks,
+              stepKcalPerWeek: opts.step,
+              adjustMacro: opts.macro,
+              immediateStart: opts.immediate,
+              startDate: opts.start
+            })
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) {
+            if (result.message === "set-targets-first") throw new Error("กรุณาบันทึกเป้าหมาย (ด้านบน) ก่อนตั้งโปรแกรม");
+            throw new Error(result.message || result.error || "บันทึกโปรแกรมไม่สำเร็จ");
+          }
+          const b = result.program.baseline;
+          state.baseline = { cal: b.calories, p: b.proteinG, c: b.carbsG, f: b.fatG, fib: b.fiberG };
+          $("progCancelBtn").classList.add("show");
+          $("progSaveBtn").textContent = "อัปเดตโปรแกรม";
+          renderPreview();
+          setProgStatus(`บันทึกแล้ว: โปรแกรม ${opts.type === "cut" ? "CUT" : "Bulk"} ${opts.weeks} สัปดาห์ เริ่ม ${opts.start}`);
+        } catch (error) {
+          setProgStatus(error.message || String(error), true);
+        } finally {
+          button.disabled = false;
+          if (button.textContent === "กำลังบันทึก...") button.textContent = "บันทึกโปรแกรม";
+        }
+      }
+
+      async function cancelProgram() {
+        const button = $("progCancelBtn");
+        try {
+          button.disabled = true;
+          setProgStatus("กำลังยกเลิกโปรแกรม...");
+          const headers = { "Content-Type": "application/json" };
+          if (state.idToken) headers["X-Line-Id-Token"] = state.idToken;
+          const response = await fetch(CANCEL_PROGRAM_URL, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({ userId: state.lineUserId, lineUserId: state.lineUserId })
+          });
+          const result = await response.json();
+          if (!response.ok || !result.ok) throw new Error(result.message || result.error || "ยกเลิกไม่สำเร็จ");
+          button.classList.remove("show");
+          $("progSaveBtn").textContent = "บันทึกโปรแกรม";
+          setProgStatus("ยกเลิกโปรแกรมแล้ว เป้าหมายจะกลับไปใช้ค่าที่บันทึกไว้");
+        } catch (error) {
+          setProgStatus(error.message || String(error), true);
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      function setProgStatus(message, isError = false) {
+        const box = $("progStatus");
         box.textContent = message;
         box.classList.toggle("show", Boolean(message));
         box.classList.toggle("error", isError);

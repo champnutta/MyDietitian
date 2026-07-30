@@ -8,7 +8,7 @@ const commit = Boolean(args.commit);
 
 const APP_RUNTIME_CONFIG = {
   legacyGasDashboardUrl: "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec",
-  liffSettingsUrl: "https://liff.line.me/2009365288-Ux31tFWT?page=form",
+  liffSettingsUrl: "https://liff.line.me/2009365288-Aua3Fli1?page=form&v=20260620b",
   paymentQrImage: "https://img2.pic.in.th/1613478.jpg",
   profileAuthMode: "optional",
   productionLineWebhookReady: false

@@ -1,8 +1,8 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { Timestamp, type Transaction } from "firebase-admin/firestore";
+import { Timestamp, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
   callGeminiBiaAnalysis,
   callGeminiCoachConsultation,
@@ -17,9 +17,15 @@ import type {
   AnalyzeMealRequest,
   CancelWeeklyProgramRequest,
   CoachConsultationRequest,
+  ConfirmLeftoverFromLiffRequest,
   DashboardDataRequest,
+  DeleteMealFromLiffRequest,
+  GetMealForLiffRequest,
+  LinkLineAccountRequest,
   LineWebhookEvent,
+  PreviewLeftoverFromLiffRequest,
   ProgramMacro,
+  SaveMealEditFromLiffRequest,
   SaveSettingsFromWebRequest,
   SaveWeeklyProgramRequest,
   UpdateProfileRequest,
@@ -44,7 +50,15 @@ import {
   LINE_CHANNEL_ACCESS_TOKEN,
   LINE_CHANNEL_SECRET
 } from "./runtime.js";
-import { ProfileAuthError, verifyProfileOwnership, writeProfileAuthAudit } from "./profile-auth.js";
+import {
+  ProfileAuthError,
+  verifyFirebaseProfileOwnership,
+  verifyLineProfileOwnership,
+  verifyProfileOwnership,
+  writeProfileAuthAudit,
+  type ProfileIdentityRequest,
+  type VerifiedProfileOwner
+} from "./profile-auth.js";
 import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
@@ -60,7 +74,7 @@ import {
 import { parseConfirmUpdateTargetCommand } from "./target-confirmation.js";
 const DEFAULT_APP_RUNTIME_CONFIG: AppRuntimeConfig = {
   legacyGasDashboardUrl: "https://script.google.com/macros/s/AKfycbwDDjb0vMO6kA_8GDxC51PuDzBplDh1d1dx5NPOCbY_Ho5bQvK-W0QfiNL28WUA5fpMCA/exec",
-  liffSettingsUrl: "https://liff.line.me/2009365288-Ux31tFWT?page=form",
+  liffSettingsUrl: "https://liff.line.me/2009365288-Aua3Fli1?page=form&v=20260620b",
   paymentQrImage: "https://img2.pic.in.th/1613478.jpg"
 };
 
@@ -94,8 +108,19 @@ type UserProfile = {
     f: number;
     fib: number;
   };
+  program?: {
+    type: "cut" | "bulk";
+    week: number;
+    weeks: number;
+    adjustMacro: ProgramMacro;
+    status: string;
+  } | null;
   expiresAt?: Timestamp | null;
   lifetime?: boolean;
+  streak?: {
+    count: number;
+    lastMealLogDayKey: string | null;
+  };
 };
 
 type TodaySummary = {
@@ -116,6 +141,7 @@ type TodaySummary = {
     f: number;
     fib: number;
   };
+  meals: Array<{ name: string; kcal: number }>;
 };
 
 type SubscriptionTarget = {
@@ -146,6 +172,12 @@ class SettingsValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "SettingsValidationError";
+  }
+}
+
+class LiffMealValidationError extends Error {
+  constructor(message: string) {
+    super(message);
   }
 }
 
@@ -462,6 +494,7 @@ export const saveWeeklyProgram = onRequest(async (request, response) => {
     assertNumberInRange("stepKcalPerWeek", stepKcalPerWeek, 10, 1000);
     const adjustMacro: ProgramMacro =
       body.adjustMacro === "fat" || body.adjustMacro === "protein" ? body.adjustMacro : "carbs";
+    const immediateStart = body.immediateStart !== false;
     const startDate = /^\d{4}-\d{2}-\d{2}$/.test(String(body.startDate ?? ""))
       ? String(body.startDate)
       : bangkokDateString(new Date());
@@ -489,7 +522,7 @@ export const saveWeeklyProgram = onRequest(async (request, response) => {
       fatG: baseTarget.f,
       fiberG: baseTarget.fib
     };
-    const program: WeeklyProgram = { type, startDate, weeks, stepKcalPerWeek, adjustMacro, baseline, status: "active" };
+    const program: WeeklyProgram = { type, startDate, weeks, stepKcalPerWeek, adjustMacro, immediateStart, baseline, status: "active" };
     const schedule = buildProgramScheduleRows(baseline, program);
     const now = Timestamp.now();
 
@@ -578,6 +611,122 @@ export const cancelWeeklyProgram = onRequest(async (request, response) => {
   }
 });
 
+export const linkLineAccount = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+
+  const body = request.body as LinkLineAccountRequest;
+  if (!body?.lineUserId || !body?.firebaseAuthUid) {
+    response.status(400).json({ ok: false, error: "missing-link-identity" });
+    return;
+  }
+  if (!isSafePublicId(body.lineUserId) || !isSafePublicId(body.firebaseAuthUid)) {
+    response.status(400).json({ ok: false, error: "invalid-link-identity" });
+    return;
+  }
+
+  try {
+    const firebaseOwner = await verifyFirebaseProfileOwnership(request, {
+      userId: body.firebaseAuthUid,
+      firebaseAuthUid: body.firebaseAuthUid
+    });
+    const lineOwner = await verifyLineProfileOwnership(request, {
+      userId: body.lineUserId,
+      lineUserId: body.lineUserId
+    });
+    const firebaseAuthUid = firebaseOwner.firebaseAuthUid;
+    const lineUserId = lineOwner.lineUserId;
+    if (!firebaseAuthUid || !lineUserId) {
+      throw new ProfileAuthError("verified identities are incomplete");
+    }
+
+    const now = Timestamp.now();
+    const result = await db.runTransaction(async (transaction) => {
+      const authRef = db.collection("authLinks").doc(firebaseAuthUid);
+      const lineRef = db.collection("lineLinks").doc(lineUserId);
+      const [authSnap, lineSnap] = await Promise.all([
+        transaction.get(authRef),
+        transaction.get(lineRef)
+      ]);
+      const authCanonicalUserId = authSnap.exists ? String(authSnap.data()?.canonicalUserId ?? "") : "";
+      const lineCanonicalUserId = lineSnap.exists ? String(lineSnap.data()?.canonicalUserId ?? "") : "";
+      if (authCanonicalUserId && lineCanonicalUserId && authCanonicalUserId !== lineCanonicalUserId) {
+        throw new ProfileAuthError("Firebase account is already linked to a different LINE account");
+      }
+
+      const canonicalUserId = lineCanonicalUserId || authCanonicalUserId || lineUserId;
+      transaction.set(lineRef, {
+        lineUserId,
+        canonicalUserId,
+        status: "linked",
+        updatedAt: now,
+        createdAt: lineSnap.exists ? lineSnap.data()?.createdAt ?? now : now
+      }, { merge: true });
+      transaction.set(authRef, {
+        firebaseAuthUid,
+        canonicalUserId,
+        status: "linked",
+        updatedAt: now,
+        createdAt: authSnap.exists ? authSnap.data()?.createdAt ?? now : now
+      }, { merge: true });
+      transaction.set(db.collection("users").doc(canonicalUserId), {
+        userId: canonicalUserId,
+        canonicalUserId,
+        status: "active",
+        source: {
+          app: true,
+          line: true
+        },
+        auth: {
+          verified: true,
+          provider: "firebase+line"
+        },
+        updatedAt: now,
+        createdAt: now
+      }, { merge: true });
+      transaction.set(db.collection("profiles").doc(canonicalUserId), {
+        userId: canonicalUserId,
+        canonicalUserId,
+        lineUserId,
+        firebaseAuthUid,
+        authVerified: true,
+        authProvider: "firebase+line",
+        updatedAt: now,
+        createdAt: now
+      }, { merge: true });
+
+      return { canonicalUserId };
+    });
+
+    await Promise.all([
+      writeProfileAuthAudit("linkLineAccount", result.canonicalUserId, { ...firebaseOwner, canonicalUserId: result.canonicalUserId }),
+      writeProfileAuthAudit("linkLineAccount", result.canonicalUserId, { ...lineOwner, canonicalUserId: result.canonicalUserId })
+    ]);
+
+    response.json({
+      ok: true,
+      canonicalUserId: result.canonicalUserId,
+      lineUserId,
+      firebaseAuthUid,
+      authVerified: true
+    });
+  } catch (error) {
+    if (error instanceof ProfileAuthError) {
+      sendProfileAuthError(response, error);
+      return;
+    }
+    response.status(500).json({
+      ok: false,
+      error: "link-line-account-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 function handleCorsPreflight(request: Parameters<Parameters<typeof onRequest>[0]>[0], response: Parameters<Parameters<typeof onRequest>[0]>[1]) {
   response.set("Access-Control-Allow-Origin", String(request.get("origin") ?? "*"));
   response.set("Vary", "Origin");
@@ -589,6 +738,124 @@ function handleCorsPreflight(request: Parameters<Parameters<typeof onRequest>[0]
     return true;
   }
   return false;
+}
+
+async function requireVerifiedProfileOwner(
+  request: Parameters<Parameters<typeof onRequest>[0]>[0],
+  identity: ProfileIdentityRequest
+): Promise<VerifiedProfileOwner & { canonicalUserId: string }> {
+  const owner = await verifyProfileOwnership(request, identity);
+  if (!owner.verified || !owner.canonicalUserId) {
+    throw new ProfileAuthError("missing verified profile owner");
+  }
+  return { ...owner, canonicalUserId: owner.canonicalUserId };
+}
+
+function profileIdentityFromRequestBody(body: {
+  userId?: string;
+  canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
+}): ProfileIdentityRequest {
+  return {
+    userId: body.userId ?? body.canonicalUserId ?? body.lineUserId ?? body.firebaseAuthUid ?? "",
+    canonicalUserId: body.canonicalUserId,
+    lineUserId: body.lineUserId,
+    firebaseAuthUid: body.firebaseAuthUid
+  };
+}
+
+function sendProfileAuthError(
+  response: Parameters<Parameters<typeof onRequest>[0]>[1],
+  error: unknown
+) {
+  response.status(401).json({
+    ok: false,
+    error: "profile-auth-failed",
+    message: error instanceof Error ? error.message : String(error)
+  });
+}
+
+function sendReadinessGate(
+  response: Parameters<Parameters<typeof onRequest>[0]>[1],
+  readiness: UserReadiness
+) {
+  if (!readiness.profileComplete) {
+    response.status(403).json({ ok: false, error: "profile-required" });
+    return true;
+  }
+  if (!readiness.subscriptionActive) {
+    response.status(403).json({
+      ok: false,
+      error: "subscription-required",
+      expiresAt: readiness.expiresAt ? readiness.expiresAt.toDate().toISOString() : null
+    });
+    return true;
+  }
+  return false;
+}
+
+function hasVerifiedIdentityHeader(request: Parameters<Parameters<typeof onRequest>[0]>[0]) {
+  return Boolean((request.get("authorization") ?? "").trim() || (request.get("x-line-id-token") ?? "").trim());
+}
+
+function isDashboardAuthRequired() {
+  return (process.env.DASHBOARD_AUTH_MODE ?? "required").toLowerCase() === "required";
+}
+
+const DASHBOARD_ACCESS_TTL_MS = 60 * 60 * 1000;
+
+function dashboardAccessTokenHash(token: string) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+async function resolveDashboardAccessToken(token: string) {
+  if (!/^[A-Za-z0-9_-]{40,128}$/.test(token)) {
+    throw new ProfileAuthError("invalid dashboard access token");
+  }
+
+  const ref = db.collection("dashboardAccessSessions").doc(dashboardAccessTokenHash(token));
+  const snap = await ref.get();
+  const data = snap.exists ? snap.data() ?? {} : {};
+  const expiresAt = data.expiresAt instanceof Timestamp ? data.expiresAt.toMillis() : 0;
+  const canonicalUserId = typeof data.canonicalUserId === "string" ? data.canonicalUserId : "";
+  if (!canonicalUserId || expiresAt <= Date.now()) {
+    if (snap.exists) await ref.delete();
+    throw new ProfileAuthError("dashboard access token is missing or expired");
+  }
+  return canonicalUserId;
+}
+
+async function resolveDashboardCanonicalUserId(
+  request: Parameters<Parameters<typeof onRequest>[0]>[0],
+  body: DashboardDataRequest
+) {
+  if (hasVerifiedIdentityHeader(request)) {
+    const owner = await requireVerifiedProfileOwner(request, profileIdentityFromRequestBody(body));
+    return {
+      canonicalUserId: owner.canonicalUserId,
+      authVerified: true,
+      authProvider: owner.provider
+    };
+  }
+
+  if (body.dashboardAccessToken) {
+    return {
+      canonicalUserId: await resolveDashboardAccessToken(body.dashboardAccessToken),
+      authVerified: true,
+      authProvider: "dashboard-link"
+    };
+  }
+
+  if (isDashboardAuthRequired()) {
+    throw new ProfileAuthError("missing verified dashboard owner");
+  }
+
+  return {
+    canonicalUserId: await resolveCanonicalUserId({ ...body, userId: body.userId ?? "" }),
+    authVerified: false,
+    authProvider: "none"
+  };
 }
 
 function validateProfileIdentity(userId: string, profile: UpdateProfileRequest): string | null {
@@ -752,111 +1019,281 @@ export const getDashboardData = onRequest(async (request, response) => {
   }
 
   const body = request.body as DashboardDataRequest;
-  if (!body?.userId) {
-    response.status(400).json({ ok: false, error: "missing-user-id" });
+  if (!body?.userId && !body?.dashboardAccessToken) {
+    response.status(400).json({ ok: false, error: "missing-dashboard-identity" });
     return;
   }
 
-  const canonicalUserId = await resolveCanonicalUserId(body);
-  const { startDate, endDate } = resolveDashboardRange(body);
-  const history = buildDailyHistory(startDate, endDate);
-  const profileSnap = await db.collection("profiles").doc(canonicalUserId).get();
-  const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
-  const target = resolveEffectiveTarget(profile);
+  try {
+    const dashboardOwner = await resolveDashboardCanonicalUserId(request, body);
+    const canonicalUserId = dashboardOwner.canonicalUserId;
+    const { startDate, endDate } = resolveDashboardRange(body);
+    const history = buildDailyHistory(startDate, endDate);
+    const profileSnap = await db.collection("profiles").doc(canonicalUserId).get();
+    const profile = profileSnap.exists ? profileSnap.data() ?? {} : {};
+    const target = resolveEffectiveTarget(profile);
 
-  await fillMealHistory(canonicalUserId, startDate, endDate, history);
-  await fillExerciseHistory(canonicalUserId, startDate, endDate, history);
-  await fillWeightHistory(canonicalUserId, startDate, endDate, history);
+    await fillMealHistory(canonicalUserId, startDate, endDate, history);
+    await fillExerciseHistory(canonicalUserId, startDate, endDate, history);
+    await fillWeightHistory(canonicalUserId, startDate, endDate, history);
 
-  const labels = Object.keys(history);
-  const calories = labels.map((key) => history[key].cal);
-  const weights = labels.map((key) => history[key].weight);
-  const fats = labels.map((key) => history[key].fat);
-  const muscles = labels.map((key) => history[key].muscle);
-  const devices = labels.map((key) => history[key].device);
-  const macros = {
-    p: labels.map((key) => history[key].p),
-    c: labels.map((key) => history[key].c),
-    f: labels.map((key) => history[key].f),
-    fib: labels.map((key) => history[key].fib)
-  };
+    const labels = Object.keys(history);
+    const calories = labels.map((key) => history[key].cal);
+    const weights = labels.map((key) => history[key].weight);
+    const fats = labels.map((key) => history[key].fat);
+    const muscles = labels.map((key) => history[key].muscle);
+    const devices = labels.map((key) => history[key].device);
+    const macros = {
+      p: labels.map((key) => history[key].p),
+      c: labels.map((key) => history[key].c),
+      f: labels.map((key) => history[key].f),
+      fib: labels.map((key) => history[key].fib)
+    };
 
-  const tdeeLine = labels.map((key) => target.cal + history[key].burn);
-  const totalCal = calories.reduce((sum, value) => sum + value, 0);
-  const activeDays = calories.filter((value) => value > 0).length || 1;
-  const successDays = labels.filter((key) => {
-    const intake = history[key].cal;
-    const limit = target.cal + history[key].burn + 100;
-    return intake > 0 && intake <= limit;
-  }).length;
+    const tdeeLine = labels.map((key) => target.cal + history[key].burn);
+    const totalCal = calories.reduce((sum, value) => sum + value, 0);
+    const activeDays = calories.filter((value) => value > 0).length || 1;
+    const successDays = labels.filter((key) => {
+      const intake = history[key].cal;
+      const limit = target.cal + history[key].burn + 100;
+      return intake > 0 && intake <= limit;
+    }).length;
 
-  let currentWeight = 0;
-  for (let index = weights.length - 1; index >= 0; index -= 1) {
-    if (weights[index] !== null) {
-      currentWeight = weights[index] ?? 0;
-      break;
+    let currentWeight = 0;
+    for (let index = weights.length - 1; index >= 0; index -= 1) {
+      if (weights[index] !== null) {
+        currentWeight = weights[index] ?? 0;
+        break;
+      }
+    }
+
+    const [mealItems, exerciseItems, weightItems] = await Promise.all([
+      listMealHistoryItems(canonicalUserId, startDate, endDate),
+      listExerciseHistoryItems(canonicalUserId, startDate, endDate),
+      listWeightHistoryItems(canonicalUserId, startDate, endDate)
+    ]);
+    const daily = labels.map((key) => ({
+      date: key,
+      calories: history[key].cal,
+      proteinG: history[key].p,
+      carbsG: history[key].c,
+      fatG: history[key].f,
+      fiberG: history[key].fib,
+      burnedCalories: history[key].burn,
+      dynamicTargetCalories: target.cal + history[key].burn,
+      remainingCalories: target.cal + history[key].burn - history[key].cal,
+      weightKg: history[key].weight,
+      bodyFatPct: history[key].fat,
+      muscleMassKg: history[key].muscle,
+      deviceName: history[key].device
+    }));
+
+    response.json({
+      ok: true,
+      canonicalUserId,
+      authVerified: dashboardOwner.authVerified,
+      authProvider: dashboardOwner.authProvider,
+      range: {
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+        timezone: "Asia/Bangkok"
+      },
+      profile: {
+        name: profile.displayName ?? "Member",
+        target,
+        streak: normalizeStreak(profile)
+      },
+      program: target.program,
+      current: { weight: currentWeight, streak: normalizeStreak(profile) },
+      labels,
+      calories,
+      bodyData: { weight: weights, fat: fats, muscle: muscles, devices },
+      tdeeLine,
+      macros,
+      stats: {
+        avgCal: totalCal / activeDays,
+        totalDays: activeDays,
+        successDays
+      },
+      daily,
+      history: {
+        meals: mealItems,
+        exercises: exerciseItems,
+        weights: weightItems,
+        adjustments: mealItems.flatMap((meal) => meal.adjustments)
+      }
+    });
+  } catch (error) {
+    if (error instanceof ProfileAuthError) {
+      sendProfileAuthError(response, error);
+      return;
+    }
+    response.status(500).json({
+      ok: false,
+      error: "dashboard-data-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+// These endpoints are intentionally separate from the chat command flow.  The
+// LIFF UI always sends an authenticated LINE ID token and a specific meal ID so
+// a tap on an older Flex card can never mutate whichever meal happens to be
+// newest at the time of the request.
+export const getMealForLiff = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  const body = request.body as GetMealForLiffRequest;
+  try {
+    const owner = await resolveLiffMealOwner(request, body);
+    const meal = await getOwnedMealLog(owner.canonicalUserId, body.mealLogId);
+    if (!meal) {
+      response.status(404).json({ ok: false, error: "meal-not-found" });
+      return;
+    }
+    response.json({ ok: true, meal: serializeMealForLiff(meal.id, meal.data() ?? {}) });
+  } catch (error) {
+    respondToLiffMealError(response, error);
+  }
+});
+
+export const saveMealEditFromLiff = onRequest(
+  { secrets: [...AI_PROVIDER_SECRETS, LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 90 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") {
+      response.status(405).json({ ok: false, error: "method-not-allowed" });
+      return;
+    }
+    const body = request.body as SaveMealEditFromLiffRequest;
+    try {
+      const owner = await resolveLiffMealOwner(request, body);
+      const meal = await getOwnedMealLog(owner.canonicalUserId, body.mealLogId);
+      if (!meal) {
+        response.status(404).json({ ok: false, error: "meal-not-found" });
+        return;
+      }
+      const correctionText = normalizeLiffCorrectionText(body.correctionText);
+      if (correctionText) {
+        const result = await replaceLatestMealWithCorrection(
+          owner.canonicalUserId,
+          correctionText,
+          "แก้ไขจาก LIFF",
+          meal
+        );
+        const pushDelivered = result.corrected && result.mealLogId
+          ? await pushRefreshedMealCard(owner.canonicalUserId, owner.lineUserId, result.mealLogId)
+          : false;
+        response.json({ ok: result.corrected, mode: "reanalyzed", pushDelivered, ...result });
+        return;
+      }
+      const adjustment = liffPortionAdjustment(body.portionRatio);
+      if (!adjustment) throw new LiffMealValidationError("select a valid portion or add a correction");
+      const result = await adjustMealPortion(meal, adjustment, "แก้ไขปริมาณจาก LIFF");
+      const pushDelivered = result.adjusted
+        ? await pushRefreshedMealCard(owner.canonicalUserId, owner.lineUserId, meal.id)
+        : false;
+      response.json({ ok: result.adjusted, mode: "portion", pushDelivered, ...result });
+    } catch (error) {
+      respondToLiffMealError(response, error);
     }
   }
+);
 
-  const [mealItems, exerciseItems, weightItems] = await Promise.all([
-    listMealHistoryItems(canonicalUserId, startDate, endDate),
-    listExerciseHistoryItems(canonicalUserId, startDate, endDate),
-    listWeightHistoryItems(canonicalUserId, startDate, endDate)
-  ]);
-  const daily = labels.map((key) => ({
-    date: key,
-    calories: history[key].cal,
-    proteinG: history[key].p,
-    carbsG: history[key].c,
-    fatG: history[key].f,
-    fiberG: history[key].fib,
-    burnedCalories: history[key].burn,
-    dynamicTargetCalories: target.cal + history[key].burn,
-    remainingCalories: target.cal + history[key].burn - history[key].cal,
-    weightKg: history[key].weight,
-    bodyFatPct: history[key].fat,
-    muscleMassKg: history[key].muscle,
-    deviceName: history[key].device
-  }));
-
-  response.json({
-    ok: true,
-    canonicalUserId,
-    range: {
-      start: startDate.toISOString(),
-      end: endDate.toISOString(),
-      timezone: "Asia/Bangkok"
-    },
-    profile: {
-      name: profile.displayName ?? "Member",
-      target,
-      streak: normalizeStreak(profile)
-    },
-    program: target.program,
-    current: { weight: currentWeight, streak: normalizeStreak(profile) },
-    labels,
-    calories,
-    bodyData: { weight: weights, fat: fats, muscle: muscles, devices },
-    tdeeLine,
-    macros,
-    stats: {
-      avgCal: totalCal / activeDays,
-      totalDays: activeDays,
-      successDays
-    },
-    daily,
-    history: {
-      meals: mealItems,
-      exercises: exerciseItems,
-      weights: weightItems,
-      adjustments: mealItems.flatMap((meal) => meal.adjustments)
+export const previewLeftoverFromLiff = onRequest(
+  { secrets: AI_PROVIDER_SECRETS, timeoutSeconds: 90 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") {
+      response.status(405).json({ ok: false, error: "method-not-allowed" });
+      return;
     }
-  });
+    const body = request.body as PreviewLeftoverFromLiffRequest;
+    try {
+      const owner = await resolveLiffMealOwner(request, body);
+      const meal = await getOwnedMealLog(owner.canonicalUserId, body.mealLogId);
+      if (!meal) {
+        response.status(404).json({ ok: false, error: "meal-not-found" });
+        return;
+      }
+      const preview = await createLiffLeftoverPreview({
+        canonicalUserId: owner.canonicalUserId,
+        lineUserId: owner.lineUserId,
+        meal,
+        imageBase64: validateLiffImage(body.imageBase64),
+        mimeType: validateLiffImageMimeType(body.mimeType)
+      });
+      response.json({ ok: true, preview });
+    } catch (error) {
+      respondToLiffMealError(response, error);
+    }
+  }
+);
+
+export const confirmLeftoverFromLiff = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  const body = request.body as ConfirmLeftoverFromLiffRequest;
+  try {
+    const owner = await resolveLiffMealOwner(request, body);
+    const result = await confirmLiffLeftoverPreview(owner.canonicalUserId, body.previewId);
+    response.json({ ok: true, ...result });
+  } catch (error) {
+    respondToLiffMealError(response, error);
+  }
+});
+
+export const deleteMealFromLiff = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  const body = request.body as DeleteMealFromLiffRequest;
+  try {
+    const owner = await resolveLiffMealOwner(request, body);
+    const meal = await getOwnedMealLog(owner.canonicalUserId, body.mealLogId);
+    if (!meal) {
+      response.status(404).json({ ok: false, error: "meal-not-found" });
+      return;
+    }
+    const data = meal.data() ?? {};
+    const mealNameTh = String(data.mealNameTh ?? data.mealNameEn ?? "มื้ออาหาร");
+    await meal.ref.delete();
+    await db.collection("profileEvents").add({
+      type: "meal-delete-from-liff",
+      canonicalUserId: owner.canonicalUserId,
+      lineUserId: owner.lineUserId,
+      mealLogId: meal.id,
+      mealNameTh,
+      deletedAt: Timestamp.now()
+    });
+    response.json({ ok: true, mealLogId: meal.id, mealNameTh });
+  } catch (error) {
+    respondToLiffMealError(response, error);
+  }
 });
 
 // Allowlist of admin Google accounts for the admin web app. Move to Firestore
 // config once the admin app can manage it.
 const ADMIN_EMAILS = ["znak.iiz@gmail.com"];
+const ADMIN_AI_AGENT_IDS = ["mealAnalysis", "exerciseAnalysis", "biaAnalysis", "coachConsultation"] as const;
+
+function isAdminAiAgentId(value: string): value is (typeof ADMIN_AI_AGENT_IDS)[number] {
+  return ADMIN_AI_AGENT_IDS.includes(value as (typeof ADMIN_AI_AGENT_IDS)[number]);
+}
+
+function normalizeAdminModelId(value: unknown): string | null {
+  const model = String(value ?? "").trim();
+  if (model.length < 2 || model.length > 120 || !/^[A-Za-z0-9._:-]+$/.test(model)) return null;
+  return model;
+}
 
 async function requireAdminEmail(request: Parameters<Parameters<typeof onRequest>[0]>[0]): Promise<string> {
   const header = request.get("authorization") ?? "";
@@ -892,17 +1329,14 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   const since7 = Timestamp.fromMillis(nowMs - 7 * day);
   const since14 = Timestamp.fromMillis(nowMs - 14 * day);
   const since30 = Timestamp.fromMillis(nowMs - 30 * day);
-  const soon = Timestamp.fromMillis(nowMs + 7 * day);
   const { startDate: todayStart } = getBangkokDayRange(new Date());
   const todayMs = todayStart.getTime();
   const ms7 = since7.toMillis();
 
   // Avoid a status+createdAt composite index by fetching pending reviews
   // unordered and sorting in memory.
-  const [usersCount, activeSubs, expiring, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap] = await Promise.all([
+  const [usersCount, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap] = await Promise.all([
     db.collection("users").count().get(),
-    db.collection("subscriptions").where("status", "==", "active").count().get(),
-    db.collection("subscriptions").where("expiresAt", ">=", now).where("expiresAt", "<=", soon).count().get(),
     db.collection("subscriptions").where("expiresAt", "<", now).count().get(),
     db.collection("users").where("createdAt", ">=", since7).count().get(),
     db.collection("mealLogs").where("loggedAt", ">=", Timestamp.fromDate(todayStart)).count().get(),
@@ -911,7 +1345,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     db.collection("aiRuns").where("createdAt", ">=", since7).get(),
     db.collection("mealLogs").where("loggedAt", ">=", since14).get(),
     db.collection("paymentReviews").where("createdAt", ">=", since30).get(),
-    db.collection("subscriptions").where("expiresAt", ">=", now).get(),
+    db.collection("subscriptions").where("status", "==", "active").get(),
     db.collection("profiles").get(),
     db.collection("adminAuditLogs").orderBy("createdAt", "desc").limit(60).get(),
     db.collection("aiAgents").get()
@@ -968,27 +1402,33 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   // the 14-day window means they're not in lastLogMs at all = highest risk.
   const names: Record<string, string> = {};
   profilesSnap.forEach((doc) => { names[doc.id] = String(doc.data().displayName ?? "Member"); });
-  const subList = activeSubsSnap.docs.map((doc) => {
+  const activeSubscriptionDocs = activeSubsSnap.docs.filter((doc) => {
+    const data = doc.data();
+    const expiresAt = normalizeTimestamp(data.expiresAt);
+    return isLifetimeSubscription(data) || Boolean(expiresAt && expiresAt.toMillis() >= nowMs);
+  });
+  const subList = activeSubscriptionDocs.map((doc) => {
     const uid = doc.id;
     const last = lastLogMs[uid];
     const quietDays = last ? Math.floor((nowMs - last) / day) : 99;
     const expiresAt = normalizeTimestamp(doc.data().expiresAt);
-    const lifetime = Boolean(doc.data().lifetime);
-    const expiresInDays = expiresAt ? Math.round((expiresAt.toMillis() - nowMs) / day) : null;
+    const lifetime = isLifetimeSubscription(doc.data());
+    const expiresInDays = lifetime ? null : (expiresAt ? Math.round((expiresAt.toMillis() - nowMs) / day) : null);
     return { canonicalUserId: uid, name: names[uid] ?? "Member", quietDays, expiresInDays, lifetime };
   });
   const atRisk = subList.filter((u) => u.quietDays >= 5).sort((a, b) => b.quietDays - a.quietDays).slice(0, 25);
-  const expiringSoonList = subList
+  const expiringSoonAll = subList
     .filter((u) => !u.lifetime && u.expiresInDays !== null && u.expiresInDays <= 7)
-    .sort((a, b) => (a.expiresInDays ?? 0) - (b.expiresInDays ?? 0)).slice(0, 25);
-  const activeSubEngaged7d = activeSubsSnap.docs.filter((doc) => active7d.has(doc.id)).length;
+    .sort((a, b) => (a.expiresInDays ?? 0) - (b.expiresInDays ?? 0));
+  const expiringSoonList = expiringSoonAll.slice(0, 25);
+  const activeSubEngaged7d = activeSubscriptionDocs.filter((doc) => active7d.has(doc.id)).length;
 
   // Recently-expired subscriptions (win-back targets): expired within 60 days.
   const expiredRecentSnap = await db.collection("subscriptions")
     .where("expiresAt", "<", now)
     .where("expiresAt", ">=", Timestamp.fromMillis(nowMs - 60 * day))
     .get();
-  const expiredList = expiredRecentSnap.docs.map((doc) => {
+  const expiredList = expiredRecentSnap.docs.filter((doc) => !isLifetimeSubscription(doc.data())).map((doc) => {
     const uid = doc.id;
     const expiresAt = normalizeTimestamp(doc.data().expiresAt);
     const last = lastLogMs[uid];
@@ -1017,11 +1457,20 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
   const errors24h = errorFeed.filter((e) => e.at && Date.parse(e.at) >= nowMs - day).length;
 
   // AI provider routing (so the operator can see + flip primary on overload).
-  const aiConfig: Record<string, { provider: string; model: string; fallback: string | null }> = {};
+  const aiConfig: Record<string, { provider: string; model: string; fallback: string | null; fallbackModel: string | null; updatedBy: string | null; updatedAt: string | null }> = {};
   aiAgentsSnap.forEach((doc) => {
     const data = doc.data();
-    const fb = Array.isArray(data.fallbacks) && data.fallbacks[0] ? String(data.fallbacks[0].provider) : null;
-    aiConfig[doc.id] = { provider: String(data.provider ?? "?"), model: String(data.model ?? "?"), fallback: fb };
+    const fallback = Array.isArray(data.fallbacks) && data.fallbacks[0]
+      ? data.fallbacks[0] as Record<string, unknown>
+      : null;
+    aiConfig[doc.id] = {
+      provider: String(data.provider ?? "?"),
+      model: String(data.model ?? "?"),
+      fallback: fallback ? String(fallback.provider ?? "?") : null,
+      fallbackModel: fallback ? String(fallback.model ?? "?") : null,
+      updatedBy: data.updatedBy ? String(data.updatedBy) : null,
+      updatedAt: timestampToIso(data.updatedAt)
+    };
   });
 
   const pending = pendingSnap.docs.map((doc) => {
@@ -1044,8 +1493,8 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       newUsers7d: newUsers7.data().count,
       activeToday: activeToday.size,
       active7d: active7d.size,
-      activeSubscriptions: activeSubs.data().count,
-      expiringSoon: expiring.data().count,
+      activeSubscriptions: activeSubscriptionDocs.length,
+      expiringSoon: expiringSoonAll.length,
       expired: expiredSubs.data().count,
       revenue30d: revenue30,
       pendingReviews: pendingCount.data().count,
@@ -1054,7 +1503,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       aiFallbackPct: aiTotal ? Math.round((aiFallback / aiTotal) * 100) : 0,
       aiFallback24hPct: ai24 ? Math.round((aiFallback24 / ai24) * 100) : 0,
       aiFailed7d: aiFailed,
-      payingEngaged7dPct: activeSubsSnap.size ? Math.round((activeSubEngaged7d / activeSubsSnap.size) * 100) : 0,
+      payingEngaged7dPct: activeSubscriptionDocs.length ? Math.round((activeSubEngaged7d / activeSubscriptionDocs.length) * 100) : 0,
       atRiskCount: atRisk.length,
       errors24h
     },
@@ -1089,6 +1538,7 @@ export const getAdminUserDetail = onRequest(async (request, response) => {
     ]);
     const profile = profileSnap.data() ?? {};
     const sub = subSnap.data() ?? {};
+    const lifetime = isLifetimeSubscription(sub);
     // Privacy: return only aggregate engagement metadata for retention decisions,
     // never the customer's meal content or a link into their personal dashboard.
     const lastLogAt = lastMealSnap.docs[0] ? timestampToIso(lastMealSnap.docs[0].data().loggedAt) : null;
@@ -1099,7 +1549,7 @@ export const getAdminUserDetail = onRequest(async (request, response) => {
       lineUserId: String(profile.lineUserId ?? uid),
       target: profile.target ?? null,
       streak: normalizeStreak(profile),
-      subscription: { status: sub.status ?? null, expiresAt: timestampToIso(sub.expiresAt), lifetime: Boolean(sub.lifetime) },
+      subscription: { status: sub.status ?? null, expiresAt: lifetime ? null : timestampToIso(sub.expiresAt), lifetime },
       mealCount: mealCount.data().count,
       lastLogAt
     });
@@ -1129,7 +1579,7 @@ export const getAdminCustomers = onRequest(async (request, response) => {
       if (!p.canonicalUserId && !p.userId && !p.displayName) return null;
       const sub = subs[doc.id] ?? {};
       const expiresAt = normalizeTimestamp(sub.expiresAt);
-      const lifetime = Boolean(sub.lifetime);
+      const lifetime = isLifetimeSubscription(sub);
       const stats = (p.stats ?? {}) as Record<string, unknown>;
       const streak = (p.streak ?? {}) as Record<string, unknown>;
       return {
@@ -1139,7 +1589,7 @@ export const getAdminCustomers = onRequest(async (request, response) => {
         status: lifetime ? "lifetime" : (sub.status ?? null),
         lifetime,
         daysToExpiry: lifetime ? null : (expiresAt ? Math.round((expiresAt.toMillis() - now) / day) : null),
-        expiresAt: timestampToIso(sub.expiresAt),
+        expiresAt: lifetime ? null : timestampToIso(sub.expiresAt),
         streak: Math.max(0, Number(streak.count ?? 0)),
         firstLogAt: timestampToIso(stats.firstLogAt),
         lastLogAt: timestampToIso(stats.lastLogAt),
@@ -1153,7 +1603,7 @@ export const getAdminCustomers = onRequest(async (request, response) => {
   }
 });
 
-// Flip an AI agent's primary provider from the admin UI (meal/exercise only) so
+// Flip an AI agent's primary provider from the admin UI so
 // the operator can route around a Gemini overload and switch back on recovery.
 export const setAiPrimary = onRequest(async (request, response) => {
   if (handleCorsPreflight(request, response)) return;
@@ -1164,28 +1614,169 @@ export const setAiPrimary = onRequest(async (request, response) => {
     const body = (request.body ?? {}) as { agentId?: string; primary?: string };
     const agentId = String(body.agentId ?? "");
     const primary = String(body.primary ?? "");
-    if (!["mealAnalysis", "exerciseAnalysis", "biaAnalysis", "coachConsultation"].includes(agentId) || !["gemini", "anthropic"].includes(primary)) {
+    if (!isAdminAiAgentId(agentId) || !["gemini", "anthropic"].includes(primary)) {
       response.status(400).json({ ok: false, error: "invalid-request" });
       return;
     }
     // BIA (InBody PDF) and coach payloads are heavier, so they need longer timeouts.
     const heavy = agentId === "biaAnalysis" || agentId === "coachConsultation";
-    const GEMINI = { provider: "gemini", model: "gemini-3.5-flash", timeoutMs: heavy ? 20000 : 12000 };
-    const ANTHROPIC = { provider: "anthropic", model: "claude-sonnet-4-6", timeoutMs: heavy ? 45000 : 20000 };
+    const DEFAULT_GEMINI = { provider: "gemini", model: "gemini-3.5-flash", timeoutMs: heavy ? 20000 : 12000 };
+    const DEFAULT_ANTHROPIC = { provider: "anthropic", model: "claude-sonnet-4-6", timeoutMs: heavy ? 45000 : 20000 };
     const ref = db.collection("aiAgents").doc(agentId);
-    const temp = Number((await ref.get()).data()?.temperature ?? 0.2);
-    const primaryCfg = primary === "gemini" ? GEMINI : ANTHROPIC;
-    const fallbackCfg = primary === "gemini" ? ANTHROPIC : GEMINI;
+    const current = (await ref.get()).data() ?? {};
+    const temp = Number(current.temperature ?? 0.2);
+    const configured = [
+      { provider: String(current.provider ?? ""), model: String(current.model ?? ""), timeoutMs: Number(current.timeoutMs) },
+      ...(Array.isArray(current.fallbacks) ? current.fallbacks as Array<Record<string, unknown>> : []).map((item) => ({
+        provider: String(item.provider ?? ""),
+        model: String(item.model ?? ""),
+        timeoutMs: Number(item.timeoutMs)
+      }))
+    ];
+    const configuredFor = (provider: string) => configured.find((item) => item.provider === provider && normalizeAdminModelId(item.model));
+    const primaryDefault = primary === "gemini" ? DEFAULT_GEMINI : DEFAULT_ANTHROPIC;
+    const fallbackDefault = primary === "gemini" ? DEFAULT_ANTHROPIC : DEFAULT_GEMINI;
+    const savedPrimary = configuredFor(primary);
+    const savedFallback = configuredFor(fallbackDefault.provider);
+    const primaryCfg = {
+      ...primaryDefault,
+      model: savedPrimary?.model ?? primaryDefault.model,
+      timeoutMs: Number.isFinite(savedPrimary?.timeoutMs) && Number(savedPrimary?.timeoutMs) > 0 ? Number(savedPrimary?.timeoutMs) : primaryDefault.timeoutMs
+    };
+    const fallbackCfg = {
+      ...fallbackDefault,
+      model: savedFallback?.model ?? fallbackDefault.model,
+      timeoutMs: Number.isFinite(savedFallback?.timeoutMs) && Number(savedFallback?.timeoutMs) > 0 ? Number(savedFallback?.timeoutMs) : fallbackDefault.timeoutMs
+    };
     await ref.set({
       provider: primaryCfg.provider, model: primaryCfg.model, timeoutMs: primaryCfg.timeoutMs, maxAttempts: 1,
       fallbacks: [{ provider: fallbackCfg.provider, model: fallbackCfg.model, temperature: temp, timeoutMs: fallbackCfg.timeoutMs, maxAttempts: 1 }],
       updatedBy: `admin:${adminEmail}`, updatedAt: Timestamp.now()
     }, { merge: true });
-    response.json({ ok: true, agentId, primary: primaryCfg.provider });
+    response.json({ ok: true, agentId, primary: primaryCfg.provider, model: primaryCfg.model, fallbackModel: fallbackCfg.model });
   } catch (error) {
     response.status(500).json({ ok: false, error: "set-ai-primary-failed", message: error instanceof Error ? error.message : String(error) });
   }
 });
+
+// Update model IDs without a deploy. Model names intentionally use validated
+// free-text rather than a fixed dropdown because provider catalogs change often.
+export const setAiAgentModels = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+  let adminEmail: string;
+  try { adminEmail = await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+
+  try {
+    const body = (request.body ?? {}) as { agentId?: string; primaryModel?: string; fallbackModel?: string };
+    const agentId = String(body.agentId ?? "");
+    const primaryModel = normalizeAdminModelId(body.primaryModel);
+    const fallbackModel = body.fallbackModel === undefined ? null : normalizeAdminModelId(body.fallbackModel);
+    if (!isAdminAiAgentId(agentId) || !primaryModel || (body.fallbackModel !== undefined && !fallbackModel)) {
+      response.status(400).json({ ok: false, error: "invalid-model-config", message: "Model ID must be 2-120 characters and contain only letters, numbers, dot, underscore, colon, or hyphen." });
+      return;
+    }
+
+    const ref = db.collection("aiAgents").doc(agentId);
+    const snap = await ref.get();
+    if (!snap.exists) { response.status(404).json({ ok: false, error: "ai-agent-not-found" }); return; }
+    const current = snap.data() ?? {};
+    const fallbacks = Array.isArray(current.fallbacks)
+      ? current.fallbacks.map((item) => ({ ...(item as Record<string, unknown>) }))
+      : [];
+    if (fallbackModel) {
+      if (!fallbacks[0]) { response.status(400).json({ ok: false, error: "fallback-not-configured" }); return; }
+      fallbacks[0].model = fallbackModel;
+    }
+
+    const updatedAt = Timestamp.now();
+    const update: Record<string, unknown> = {
+      model: primaryModel,
+      updatedBy: `admin:${adminEmail}`,
+      updatedAt
+    };
+    if (fallbacks.length) update.fallbacks = fallbacks;
+    const auditRef = db.collection("adminAuditLogs").doc();
+    const batch = db.batch();
+    batch.set(ref, update, { merge: true });
+    batch.set(auditRef, {
+      type: "ai-agent-model-update",
+      status: "success",
+      agentId,
+      provider: String(current.provider ?? ""),
+      previousModel: String(current.model ?? ""),
+      model: primaryModel,
+      fallbackModel: fallbackModel ?? null,
+      adminEmail,
+      createdAt: updatedAt
+    });
+    await batch.commit();
+
+    response.json({ ok: true, agentId, model: primaryModel, fallbackModel: fallbackModel ?? null });
+  } catch (error) {
+    response.status(500).json({ ok: false, error: "set-ai-agent-models-failed", message: error instanceof Error ? error.message : String(error) });
+  }
+});
+
+// Validate draft model IDs against the real provider APIs without changing
+// Firestore. The admin UI requires this canary to pass before enabling Save.
+export const testAiAgentModels = onRequest(
+  { secrets: AI_PROVIDER_SECRETS, timeoutSeconds: 30 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") { response.status(405).json({ ok: false, error: "method-not-allowed" }); return; }
+    try { await requireAdminEmail(request); } catch { response.status(401).json({ ok: false, error: "admin-auth-failed" }); return; }
+
+    try {
+      const body = (request.body ?? {}) as { agentId?: string; primaryModel?: string; fallbackModel?: string };
+      const agentId = String(body.agentId ?? "");
+      const primaryModel = normalizeAdminModelId(body.primaryModel);
+      const fallbackModel = body.fallbackModel === undefined ? null : normalizeAdminModelId(body.fallbackModel);
+      if (!isAdminAiAgentId(agentId) || !primaryModel || (body.fallbackModel !== undefined && !fallbackModel)) {
+        response.status(400).json({ ok: false, error: "invalid-model-config" });
+        return;
+      }
+
+      const snap = await db.collection("aiAgents").doc(agentId).get();
+      if (!snap.exists) { response.status(404).json({ ok: false, error: "ai-agent-not-found" }); return; }
+      const current = snap.data() ?? {};
+      const fallback = Array.isArray(current.fallbacks) && current.fallbacks[0]
+        ? current.fallbacks[0] as Record<string, unknown>
+        : null;
+      const candidates = [
+        { role: "primary", provider: String(current.provider ?? ""), model: primaryModel },
+        ...(fallbackModel && fallback ? [{ role: "fallback", provider: String(fallback.provider ?? ""), model: fallbackModel }] : [])
+      ];
+      if (candidates.some((item) => item.provider !== "gemini" && item.provider !== "anthropic")) {
+        response.status(400).json({ ok: false, error: "unsupported-provider" });
+        return;
+      }
+
+      const results = await Promise.all(candidates.map(async (candidate) => {
+        const startedAt = Date.now();
+        try {
+          const res = candidate.provider === "gemini"
+            ? await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate.model}:generateContent?key=${GEMINI_API_KEY.value()}`, {
+                method: "POST", headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 5 } })
+              })
+            : await fetch("https://api.anthropic.com/v1/messages", {
+                method: "POST", headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY.value(), "anthropic-version": "2023-06-01" },
+                body: JSON.stringify({ model: candidate.model, max_tokens: 5, messages: [{ role: "user", content: "ping" }] })
+              });
+          if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 140)}`);
+          return { ...candidate, ok: true, ms: Date.now() - startedAt, error: null as string | null };
+        } catch (error) {
+          return { ...candidate, ok: false, ms: Date.now() - startedAt, error: (error instanceof Error ? error.message : String(error)).slice(0, 220) };
+        }
+      }));
+
+      response.json({ ok: true, agentId, allPassed: results.every((item) => item.ok), results });
+    } catch (error) {
+      response.status(500).json({ ok: false, error: "test-ai-agent-models-failed", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+);
 
 // Live provider health probe: ping Gemini and Anthropic with a tiny request so
 // the operator can see, in real time, whether Gemini has recovered from an
@@ -1204,22 +1795,43 @@ export const testAiProvider = onRequest(
       catch (error) { return { ok: false, ms: Date.now() - t0, error: (error instanceof Error ? error.message : String(error)).slice(0, 220) }; }
     };
 
-    const gemini = await probe(async () => {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${GEMINI_API_KEY.value()}`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 5 } })
+    const candidates = new Map<string, { provider: "gemini" | "anthropic"; model: string }>();
+    const aiAgentsSnap = await db.collection("aiAgents").get();
+    aiAgentsSnap.forEach((doc) => {
+      const data = doc.data();
+      const configs = [data, ...(Array.isArray(data.fallbacks) ? data.fallbacks : [])];
+      configs.forEach((item) => {
+        const provider = String(item?.provider ?? "");
+        const model = normalizeAdminModelId(item?.model);
+        if ((provider === "gemini" || provider === "anthropic") && model) {
+          candidates.set(`${provider}:${model}`, { provider, model });
+        }
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 140)}`);
     });
-    const anthropic = await probe(async () => {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY.value(), "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 5, messages: [{ role: "user", content: "ping" }] })
-      });
-      if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 140)}`);
-    });
+    if (![...candidates.values()].some((item) => item.provider === "gemini")) {
+      candidates.set("gemini:gemini-3.5-flash", { provider: "gemini", model: "gemini-3.5-flash" });
+    }
+    if (![...candidates.values()].some((item) => item.provider === "anthropic")) {
+      candidates.set("anthropic:claude-sonnet-4-6", { provider: "anthropic", model: "claude-sonnet-4-6" });
+    }
 
-    response.json({ ok: true, testedAt: new Date().toISOString(), gemini, anthropic });
+    const results = await Promise.all([...candidates.values()].map(async (candidate) => ({
+      ...candidate,
+      ...(await probe(async () => {
+        const res = candidate.provider === "gemini"
+          ? await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${candidate.model}:generateContent?key=${GEMINI_API_KEY.value()}`, {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents: [{ parts: [{ text: "ping" }] }], generationConfig: { maxOutputTokens: 5 } })
+            })
+          : await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST", headers: { "Content-Type": "application/json", "x-api-key": ANTHROPIC_API_KEY.value(), "anthropic-version": "2023-06-01" },
+              body: JSON.stringify({ model: candidate.model, max_tokens: 5, messages: [{ role: "user", content: "ping" }] })
+            });
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${(await res.text()).replace(/\s+/g, " ").slice(0, 140)}`);
+      }))
+    })));
+
+    response.json({ ok: true, testedAt: new Date().toISOString(), results });
   }
 );
 
@@ -1443,6 +2055,8 @@ export const weeklyProgramTick = onSchedule(
 );
 
 export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;
@@ -1455,7 +2069,10 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
   }
 
   try {
-    const canonicalUserId = await resolveCanonicalUserId(body);
+    const owner = await requireVerifiedProfileOwner(request, profileIdentityFromRequestBody(body));
+    const canonicalUserId = owner.canonicalUserId;
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (sendReadinessGate(response, readiness)) return;
     const saved = await analyzeAndSaveMeal({ ...body, canonicalUserId, userId: canonicalUserId });
 
     response.json({
@@ -1466,14 +2083,21 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
       analysis: saved.mealLog
     });
   } catch (error) {
+    if (error instanceof ProfileAuthError) {
+      sendProfileAuthError(response, error);
+      return;
+    }
     response.status(500).json({
       ok: false,
-      error: "meal-analysis-failed"
+      error: "meal-analysis-failed",
+      message: error instanceof Error ? error.message : String(error)
     });
   }
 });
 
 export const analyzeExercise = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
     return;
@@ -1486,7 +2110,10 @@ export const analyzeExercise = onRequest({ secrets: AI_PROVIDER_SECRETS }, async
   }
 
   try {
-    const canonicalUserId = await resolveCanonicalUserId(body);
+    const owner = await requireVerifiedProfileOwner(request, profileIdentityFromRequestBody(body));
+    const canonicalUserId = owner.canonicalUserId;
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (sendReadinessGate(response, readiness)) return;
     const saved = await analyzeAndSaveExercise({ ...body, canonicalUserId, userId: canonicalUserId });
 
     response.json({
@@ -1497,9 +2124,14 @@ export const analyzeExercise = onRequest({ secrets: AI_PROVIDER_SECRETS }, async
       analysis: saved.exerciseLog
     });
   } catch (error) {
+    if (error instanceof ProfileAuthError) {
+      sendProfileAuthError(response, error);
+      return;
+    }
     response.status(500).json({
       ok: false,
-      error: "exercise-analysis-failed"
+      error: "exercise-analysis-failed",
+      message: error instanceof Error ? error.message : String(error)
     });
   }
 });
@@ -1651,7 +2283,10 @@ function didUseAiFallback(
   return agent.provider !== primaryProvider || agent.model !== primaryModel;
 }
 
-async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMealAnalysis> {
+async function analyzeAndSaveMeal(
+  request: AnalyzeMealRequest,
+  existingMeal?: MealLogSnapshot
+): Promise<SavedMealAnalysis> {
   const now = Timestamp.now();
   const aiRunRef = db.collection("aiRuns").doc();
   const agent = await getAiAgentConfig("mealAnalysis");
@@ -1680,16 +2315,17 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
   try {
     const analysis = await callGeminiMealAnalysis(request, getAiProviderApiKeys(), agent);
     const fallbackUsed = didUseAiFallback(agent, primaryProvider, primaryModel);
-    const mealLogRef = db.collection("mealLogs").doc();
+    const existingData = existingMeal?.data() ?? {};
+    const mealLogRef = existingMeal?.ref ?? db.collection("mealLogs").doc();
     const savedAt = Timestamp.now();
 
     const mealLog = {
-      userId: request.userId,
-      canonicalUserId: request.canonicalUserId ?? request.userId,
-      source: request.source,
+      userId: existingData.userId ?? request.userId,
+      canonicalUserId: existingData.canonicalUserId ?? request.canonicalUserId ?? request.userId,
+      source: existingData.source ?? request.source,
       inputType: request.inputType,
       text: request.text ?? null,
-      imageUrl: request.imageUrl ?? null,
+      imageUrl: request.imageUrl ?? existingData.imageUrl ?? null,
       mealNameTh: analysis.dish_name.th,
       mealNameEn: analysis.dish_name.en,
       portionDescription: analysis.portion_description,
@@ -1715,18 +2351,26 @@ async function analyzeAndSaveMeal(request: AnalyzeMealRequest): Promise<SavedMea
         promptVersion: agent.promptVersion,
         fallbackUsed
       },
-      loggedAt: savedAt,
-      createdAt: savedAt,
+      loggedAt: existingData.loggedAt ?? savedAt,
+      createdAt: existingData.createdAt ?? savedAt,
       updatedAt: savedAt
     };
 
-    const streak = await updateMealStreak(request.canonicalUserId ?? request.userId, savedAt);
+    // Re-analysing a saved meal must retain its identity and timestamp. In
+    // particular, editing a historical entry must never advance today's streak.
+    const streak = existingMeal
+      ? normalizeStreak(existingData)
+      : await updateMealStreak(request.canonicalUserId ?? request.userId, savedAt);
     const mealLogWithStreak = {
       ...mealLog,
       streak
     };
 
-    await mealLogRef.set(mealLogWithStreak);
+    if (existingMeal) {
+      await mealLogRef.set(mealLogWithStreak, { merge: true });
+    } else {
+      await mealLogRef.set(mealLogWithStreak);
+    }
     await aiRunRef.set(
       {
         status: "completed",
@@ -2079,7 +2723,7 @@ async function handleLineEvent(event: LineEvent) {
   }
 
   if (event.message?.type !== "text") {
-    await replyToLine(replyToken, "Firebase staging รองรับข้อความ รูปอาหาร สลิป รูป/ไฟล์ BIA แล้วครับ แต่ข้อความชนิดนี้ยังไม่อยู่ในชุดที่รองรับ กรุณาส่งข้อความ รูปภาพ หรือไฟล์ PDF/Image BIA");
+    await replyToLine(replyToken, "ข้อความชนิดนี้ยังไม่รองรับครับ กรุณาส่งข้อความ รูปภาพ หรือไฟล์ PDF/รูปภาพ BIA");
     return { ok: true, type: event.type, status: "unsupported-message-replied" };
   }
 
@@ -2108,7 +2752,7 @@ async function handleLineEvent(event: LineEvent) {
   }
 
   if (isKnownLegacyCommand(text)) {
-    await replyToLine(replyToken, "คำสั่งนี้ยังอยู่ในระบบ GAS production เดิมครับ Firebase staging ยังไม่พร้อมแทนที่คำสั่งนี้");
+    await replyToLine(replyToken, "ยังไม่รองรับคำสั่งนี้ครับ พิมพ์ \"คู่มือ\" เพื่อดูคำสั่งที่ใช้งานได้");
     return { ok: true, type: event.type, status: "legacy-command-deferred" };
   }
 
@@ -2132,7 +2776,7 @@ async function handleLineEvent(event: LineEvent) {
       text
     });
 
-    await replyWithMealCard(replyToken, canonicalUserId, lineUserId, saved.mealLog);
+    await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...saved.mealLog, id: saved.mealLogId });
     return {
       ok: true,
       type: event.type,
@@ -2142,7 +2786,7 @@ async function handleLineEvent(event: LineEvent) {
       mealLogId: saved.mealLogId
     };
   } catch (error) {
-    await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์อาหารฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
+    await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์อาหารขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง");
     return {
       ok: false,
       type: event.type,
@@ -2269,7 +2913,7 @@ async function handleLineImageMessage(
     }
 
     if (classifiedType === "other") {
-      await replyToLine(replyToken, "รูปนี้ยังไม่ใช่อาหาร/สลิป/BIA ที่ระบบ staging รองรับครับ กรุณาส่งรูปอาหารหรือสลิปโอนเงิน");
+      await replyToLine(replyToken, "ยังไม่สามารถอ่านรูปนี้ได้ครับ กรุณาส่งรูปอาหาร สลิปโอนเงิน หรือรายงาน BIA ที่เห็นชัด");
       return { ok: true, type: event.type, status: "other-image-replied", canonicalUserId };
     }
 
@@ -2289,7 +2933,7 @@ async function handleLineImageMessage(
       mimeType: content.mimeType
     });
 
-    await replyWithMealCard(replyToken, canonicalUserId, lineUserId, saved.mealLog);
+    await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...saved.mealLog, id: saved.mealLogId });
     return {
       ok: true,
       type: event.type,
@@ -2301,7 +2945,7 @@ async function handleLineImageMessage(
       imageType: classification.type
     };
   } catch (error) {
-    await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์รูปอาหารฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
+    await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์รูปอาหารขัดข้องชั่วคราว กรุณาลองส่งรูปอีกครั้ง");
     return {
       ok: false,
       type: event.type,
@@ -2330,7 +2974,7 @@ async function handleLineFileMessage(
   try {
     const content = await downloadLineContent(messageId);
     if (!isSupportedBiaFile(fileName, content.mimeType)) {
-      await replyToLine(replyToken, "ตอนนี้ Firebase staging รองรับไฟล์ BIA เป็น PDF หรือรูปภาพเท่านั้นครับ");
+      await replyToLine(replyToken, "รองรับรายงาน BIA เป็นไฟล์ PDF หรือรูปภาพเท่านั้นครับ");
       await db.collection("lineUnsupportedFiles").add({
         canonicalUserId,
         lineUserId,
@@ -2360,7 +3004,7 @@ async function handleLineFileMessage(
       biaReportId: result.biaReportId
     };
   } catch (error) {
-    await replyToLine(replyToken, "ขออภัยครับ ระบบรับไฟล์ BIA/PDF ฝั่ง staging เกิดข้อผิดพลาด กรุณาใช้ระบบเดิมต่อก่อนครับ");
+    await replyToLine(replyToken, "ขออภัยครับ ระบบรับไฟล์ BIA/PDF ขัดข้องชั่วคราว กรุณาลองส่งอีกครั้ง");
     return {
       ok: false,
       type: event.type,
@@ -2457,7 +3101,7 @@ async function createBiaReportReview(input: {
 
     await replyToLine(input.replyToken, [
       "ได้รับรายงาน BIA/สุขภาพแล้วครับ",
-      "แต่ระบบ staging ยังวิเคราะห์ไฟล์นี้ไม่สำเร็จ จึงบันทึกไว้ให้แอดมินตรวจต่อ",
+      "ระบบยังวิเคราะห์ไฟล์นี้ไม่สำเร็จ จึงบันทึกไว้ให้แอดมินตรวจต่อ",
       `รหัสรายการ: ${reportRef.id}`
     ].join("\n"));
 
@@ -2770,6 +3414,15 @@ async function handleLineTextCommand(
     return { status: "redeem-code-processed", ...result };
   }
 
+  // A bare "ตั้งค่า" (e.g. from the rich menu) opens the web settings form.
+  // Only "ตั้งค่า <numbers>" goes to the manual text-command parser below.
+  if (text.trim() === "ตั้งค่า") {
+    const cfg = await getAppRuntimeConfig();
+    const settingsUrl = `${cfg.liffSettingsUrl}&uid=${encodeURIComponent(lineUserId)}`;
+    await replyToLineMessages(replyToken, [buildSettingsLinkMessage(settingsUrl)]);
+    return { status: "settings-link-replied" };
+  }
+
   if (isManualProfileSetupCommand(text)) {
     const result = await handleManualProfileSetup(text, replyToken, canonicalUserId, lineUserId);
     return { status: "manual-profile-setup", ...result };
@@ -2782,8 +3435,10 @@ async function handleLineTextCommand(
 
   if (text.includes("คู่มือ") || text.includes("วิธีใช้") || lower.includes("help")) {
     const helpConfig = await getAppRuntimeConfig();
-    const helpLiffUrl = `${helpConfig.liffSettingsUrl}&uid=${encodeURIComponent(lineUserId)}`;
-    await replyToLineMessages(replyToken, [buildHelpFlexMessage(lineUserId, helpLiffUrl)]);
+    await replyToLineMessages(replyToken, [buildHelpFlexMessage(
+      `${helpConfig.liffSettingsUrl}&uid=${encodeURIComponent(lineUserId)}`,
+      await createDashboardAccessUrl(canonicalUserId)
+    )]);
     return { status: "help-replied" };
   }
 
@@ -2830,7 +3485,7 @@ async function handleLineTextCommand(
     };
   }
 
-  if (looksLikeMenuRecommendationRequest(text) || looksLikeCoachConsultationRequest(text)) {
+  if (isExerciseRecommendationRequest(text) || looksLikeMenuRecommendationRequest(text) || looksLikeCoachConsultationRequest(text)) {
     const readiness = await getUserReadiness(canonicalUserId);
     if (!readiness.profileComplete) {
       await replyWithOnboarding(replyToken, lineUserId);
@@ -2841,13 +3496,16 @@ async function handleLineTextCommand(
       return { status: "subscription-required-before-coach-consultation" };
     }
 
-    const mode = looksLikeMenuRecommendationRequest(text) ? "menu_recommendation" : "consultation";
+    const coachText = isExerciseRecommendationRequest(text)
+      ? "วันนี้ควรออกกำลังกายแบบไหนดี จากยอดอาหารที่กินไปแล้ว"
+      : text;
+    const mode = looksLikeMenuRecommendationRequest(coachText) ? "menu_recommendation" : "consultation";
     await showLoadingAnimation(lineUserId, 15);
     const saved = await analyzeAndSaveCoachConsultation({
       userId: canonicalUserId,
       lineUserId,
       source: "line",
-      text,
+      text: coachText,
       mode
     });
     await replyToLine(replyToken, formatCoachConsultationReply(saved.answer, saved.mode));
@@ -2893,14 +3551,18 @@ async function handleLineTextCommand(
   }
 
   if (text.includes("กราฟ") || text.includes("ประวัติ") || lower.includes("report") || lower.includes("dashboard")) {
-    await replyToLine(replyToken, await formatDashboardReply(lineUserId));
+    await replyToLineMessages(replyToken, [buildDashboardLinkMessage(await createDashboardAccessUrl(canonicalUserId))]);
     return { status: "dashboard-link-replied" };
   }
 
   if (text.includes("สรุป") || text.includes("ยอด")) {
     const profile = await getUserProfile(canonicalUserId);
     const summary = await getTodaySummary(canonicalUserId, profile);
-    await replyToLine(replyToken, formatDailySummaryReply(profile, summary));
+    await replyToLineMessages(replyToken, [buildDailySummaryFlexMessage(
+      profile,
+      summary,
+      await createDashboardAccessUrl(canonicalUserId)
+    )]);
     return { status: "daily-summary-replied" };
   }
 
@@ -3499,6 +4161,25 @@ async function getAppRuntimeConfig(): Promise<AppRuntimeConfig> {
   };
 }
 
+function buildLiffMealPageUrl(liffSettingsUrl: string, page: "meal-edit" | "leftover" | "meal-delete", mealLogId: string): string {
+  const url = new URL(liffSettingsUrl);
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/${page}`;
+  url.search = "";
+  url.searchParams.set("mealId", mealLogId);
+  return url.toString();
+}
+
+async function createDashboardAccessUrl(canonicalUserId: string) {
+  const token = randomBytes(32).toString("base64url");
+  const now = Timestamp.now();
+  await db.collection("dashboardAccessSessions").doc(dashboardAccessTokenHash(token)).set({
+    canonicalUserId,
+    createdAt: now,
+    expiresAt: Timestamp.fromMillis(Date.now() + DASHBOARD_ACCESS_TTL_MS)
+  });
+  return `https://mydietitian.web.app/dashboard?access=${encodeURIComponent(token)}`;
+}
+
 function safeUrl(value: unknown, fallback: string) {
   const url = String(value ?? "").trim();
   if (!url) return fallback;
@@ -3663,8 +4344,18 @@ async function getUserProfile(userId: string): Promise<UserProfile> {
       f: target.f || 60,
       fib: target.fib || 25
     },
+    program: target.program
+      ? {
+          type: target.program.type,
+          week: target.program.week,
+          weeks: target.program.weeks,
+          adjustMacro: target.program.adjustMacro,
+          status: target.program.status
+        }
+      : null,
     expiresAt: subscriptionState.expiresAt ?? normalizeTimestamp(profile.expiresAt),
-    lifetime: subscriptionState.lifetime || Boolean(profile.lifetime)
+    lifetime: subscriptionState.lifetime || Boolean(profile.lifetime),
+    streak: normalizeStreak(profile)
   };
 }
 
@@ -3686,13 +4377,20 @@ async function getTodaySummary(userId: string, profile: UserProfile): Promise<To
   ]);
 
   const consumed = { cal: 0, p: 0, c: 0, f: 0, fib: 0 };
+  const meals: Array<{ name: string; kcal: number }> = [];
   mealSnap.forEach((doc) => {
-    const nutrients = doc.data().nutrients ?? {};
-    consumed.cal += Number(nutrients.caloriesKcal ?? 0);
+    const data = doc.data();
+    const nutrients = data.nutrients ?? {};
+    const kcal = Math.round(Number(nutrients.caloriesKcal ?? 0));
+    consumed.cal += kcal;
     consumed.p += Number(nutrients.proteinG ?? 0);
     consumed.c += Number(nutrients.carbsG ?? 0);
     consumed.f += Number(nutrients.fatG ?? 0);
     consumed.fib += Number(nutrients.fiberG ?? 0);
+    meals.push({
+      name: String(data.mealNameTh ?? data.mealNameEn ?? "มื้ออาหาร"),
+      kcal
+    });
   });
 
   let burned = 0;
@@ -3712,7 +4410,8 @@ async function getTodaySummary(userId: string, profile: UserProfile): Promise<To
       c: profile.target.c - consumed.c,
       f: profile.target.f - consumed.f,
       fib: profile.target.fib - consumed.fib
-    }
+    },
+    meals: meals.slice(-3).reverse()
   };
 }
 
@@ -3873,6 +4572,110 @@ function parseMealCorrectionText(text: string): string | null {
   return cleaned;
 }
 
+type LiffMealOwner = { canonicalUserId: string; lineUserId: string };
+type MealLogSnapshot = DocumentSnapshot;
+
+async function resolveLiffMealOwner(
+  request: Parameters<Parameters<typeof onRequest>[0]>[0],
+  body: { userId?: string; lineUserId?: string; canonicalUserId?: string; firebaseAuthUid?: string }
+): Promise<LiffMealOwner> {
+  if (!body?.userId || !isSafePublicId(body.userId)) {
+    throw new LiffMealValidationError("invalid userId");
+  }
+  if (body.lineUserId && !isSafePublicId(body.lineUserId)) throw new LiffMealValidationError("invalid lineUserId");
+  if (body.canonicalUserId && !isSafePublicId(body.canonicalUserId)) throw new LiffMealValidationError("invalid canonicalUserId");
+  if (body.firebaseAuthUid && !isSafePublicId(body.firebaseAuthUid)) throw new LiffMealValidationError("invalid firebaseAuthUid");
+
+  const owner = await verifyProfileOwnership(request, {
+    userId: body.userId,
+    lineUserId: body.lineUserId,
+    canonicalUserId: body.canonicalUserId,
+    firebaseAuthUid: body.firebaseAuthUid
+  });
+  if (!owner.verified || !owner.canonicalUserId || !owner.lineUserId) {
+    throw new ProfileAuthError("missing verified LINE owner");
+  }
+  return { canonicalUserId: owner.canonicalUserId, lineUserId: owner.lineUserId };
+}
+
+function respondToLiffMealError(
+  response: Parameters<Parameters<typeof onRequest>[0]>[1],
+  error: unknown
+) {
+  if (error instanceof ProfileAuthError) {
+    sendProfileAuthError(response, error);
+    return;
+  }
+  if (error instanceof LiffMealValidationError) {
+    response.status(400).json({ ok: false, error: "invalid-liff-meal-request", message: error.message });
+    return;
+  }
+  response.status(500).json({
+    ok: false,
+    error: "liff-meal-request-failed",
+    message: error instanceof Error ? error.message : String(error)
+  });
+}
+
+async function getOwnedMealLog(userId: string, mealLogId: string): Promise<MealLogSnapshot | null> {
+  if (!isSafePublicId(mealLogId)) throw new LiffMealValidationError("invalid mealLogId");
+  const meal = await db.collection("mealLogs").doc(mealLogId).get();
+  if (!meal.exists || String(meal.data()?.userId ?? "") !== userId) return null;
+  return meal;
+}
+
+function serializeMealForLiff(mealLogId: string, data: Record<string, unknown>) {
+  const nutrients = (data.nutrients ?? {}) as Record<string, unknown>;
+  return {
+    id: mealLogId,
+    mealNameTh: String(data.mealNameTh ?? data.mealNameEn ?? "มื้ออาหาร"),
+    mealNameEn: String(data.mealNameEn ?? ""),
+    portionDescription: String(data.portionDescription ?? ""),
+    inputType: data.inputType === "image" ? "image" : "text",
+    originalText: data.inputType === "text" ? String(data.text ?? "") : "",
+    nutrients: {
+      caloriesKcal: Math.round(Number(nutrients.caloriesKcal ?? 0)),
+      proteinG: Math.round(Number(nutrients.proteinG ?? 0)),
+      carbsG: Math.round(Number(nutrients.carbsG ?? 0)),
+      fatG: Math.round(Number(nutrients.fatG ?? 0)),
+      fiberG: Number(Number(nutrients.fiberG ?? 0).toFixed(1))
+    }
+  };
+}
+
+function normalizeLiffCorrectionText(value: unknown): string | null {
+  const text = String(value ?? "").trim();
+  if (!text) return null;
+  if (text.length < 2 || text.length > 600) throw new LiffMealValidationError("correctionText must be 2-600 characters");
+  return text;
+}
+
+function liffPortionAdjustment(value: unknown): { ratio: number; label: string } | null {
+  const ratio = Number(value);
+  const allowed = [1, 0.75, 0.5, 0.25];
+  if (!allowed.includes(ratio)) return null;
+  const label = ratio === 1 ? "100% (หมดจาน)" : `${Math.round(ratio * 100)}%`;
+  return { ratio, label };
+}
+
+function validateLiffImage(value: unknown): string {
+  const base64 = String(value ?? "").replace(/^data:[^,]+,/, "").trim();
+  // The LIFF client compresses before upload. Keep the payload bounded here as
+  // a second line of defence against accidental huge camera files.
+  if (!base64 || base64.length > 2_800_000 || !/^[A-Za-z0-9+/=]+$/.test(base64)) {
+    throw new LiffMealValidationError("invalid or oversized image");
+  }
+  return base64;
+}
+
+function validateLiffImageMimeType(value: unknown): string {
+  const mimeType = String(value ?? "").toLowerCase();
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mimeType)) {
+    throw new LiffMealValidationError("unsupported image type");
+  }
+  return mimeType;
+}
+
 async function getLatestMealLog(userId: string) {
   const snap = await db.collection("mealLogs")
     .where("userId", "==", userId)
@@ -3892,7 +4695,16 @@ async function adjustLatestMealPortion(
     return { adjusted: false, message: "ไม่พบรายการอาหารล่าสุดให้ปรับปริมาณครับ" };
   }
 
+  return adjustMealPortion(doc, adjustment, commandText);
+}
+
+async function adjustMealPortion(
+  doc: MealLogSnapshot,
+  adjustment: { ratio: number; label: string },
+  commandText: string
+): Promise<{ adjusted: boolean; message: string }> {
   const data = doc.data();
+  if (!data) return { adjusted: false, message: "ไม่พบรายการอาหารให้ปรับปริมาณครับ" };
   const nutrients = data.nutrients ?? {};
   const previousAdjustments = Array.isArray(data.adjustments) ? data.adjustments : [];
   const baseNutrients = previousAdjustments[0]?.previousNutrients ?? nutrients;
@@ -3929,7 +4741,7 @@ async function adjustLatestMealPortion(
   return {
     adjusted: true,
     message: [
-      "ปรับปริมาณรายการล่าสุดเรียบร้อยครับ",
+      "ปรับปริมาณรายการเรียบร้อยครับ",
       `เมนู: ${originalName}`,
       `กินจริง: ${adjustment.label}`,
       `เหลือ: ${scaledNutrients.caloriesKcal} kcal`,
@@ -4064,6 +4876,163 @@ async function subtractLatestMealLeftover(input: {
   }
 }
 
+function normalizeLeftoverNutrients(leftover: Awaited<ReturnType<typeof callGeminiLeftoverAnalysis>>["nutrients"]) {
+  return {
+    caloriesKcal: Math.max(0, Math.round(Number(leftover?.calories_kcal ?? 0))),
+    proteinG: Math.max(0, Math.round(Number(leftover?.protein_g ?? 0))),
+    carbsG: Math.max(0, Math.round(Number(leftover?.carbs_g ?? 0))),
+    fatG: Math.max(0, Math.round(Number(leftover?.fat_g ?? 0))),
+    fiberG: Math.max(0, Number(Number(leftover?.fiber_g ?? 0).toFixed(1))),
+    sugarG: Math.max(0, Number(Number(leftover?.sugar_g ?? 0).toFixed(1)))
+  };
+}
+
+function subtractNutrients(
+  nutrients: Record<string, unknown>,
+  leftover: ReturnType<typeof normalizeLeftoverNutrients>
+) {
+  return {
+    caloriesKcal: Math.max(0, Math.round(Number(nutrients.caloriesKcal ?? 0) - leftover.caloriesKcal)),
+    proteinG: Math.max(0, Math.round(Number(nutrients.proteinG ?? 0) - leftover.proteinG)),
+    carbsG: Math.max(0, Math.round(Number(nutrients.carbsG ?? 0) - leftover.carbsG)),
+    fatG: Math.max(0, Math.round(Number(nutrients.fatG ?? 0) - leftover.fatG)),
+    fiberG: Math.max(0, Number((Number(nutrients.fiberG ?? 0) - leftover.fiberG).toFixed(1))),
+    sugarG: Math.max(0, Number((Number(nutrients.sugarG ?? 0) - leftover.sugarG).toFixed(1)))
+  };
+}
+
+async function createLiffLeftoverPreview(input: {
+  canonicalUserId: string;
+  lineUserId: string;
+  meal: MealLogSnapshot;
+  imageBase64: string;
+  mimeType: string;
+}) {
+  const mealData = input.meal.data();
+  if (!mealData) throw new LiffMealValidationError("meal not found");
+  const mealName = String(mealData.mealNameTh ?? mealData.mealNameEn ?? "มื้ออาหาร");
+  const agent = await getAiAgentConfig("mealAnalysis");
+  if (!agent.enabled) throw new Error("AI mealAnalysis agent is disabled");
+
+  const previewRef = db.collection("leftoverPreviews").doc();
+  const aiRunRef = db.collection("aiRuns").doc();
+  const now = Timestamp.now();
+  await aiRunRef.set({
+    runId: aiRunRef.id,
+    userId: input.canonicalUserId,
+    canonicalUserId: input.canonicalUserId,
+    lineUserId: input.lineUserId,
+    source: "line",
+    inputType: "leftover_liff_preview",
+    imageUrl: `liff-upload://${previewRef.id}`,
+    status: "running",
+    createdAt: now,
+    agentId: agent.agentId,
+    provider: agent.provider,
+    promptVersion: agent.promptVersion,
+    model: agent.model
+  });
+
+  try {
+    const leftover = await callGeminiLeftoverAnalysis(
+      { imageBase64: input.imageBase64, mimeType: input.mimeType, latestMealName: mealName },
+      getAiProviderApiKeys(),
+      agent
+    );
+    const leftoverNutrients = normalizeLeftoverNutrients(leftover.nutrients);
+    const currentNutrients = (mealData.nutrients ?? {}) as Record<string, unknown>;
+    const estimatedAfter = subtractNutrients(currentNutrients, leftoverNutrients);
+    const expiresAt = Timestamp.fromMillis(Date.now() + 15 * 60 * 1000);
+    const savedAt = Timestamp.now();
+    await previewRef.set({
+      previewId: previewRef.id,
+      canonicalUserId: input.canonicalUserId,
+      lineUserId: input.lineUserId,
+      mealLogId: input.meal.id,
+      mealNameTh: mealName,
+      leftoverNameTh: leftover.dish_name?.th ?? "ของเหลือ",
+      portionDescription: leftover.portion_description ?? "",
+      leftoverNutrients,
+      estimatedAfter,
+      aiRunId: aiRunRef.id,
+      createdAt: savedAt,
+      expiresAt,
+      confirmedAt: null
+    });
+    await aiRunRef.set({
+      status: "completed",
+      mealLogId: input.meal.id,
+      completedAt: savedAt,
+      output: leftover
+    }, { merge: true });
+
+    return {
+      previewId: previewRef.id,
+      mealNameTh: mealName,
+      leftoverNameTh: leftover.dish_name?.th ?? "ของเหลือ",
+      portionDescription: String(leftover.portion_description ?? ""),
+      subtract: leftoverNutrients,
+      after: estimatedAfter,
+      expiresAt: expiresAt.toDate().toISOString()
+    };
+  } catch (error) {
+    await aiRunRef.set({
+      status: "failed",
+      failedAt: Timestamp.now(),
+      error: error instanceof Error ? error.message : String(error)
+    }, { merge: true });
+    throw error;
+  }
+}
+
+async function confirmLiffLeftoverPreview(canonicalUserId: string, previewId: string) {
+  if (!isSafePublicId(previewId)) throw new LiffMealValidationError("invalid previewId");
+  const previewRef = db.collection("leftoverPreviews").doc(previewId);
+  const result = await db.runTransaction(async (transaction) => {
+    const previewSnap = await transaction.get(previewRef);
+    const preview = previewSnap.exists ? previewSnap.data() ?? {} : null;
+    if (!preview || String(preview.canonicalUserId ?? "") !== canonicalUserId) {
+      throw new LiffMealValidationError("leftover preview not found");
+    }
+    if (preview.confirmedAt) throw new LiffMealValidationError("leftover preview already confirmed");
+    const expiresAt = preview.expiresAt instanceof Timestamp ? preview.expiresAt.toMillis() : 0;
+    if (!expiresAt || expiresAt < Date.now()) throw new LiffMealValidationError("leftover preview expired");
+
+    const mealRef = db.collection("mealLogs").doc(String(preview.mealLogId));
+    const mealSnap = await transaction.get(mealRef);
+    const mealData = mealSnap.exists ? mealSnap.data() ?? {} : null;
+    if (!mealData || String(mealData.userId ?? "") !== canonicalUserId) {
+      throw new LiffMealValidationError("meal no longer exists");
+    }
+    const nutrients = (mealData.nutrients ?? {}) as Record<string, unknown>;
+    const leftoverNutrients = preview.leftoverNutrients as ReturnType<typeof normalizeLeftoverNutrients>;
+    const updatedNutrients = subtractNutrients(nutrients, leftoverNutrients);
+    const originalName = String(mealData.mealNameTh ?? mealData.mealNameEn ?? "มื้ออาหาร");
+    const previousAdjustments = Array.isArray(mealData.adjustments) ? mealData.adjustments : [];
+    const now = Timestamp.now();
+
+    transaction.set(mealRef, {
+      mealNameTh: `${originalName.replace(/\s*\([^)]*\)\s*$/, "")} (หัก: ${String(preview.leftoverNameTh ?? "ของเหลือ")})`,
+      nutrients: updatedNutrients,
+      adjustments: [...previousAdjustments, {
+        type: "leftover-subtraction",
+        source: "liff",
+        previewId,
+        leftoverNameTh: preview.leftoverNameTh ?? "ของเหลือ",
+        portionDescription: preview.portionDescription ?? "",
+        subtractedNutrients: leftoverNutrients,
+        previousNutrients: nutrients,
+        aiRunId: preview.aiRunId ?? null,
+        adjustedAt: now
+      }],
+      updatedAt: now
+    }, { merge: true });
+    transaction.update(previewRef, { confirmedAt: now, updatedAt: now, appliedNutrients: updatedNutrients });
+    return { mealLogId: mealRef.id, mealNameTh: originalName, subtract: leftoverNutrients, after: updatedNutrients };
+  });
+  return result;
+}
+
 function parseLineMessageId(imageUrl: unknown): string | null {
   const match = String(imageUrl ?? "").match(/^line-message:\/\/(.+)$/);
   return match ? match[1] : null;
@@ -4076,7 +5045,8 @@ function parseLineMessageId(imageUrl: unknown): string | null {
 async function reanalyzeCorrectionFromImage(
   userId: string,
   messageId: string,
-  userCorrection: string
+  userCorrection: string,
+  existingMeal?: MealLogSnapshot
 ): Promise<SavedMealAnalysis | null> {
   try {
     const content = await downloadLineContent(messageId);
@@ -4089,7 +5059,7 @@ async function reanalyzeCorrectionFromImage(
       imageBase64: content.base64,
       mimeType: content.mimeType,
       userCorrection
-    });
+    }, existingMeal);
   } catch (error) {
     await db.collection("adminAuditLogs").add({
       type: "meal-correction-image-refetch-failed",
@@ -4104,14 +5074,16 @@ async function reanalyzeCorrectionFromImage(
 async function replaceLatestMealWithCorrection(
   userId: string,
   correctedText: string,
-  originalCommandText: string
+  originalCommandText: string,
+  selectedMeal?: MealLogSnapshot
 ): Promise<{ corrected: boolean; message: string; runId?: string; mealLogId?: string }> {
-  const latest = await getLatestMealLog(userId);
+  const latest = selectedMeal ?? await getLatestMealLog(userId);
   if (!latest) {
-    return { corrected: false, message: "ไม่พบรายการอาหารล่าสุดให้แก้ไขครับ" };
+    return { corrected: false, message: "ไม่พบรายการอาหารให้แก้ไขครับ" };
   }
 
   const previousData = latest.data();
+  if (!previousData) return { corrected: false, message: "ไม่พบข้อมูลรายการอาหารให้แก้ไขครับ" };
 
   // Prefer re-analysing the ORIGINAL photo (portion + side items stay intact),
   // anchoring identity to the user's correction. Fall back to text-only when the
@@ -4120,7 +5092,7 @@ async function replaceLatestMealWithCorrection(
     ? parseLineMessageId(previousData.imageUrl)
     : null;
   const imageSaved = originalMessageId
-    ? await reanalyzeCorrectionFromImage(userId, originalMessageId, correctedText)
+    ? await reanalyzeCorrectionFromImage(userId, originalMessageId, correctedText, latest)
     : null;
   // Text fallback (image expired / original was text): analyse the correction
   // sentence and flag it as a correction so the prompt reconciles it.
@@ -4131,12 +5103,13 @@ async function replaceLatestMealWithCorrection(
     inputType: "text",
     text: correctedText,
     userCorrection: correctedText
-  });
+  }, latest);
   const now = Timestamp.now();
-  await db.collection("mealLogs").doc(saved.mealLogId).set(
+  const correctionHistory = Array.isArray(previousData.correctionHistory) ? previousData.correctionHistory : [];
+  await latest.ref.set(
     {
       correction: {
-        type: "replace-latest",
+        type: selectedMeal ? "update-selected-in-place" : "update-latest-in-place",
         originalMealLogId: latest.id,
         originalMealNameTh: previousData.mealNameTh ?? null,
         originalMealNameEn: previousData.mealNameEn ?? null,
@@ -4144,20 +5117,28 @@ async function replaceLatestMealWithCorrection(
         correctedText,
         correctedAt: now
       },
+      correctionHistory: [...correctionHistory, {
+        originalMealNameTh: previousData.mealNameTh ?? null,
+        originalMealNameEn: previousData.mealNameEn ?? null,
+        previousNutrients: previousData.nutrients ?? null,
+        originalCommandText,
+        correctedText,
+        correctedAt: now,
+        aiRunId: saved.runId
+      }],
       updatedAt: now
     },
     { merge: true }
   );
-  await latest.ref.delete();
 
-  const correctedMeal = saved.mealLog;
+  const correctedMeal = saved.mealLog as Record<string, unknown>;
   const nutrients = correctedMeal.nutrients as Record<string, unknown> | undefined;
   return {
     corrected: true,
     runId: saved.runId,
-    mealLogId: saved.mealLogId,
+    mealLogId: latest.id,
     message: [
-      "แก้ไขรายการล่าสุดเรียบร้อยครับ",
+      "แก้ไขรายการเรียบร้อยครับ",
       `จาก: ${previousData.mealNameTh ?? previousData.mealNameEn ?? "รายการเดิม"}`,
       `เป็น: ${correctedMeal.mealNameTh ?? correctedText}`,
       `พลังงานใหม่: ${Math.round(Number(nutrients?.caloriesKcal ?? 0))} kcal`,
@@ -4226,16 +5207,295 @@ function formatProfileReply(profile: UserProfile): string {
 }
 
 function formatDailySummaryReply(profile: UserProfile, summary: TodaySummary): string {
+  const target = Math.round(summary.dynamicTarget);
+  const consumed = Math.round(summary.consumed.cal);
+  const remaining = Math.round(summary.remaining.cal);
+  const over = consumed > target;
   return [
-    `สรุปยอดวันนี้ (${profile.name})`,
-    `เป้าหมาย: ${Math.round(summary.dynamicTarget)} kcal`,
-    `กินแล้ว: ${Math.round(summary.consumed.cal)} kcal`,
-    `(P:${Math.round(summary.consumed.p)} C:${Math.round(summary.consumed.c)} F:${Math.round(summary.consumed.f)} Fib:${summary.consumed.fib.toFixed(1)})`,
-    `คงเหลือ:`,
-    `Cal: ${Math.round(summary.remaining.cal)} kcal`,
-    `P:${Math.round(summary.remaining.p)}g | C:${Math.round(summary.remaining.c)}g`,
-    `F:${Math.round(summary.remaining.f)}g | Fib:${summary.remaining.fib.toFixed(1)}g`
+    `สรุปวันนี้ (${profile.name})`,
+    over
+      ? `กินแล้ว ${consumed} / ${target} kcal (เกิน ${Math.abs(remaining)} kcal)`
+      : remaining <= 0
+        ? `กินแล้ว ${consumed} / ${target} kcal (ครบเป้าแล้ว)`
+        : `กินแล้ว ${consumed} / ${target} kcal (เหลือ ${remaining} kcal)`,
+    `โปรตีน ${Math.round(summary.consumed.p)}g · คาร์บ ${Math.round(summary.consumed.c)}g · ไขมัน ${Math.round(summary.consumed.f)}g · ไฟเบอร์ ${summary.consumed.fib.toFixed(1)}g`
   ].join("\n");
+}
+
+// Customer-facing Flex tokens — aligned with apps/liff/DESIGN.md
+const FLEX_CUSTOMER = {
+  green: "#1F8A43",
+  greenDeep: "#146E33",
+  orange: "#E5861C",
+  orangeDeep: "#C76A12",
+  ink: "#1F2937",
+  muted: "#7A8088",
+  track: "#EDF1EF",
+  surface: "#FFFFFF",
+  danger: "#E0533F",
+  streakBg: "#FFF3E0",
+  streakText: "#C76A12",
+  // Macro bar palette — semantic + collision-free. Calorie bars own green,
+  // danger owns red, so macros use blue/amber/violet/teal (protein=blue and
+  // carb=amber follow tracker convention; fat=violet avoids clashing with the
+  // danger red; fiber=teal reads as "vegetable" without colliding with brand green).
+  protein: "#2F6DB5",
+  carb: "#F2A93B",
+  fat: "#845EF7",
+  fiber: "#149E8E",
+  headerSub: "#D6F7EC"
+} as const;
+
+function isExerciseRecommendationRequest(text: string): boolean {
+  return text === "แนะนำออกกำลังกายวันนี้" || text === "ออกกำลังกายวันนี้";
+}
+
+function dailySummaryEncouragementText(
+  dayTarget: number,
+  dayConsumed: number,
+  dayRemaining: number,
+  overTarget: boolean,
+  streakCount: number
+): string {
+  if (overTarget) {
+    return `วันนี้เกินไป ${Math.abs(dayRemaining)} kcal — พรุ่งนี้ปรับนิดเดียวก็ได้`;
+  }
+  if (dayRemaining <= 0) {
+    return streakCount > 1
+      ? `ครบเป้าวันนี้แล้ว — ติดต่อกัน ${streakCount} วัน เก่งมาก`
+      : "ครบเป้าวันนี้แล้ว — ทำได้ดีมาก";
+  }
+  if (dayRemaining <= Math.round(dayTarget * 0.15)) {
+    return `ใกล้ครบเป้าแล้ว เหลืออีก ${dayRemaining} kcal`;
+  }
+  if (dayConsumed === 0) {
+    return `เป้าวันนี้ ${dayTarget} kcal — เริ่มบันทึกมื้อแรกได้เลย`;
+  }
+  return `ยังกินได้อีก ${dayRemaining} kcal`;
+}
+
+const DAILY_SUMMARY_HUB = {
+  menu: { label: "แนะนำเมนูวันนี้", text: "กินไรดี" },
+  exercise: { label: "แนะนำออกกำลังกาย", text: "แนะนำออกกำลังกายวันนี้" },
+  coach: { label: "ปรึกษาโค้ช", text: "ปรึกษาโค้ช" },
+  status: { label: "ดูวันคงเหลือ", text: "เช็คสถานะ" },
+  renew: { label: "ต่ออายุแพ็กเกจ", text: "เติมวัน" }
+} as const;
+
+function flexMealRow(name: string, kcal: number): Record<string, unknown> {
+  return {
+    type: "box",
+    layout: "horizontal",
+    spacing: "sm",
+    paddingTop: "10px",
+    paddingBottom: "2px",
+    contents: [
+      { type: "text", text: name, size: "sm", color: FLEX_CUSTOMER.ink, flex: 1, wrap: true, maxLines: 2 },
+      { type: "text", text: `${kcal} kcal`, size: "sm", weight: "bold", color: FLEX_CUSTOMER.greenDeep, flex: 0, align: "end" }
+    ]
+  };
+}
+
+// Rich "hub" card for the สรุป command: today's progress plus quick-action
+// buttons to the dashboard, AI menu/coach, exercise advice, status, and top-up.
+function buildDailySummaryFlexMessage(profile: UserProfile, summary: TodaySummary, dashboardUrl: string): LineMessage {
+  const dayTarget = Math.round(summary.dynamicTarget);
+  const dayConsumed = Math.round(summary.consumed.cal);
+  const dayRemaining = Math.round(summary.remaining.cal);
+  const overTarget = dayConsumed > dayTarget;
+  const streakCount = profile.streak?.count ?? 0;
+
+  const macroRow = (label: string, consumed: number, remaining: number, color: string) => {
+    const target = Math.round(consumed + remaining);
+    return flexMacroRow(label, `${Math.round(consumed)} / ${target}g`, target ? (consumed / target) * 100 : 0, color);
+  };
+
+  const headerContents: Array<Record<string, unknown>> = [
+    { type: "text", text: "สรุปวันนี้", weight: "bold", size: "lg", color: "#FFFFFF" },
+    { type: "text", text: profile.name, size: "sm", color: FLEX_CUSTOMER.headerSub, margin: "sm" }
+  ];
+
+  if (streakCount > 1) {
+    headerContents.push({
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: FLEX_CUSTOMER.streakBg,
+      cornerRadius: "999px",
+      paddingAll: "6px",
+      paddingStart: "12px",
+      paddingEnd: "12px",
+      margin: "md",
+      contents: [
+        {
+          type: "text",
+          text: `ติดต่อกัน ${streakCount} วันแล้ว`,
+          size: "xs",
+          weight: "bold",
+          color: FLEX_CUSTOMER.streakText,
+          align: "center"
+        }
+      ]
+    });
+  }
+
+  if (profile.program && profile.program.status === "active") {
+    const macroLabelTh = PROGRAM_MACRO_LABEL_TH[profile.program.adjustMacro];
+    headerContents.push({
+      type: "text",
+      text: `${profile.program.type === "cut" ? "CUT" : "Bulk"} · สัปดาห์ ${profile.program.week}/${profile.program.weeks} · ปรับ${macroLabelTh}`,
+      size: "xs",
+      color: "#FFFFFF",
+      margin: "sm"
+    });
+  }
+
+  const encouragementText = dailySummaryEncouragementText(
+    dayTarget,
+    dayConsumed,
+    dayRemaining,
+    overTarget,
+    streakCount
+  );
+
+  const bodyContents: Array<Record<string, unknown>> = [
+    {
+      type: "box",
+      layout: "baseline",
+      contents: [
+        {
+          type: "text",
+          text: `${dayConsumed}`,
+          size: "xxl",
+          weight: "bold",
+          color: overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.ink,
+          flex: 0
+        },
+        {
+          type: "text",
+          text: `/ ${dayTarget} kcal`,
+          size: "sm",
+          color: FLEX_CUSTOMER.muted,
+          margin: "sm",
+          flex: 0
+        }
+      ]
+    },
+    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.green),
+    {
+      type: "text",
+      text: encouragementText,
+      size: "sm",
+      weight: "bold",
+      color: overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.greenDeep,
+      margin: "sm",
+      wrap: true
+    }
+  ];
+
+  if (summary.burned > 0) {
+    bodyContents.push({
+      type: "text",
+      text: `ออกกำลังกายวันนี้ เพิ่มโควต้า +${Math.round(summary.burned)} kcal`,
+      size: "xs",
+      color: FLEX_CUSTOMER.muted,
+      margin: "sm"
+    });
+  }
+
+  bodyContents.push(
+    { type: "separator", margin: "lg" },
+    macroRow("โปรตีน", summary.consumed.p, summary.remaining.p, FLEX_CUSTOMER.protein),
+    macroRow("คาร์บ", summary.consumed.c, summary.remaining.c, FLEX_CUSTOMER.carb),
+    macroRow("ไขมัน", summary.consumed.f, summary.remaining.f, FLEX_CUSTOMER.fat),
+    macroRow("ไฟเบอร์", summary.consumed.fib, summary.remaining.fib, FLEX_CUSTOMER.fiber),
+    { type: "separator", margin: "lg" },
+    { type: "text", text: "มื้อที่บันทึกแล้ว", size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, margin: "none" }
+  );
+
+  if (summary.meals.length === 0) {
+    bodyContents.push({
+      type: "text",
+      text: "ยังไม่บันทึกมื้อวันนี้ — ส่งรูปอาหารหรือพิมพ์ชื่อเมนูมาได้เลย",
+      size: "sm",
+      color: FLEX_CUSTOMER.muted,
+      margin: "md",
+      wrap: true
+    });
+  } else {
+    summary.meals.forEach((meal, index) => {
+      if (index > 0) bodyContents.push({ type: "separator", margin: "sm" });
+      bodyContents.push(flexMealRow(meal.name, meal.kcal));
+    });
+  }
+
+  const msgBtn = (label: string, text: string, flex = 1): Record<string, unknown> => ({
+    type: "button",
+    style: "secondary",
+    height: "sm",
+    flex,
+    action: { type: "message", label, text }
+  });
+  const row = (...buttons: Array<Record<string, unknown>>): Record<string, unknown> => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "sm",
+    contents: buttons
+  });
+
+  const footerContents: Array<Record<string, unknown>> = [
+    {
+      type: "text",
+      text: "ขั้นตอนถัดไป",
+      size: "xs",
+      color: FLEX_CUSTOMER.muted,
+      margin: "none"
+    },
+    {
+      type: "button",
+      style: "primary",
+      color: FLEX_CUSTOMER.green,
+      height: "sm",
+      action: { type: "uri", label: "เปิดแดชบอร์ด", uri: dashboardUrl }
+    },
+    row(
+      msgBtn(DAILY_SUMMARY_HUB.menu.label, DAILY_SUMMARY_HUB.menu.text),
+      msgBtn(DAILY_SUMMARY_HUB.exercise.label, DAILY_SUMMARY_HUB.exercise.text)
+    ),
+    row(
+      msgBtn(DAILY_SUMMARY_HUB.coach.label, DAILY_SUMMARY_HUB.coach.text),
+      msgBtn(DAILY_SUMMARY_HUB.status.label, DAILY_SUMMARY_HUB.status.text)
+    ),
+    {
+      type: "button",
+      style: "secondary",
+      height: "sm",
+      action: { type: "message", label: DAILY_SUMMARY_HUB.renew.label, text: DAILY_SUMMARY_HUB.renew.text }
+    }
+  ];
+
+  return {
+    type: "flex",
+    altText: formatDailySummaryReply(profile, summary).slice(0, 1500),
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.green,
+        paddingAll: "16px",
+        contents: headerContents
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.surface,
+        paddingAll: "16px",
+        contents: bodyContents
+      },
+      footer: { type: "box", layout: "vertical", spacing: "sm", paddingAll: "12px", contents: footerContents }
+    }
+  };
 }
 
 function formatWeightReply(weight: { weightKg: number; bodyFatPct: number | null; muscleMassKg: number | null }): string {
@@ -4387,7 +5647,7 @@ async function buildOnboardingMessages(lineUserId: string, displayName = "Member
           },
           {
             type: "text",
-            text: "หลังตั้งค่าใหม่ ระบบ staging จะให้ trial 3 วันเพื่อทดสอบ flow ก่อน production cutover",
+            text: "หลังตั้งค่า ระบบจะเปิดทดลองใช้งาน 3 วันให้อัตโนมัติ",
             wrap: true,
             size: "xs",
             color: "#64748B"
@@ -4402,7 +5662,7 @@ async function buildOnboardingMessages(lineUserId: string, displayName = "Member
           {
             type: "button",
             style: "primary",
-            color: "#1DB446",
+            color: "#146E33",
             action: { type: "uri", label: "เปิดฟอร์มตั้งค่า", uri: liffUrl }
           },
           {
@@ -4412,7 +5672,7 @@ async function buildOnboardingMessages(lineUserId: string, displayName = "Member
           },
           {
             type: "text",
-            text: "Production LINE OA เดิมยังใช้งานตามปกติ",
+            text: "แก้เป้าหมายภายหลังได้ทุกเมื่อจากเมนู \"ตั้งค่าเป้าหมาย\"",
             align: "center",
             size: "xxs",
             color: "#94A3B8",
@@ -4424,32 +5684,96 @@ async function buildOnboardingMessages(lineUserId: string, displayName = "Member
   }];
 }
 
-async function formatDashboardReply(lineUserId: string): Promise<string> {
-  const appConfig = await getAppRuntimeConfig();
-  const dashboardLink = `${appConfig.legacyGasDashboardUrl}?uid=${encodeURIComponent(lineUserId)}`;
-  return [
-    "Dashboard",
-    "ระหว่าง Firebase staging ยังไม่ได้ migrate data ระบบจะเปิด dashboard เดิมก่อนครับ",
-    dashboardLink
-  ].join("\n");
+function buildDashboardLinkMessage(dashboardUrl: string): LineMessage {
+  return {
+    type: "flex",
+    altText: "เปิดแดชบอร์ด MyDietitian",
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        paddingAll: "16px",
+        contents: [
+          { type: "text", text: "Dashboard", weight: "bold", size: "lg", color: FLEX_CUSTOMER.ink },
+          { type: "text", text: "ดูพลังงาน สารอาหาร และแนวโน้มของคุณ", size: "sm", color: FLEX_CUSTOMER.muted, wrap: true }
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
+        contents: [{
+          type: "button",
+          style: "primary",
+          color: FLEX_CUSTOMER.green,
+          height: "sm",
+          action: { type: "uri", label: "เปิดแดชบอร์ด", uri: dashboardUrl }
+        }]
+      }
+    }
+  };
 }
 
 function formatHelpReply(): string {
   return [
     "คู่มือใช้งานแบบย่อ",
     "บันทึกอาหาร: พิมพ์ชื่ออาหาร หรือส่งรูป",
+    "แก้/หักของเหลือ/ลบ: ใช้ปุ่มใต้การ์ดมื้ออาหารเพื่อแก้เฉพาะมื้อนั้นและยืนยันก่อนบันทึก",
     "สรุปวันนี้: พิมพ์ `สรุป` หรือ `ยอด`",
     "จดน้ำหนัก: `หนัก 65 fat 20 muscle 28`",
-    "ลบรายการล่าสุด: `ลบ` หรือ `ยกเลิก`",
-    "Dashboard: พิมพ์ `กราฟ` หรือ `dashboard`"
+    "โค้ช AI: พิมพ์ `กินอะไรดี` หรือถามเรื่องอาหารได้เลย",
+    "Dashboard: พิมพ์ `กราฟ` หรือ `dashboard` (ลิงก์มีอายุ 1 ชั่วโมง)",
+    "ตั้งเป้าหมาย/CUT/Bulk: พิมพ์ `ตั้งค่า`"
   ].join("\n");
 }
 
 // Categorised usage guide, ported from the GAS Flex carousel (4 cards) and
 // upgraded with tappable action buttons (message + LIFF/dashboard URIs) so users
 // tap instead of typing commands. Keeps the same sectioned look as GAS.
-function buildHelpFlexMessage(lineUserId: string, liffUrl: string): LineMessage {
-  const dashboardUrl = `https://mydietitian.web.app/dashboard?uid=${encodeURIComponent(lineUserId)}`;
+function buildSettingsLinkMessage(settingsUrl: string): LineMessage {
+  return {
+    type: "flex",
+    altText: "ตั้งค่าเป้าหมายและโปรแกรมรายสัปดาห์",
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "⚙️ ตั้งค่าเป้าหมาย", weight: "bold", size: "lg", color: "#146E33" },
+          {
+            type: "text",
+            text: "ตั้งเป้าหมายแคลอรี่/สารอาหาร และโปรแกรม CUT/Bulk รายสัปดาห์ได้ที่นี่ครับ",
+            wrap: true,
+            size: "sm",
+            color: "#647067"
+          }
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#146E33",
+            height: "sm",
+            action: { type: "uri", label: "เปิดหน้าตั้งค่า", uri: settingsUrl }
+          }
+        ]
+      }
+    }
+  };
+}
+
+function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessage {
 
   const msgBtn = (label: string, text: string) => ({
     type: "button",
@@ -4507,33 +5831,33 @@ function buildHelpFlexMessage(lineUserId: string, liffUrl: string): LineMessage 
     contents: {
       type: "carousel",
       contents: [
-        card("#E8F5E9", "#1DB446", "🍽️ 1. บันทึกอาหาร", [
-          { text: "📸 ส่งรูปอาหาร หรือ พิมพ์ชื่อ (เช่น ข้าวมันไก่)" },
-          { text: "✏️ แก้คำผิด: พิมพ์ \"ไม่ใช่หมู เป็นไก่\"", color: "#666666" },
-          { text: "✂️ ลดปริมาณ: พิมพ์เช่น \"กินแค่ครึ่งเดียว\"", color: "#666666" },
-          { text: "♻️ คืนแคลอรี่: ถ่ายรูปจานที่กินเหลือ (เช่น กระดูก, น้ำซุป) AI จะหักแคลอรี่จากมื้อล่าสุดให้", color: "#1DB446", weight: "bold" }
+        card("#E8F5E9", "#146E33", "🍽️ 1. บันทึกและจัดการมื้อ", [
+          { text: "📸 ส่งรูปอาหาร หรือพิมพ์ชื่อ เช่น \"ข้าวมันไก่\"" },
+          { text: "✏️ หลังบันทึก ใช้ปุ่มใต้การ์ดมื้อเพื่อแก้ผล หักของเหลือ หรือลบ", color: "#146E33", weight: "bold" },
+          { text: "✅ ระบบจะแสดงมื้อที่เลือกและให้ยืนยันก่อนเปลี่ยนข้อมูล", color: "#666666" }
         ]),
-        card("#FFF3E0", "#FF9800", "🏃‍♂️ 2. ร่างกาย & ออกกำลัง", [
-          { text: "⏱️ บันทึกเบิร์น: พิมพ์ \"วิ่ง 30 นาที\" (บอทจะเพิ่มเป้าหมายการกินให้ทันที)" },
-          { text: "⚖️ จดน้ำหนัก: พิมพ์ \"หนัก 65 fat 20%\"", color: "#666666" },
-          { text: "🏥 ส่งผลตรวจ: ส่งรูป หรือ ไฟล์ PDF ใบ InBody / เครื่องชั่งอัจฉริยะ ให้โค้ชจัดแผนใหม่", color: "#666666" }
+        card("#FFF3E0", "#FF9800", "🏃‍♂️ 2. ร่างกายและกิจกรรม", [
+          { text: "⏱️ บันทึกกิจกรรม เช่น \"วิ่ง 30 นาที\" ระบบจะปรับโควต้าวันนี้ให้" },
+          { text: "⚖️ จดน้ำหนัก เช่น \"หนัก 65 fat 20%\"", color: "#666666" },
+          { text: "🏥 ส่งรายงาน InBody/BIA เป็นรูปหรือ PDF เพื่อให้โค้ชประเมิน", color: "#666666" }
         ], [
           msgBtn("📋 วิธีออกกำลังกาย", "ออกกำลังกาย")
         ]),
-        card("#E3F2FD", "#2196F3", "📊 3. ดูสถิติ & ตั้งค่า", [
-          { text: "👤 เช็คข้อมูลผู้ใช้: พิมพ์ \"ข้อมูลส่วนตัว\"", color: "#666666" },
-          { text: "↩️ ลบรายการล่าสุด: พิมพ์ \"ยกเลิก\"", color: "#FF334B" }
+        card("#E3F2FD", "#2196F3", "📊 3. ติดตามผลและเป้าหมาย", [
+          { text: "📈 สรุปวันนี้: ดูยอดสารอาหาร มื้อที่บันทึก และทางลัดโค้ช", color: "#374151" },
+          { text: "📊 แดชบอร์ด: ดูกราฟและประวัติผ่านลิงก์ส่วนตัวอายุ 1 ชั่วโมง", color: "#666666" },
+          { text: "⚙️ ตั้งเป้าหมาย หรือให้ระบบค่อย ๆ ลด/เพิ่มเป้าหมายทุกสัปดาห์ด้วย CUT/Bulk", color: "#146E33", weight: "bold" }
         ], [
           msgBtn("📈 สรุปวันนี้", "สรุป"),
           uriBtn("📊 ดูแดชบอร์ด", dashboardUrl),
-          uriBtn("⚙️ เปิดฟอร์มตั้งค่า", liffUrl, "#2196F3")
+          uriBtn("⚙️ ตั้งค่าเป้าหมาย / โปรแกรม", liffUrl, "#2196F3")
         ]),
-        card("#F3E5F5", "#9C27B0", "💡 4. โค้ช AI & ติดต่อ", [
-          { text: "💬 ปรึกษา: พิมพ์ถามได้ทุกเรื่อง เช่น \"ดึกแล้วกินไรดี\"", color: "#666666" },
-          { text: "👨‍⚕️ ติดต่อคนจริง: พิมพ์ \"แอดมิน\" ตามด้วยข้อความ", color: "#666666" },
-          { text: "🎟️ ใช้โค้ด: พิมพ์ \"โค้ด [รหัส]\"", color: "#666666" }
+        card("#F3E5F5", "#9C27B0", "💡 4. โค้ชและบัญชี", [
+          { text: "🥗 แตะ \"โค้ช AI\" หรือพิมพ์ \"กินอะไรดี\" เพื่อรับเมนูตามยอดวันนี้", color: "#374151" },
+          { text: "👤 เช็ควันคงเหลือด้วย \"เช็คสถานะ\" หรือต่ออายุด้วย \"เติมวัน\"", color: "#666666" },
+          { text: "👨‍⚕️ ติดต่อผู้ดูแลด้วย \"แอดมิน\" หรือใช้สิทธิ์ด้วย \"โค้ด [รหัส]\"", color: "#666666" }
         ], [
-          msgBtn("🥗 กินไรดี (AI แนะนำเมนู)", "กินไรดี"),
+          msgBtn("🥗 กินอะไรดี (AI แนะนำเมนู)", "กินอะไรดี"),
           msgBtn("🎫 เติมวัน / ต่ออายุ", "เติมวัน")
         ])
       ]
@@ -4588,6 +5912,10 @@ function normalizeTimestamp(value: unknown): Timestamp | null {
   return null;
 }
 
+function isLifetimeSubscription(data: FirebaseFirestore.DocumentData): boolean {
+  return Boolean(data.lifetime || data.entitlementType === "lifetime");
+}
+
 function timestampToIso(value: unknown): string | null {
   const timestamp = normalizeTimestamp(value);
   return timestamp ? timestamp.toDate().toISOString() : null;
@@ -4609,22 +5937,37 @@ function normalizeStreak(source: Record<string, unknown>) {
   };
 }
 
+function flexHealthScoreChip(score: number | string | undefined): { backgroundColor: string; color: string } {
+  const value = Number(score);
+  if (!Number.isFinite(value)) {
+    return { backgroundColor: FLEX_CUSTOMER.track, color: FLEX_CUSTOMER.muted };
+  }
+  if (value >= 7) {
+    return { backgroundColor: "#E7F7F0", color: FLEX_CUSTOMER.greenDeep };
+  }
+  if (value >= 4) {
+    return { backgroundColor: FLEX_CUSTOMER.streakBg, color: FLEX_CUSTOMER.streakText };
+  }
+  return { backgroundColor: "#FEE9E6", color: FLEX_CUSTOMER.danger };
+}
+
 function formatMealReply(mealLog: Record<string, unknown>): string {
   const nutrients = mealLog.nutrients as Record<string, number>;
   const rating = mealLog.healthRating as Record<string, string | number>;
+  const mealName = String(mealLog.mealNameTh ?? mealLog.mealNameEn ?? "มื้ออาหาร");
+  const kcal = Math.round(nutrients.caloriesKcal ?? 0);
   const streak = normalizeStreak(mealLog);
-  const streakText = streak.count > 1
-    ? `Streak: บันทึกอาหารต่อเนื่อง ${streak.count} วัน`
-    : "Streak: เริ่มบันทึกวันแรก";
+  const streakLine = streak.count > 1 ? `ติดต่อกัน ${streak.count} วัน` : "วันแรกที่บันทึก";
 
-  return [
-    `บันทึกอาหารแล้ว: ${mealLog.mealNameTh}`,
-    `พลังงานประมาณ ${Math.round(nutrients.caloriesKcal ?? 0)} kcal`,
-    `P ${Math.round(nutrients.proteinG ?? 0)}g | C ${Math.round(nutrients.carbsG ?? 0)}g | F ${Math.round(nutrients.fatG ?? 0)}g | Fiber ${Math.round(nutrients.fiberG ?? 0)}g`,
-    `คะแนน: ${rating.score}/10`,
-    String(rating.commentTh ?? ""),
-    streakText
-  ].join("\n");
+  const lines = [
+    `บันทึกแล้ว: ${mealName}`,
+    `${kcal} kcal · คะแนน ${rating.score ?? "-"}/10`,
+    `โปรตีน ${Math.round(nutrients.proteinG ?? 0)}g · คาร์บ ${Math.round(nutrients.carbsG ?? 0)}g · ไขมัน ${Math.round(nutrients.fatG ?? 0)}g · ไฟเบอร์ ${Number(nutrients.fiberG ?? 0).toFixed(1)}g`,
+    streakLine
+  ];
+  const comment = String(rating.commentTh ?? "").trim();
+  if (comment) lines.push(comment);
+  return lines.join("\n");
 }
 
 // LINE Flex doesn't have a progress-bar component, so simulate one with a filled
@@ -4635,8 +5978,9 @@ function flexProgressBar(pct: number, color: string): Record<string, unknown> {
     type: "box",
     layout: "vertical",
     height: "6px",
-    backgroundColor: "#E5E7EB",
+    backgroundColor: FLEX_CUSTOMER.track,
     cornerRadius: "3px",
+    margin: "sm",
     contents: [
       {
         type: "box",
@@ -4662,8 +6006,8 @@ function flexMacroRow(label: string, valueText: string, pct: number, color: stri
         type: "box",
         layout: "horizontal",
         contents: [
-          { type: "text", text: label, size: "sm", color: "#6B7280", flex: 1 },
-          { type: "text", text: valueText, size: "sm", weight: "bold", color: "#374151", align: "end" }
+          { type: "text", text: label, size: "sm", color: FLEX_CUSTOMER.muted, flex: 1 },
+          { type: "text", text: valueText, size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, align: "end" }
         ]
       },
       flexProgressBar(pct, color)
@@ -4672,40 +6016,109 @@ function flexMacroRow(label: string, valueText: string, pct: number, color: stri
 }
 
 async function replyWithMealCard(replyToken: string, canonicalUserId: string, lineUserId: string, mealLog: Record<string, unknown>): Promise<void> {
-  const profile = await getUserProfile(canonicalUserId);
-  const summary = await getTodaySummary(canonicalUserId, profile);
-  await replyToLineMessages(replyToken, [buildMealReplyMessage(mealLog, summary, lineUserId)]);
+  await replyToLineMessages(replyToken, [await buildMealCardMessage(canonicalUserId, mealLog)]);
 }
 
-function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodaySummary, lineUserId: string): LineMessage {
+async function buildMealCardMessage(canonicalUserId: string, mealLog: Record<string, unknown>): Promise<LineMessage> {
+  const profile = await getUserProfile(canonicalUserId);
+  const summary = await getTodaySummary(canonicalUserId, profile);
+  const appConfig = await getAppRuntimeConfig();
+  const mealLogId = String(mealLog.id ?? "");
+  return buildMealReplyMessage(
+    mealLog,
+    summary,
+    await createDashboardAccessUrl(canonicalUserId),
+    {
+      editUrl: mealLogId ? buildLiffMealPageUrl(appConfig.liffSettingsUrl, "meal-edit", mealLogId) : "",
+      leftoverUrl: mealLogId ? buildLiffMealPageUrl(appConfig.liffSettingsUrl, "leftover", mealLogId) : "",
+      deleteUrl: mealLogId ? buildLiffMealPageUrl(appConfig.liffSettingsUrl, "meal-delete", mealLogId) : ""
+    }
+  );
+}
+
+async function pushRefreshedMealCard(canonicalUserId: string, lineUserId: string, mealLogId: string): Promise<boolean> {
+  try {
+    const meal = await getOwnedMealLog(canonicalUserId, mealLogId);
+    if (!meal) return false;
+    await pushMessages(lineUserId, [await buildMealCardMessage(canonicalUserId, { ...(meal.data() ?? {}), id: meal.id })]);
+    return true;
+  } catch (error) {
+    await db.collection("adminAuditLogs").add({
+      type: "meal-edit-flex-push-failed",
+      canonicalUserId,
+      lineUserId,
+      mealLogId,
+      error: error instanceof Error ? error.message : String(error),
+      createdAt: Timestamp.now()
+    });
+    return false;
+  }
+}
+
+function buildMealReplyMessage(
+  mealLog: Record<string, unknown>,
+  summary: TodaySummary,
+  dashboardUrl: string,
+  actions: { editUrl: string; leftoverUrl: string; deleteUrl: string }
+): LineMessage {
   const nutrients = mealLog.nutrients as Record<string, number>;
   const rating = mealLog.healthRating as Record<string, string | number>;
   const p = Math.round(nutrients.proteinG ?? 0);
   const c = Math.round(nutrients.carbsG ?? 0);
   const f = Math.round(nutrients.fatG ?? 0);
-  const fib = Math.round(nutrients.fiberG ?? 0);
+  const fib = Number(nutrients.fiberG ?? 0);
   const kcal = Math.round(nutrients.caloriesKcal ?? 0);
   const streak = normalizeStreak(mealLog);
-  const streakText = streak.count > 1 ? `บันทึกต่อเนื่อง ${streak.count} วัน` : "เริ่มบันทึกวันแรก";
-  const comment = String(rating.commentTh ?? "");
+  const streakCount = streak.count;
+  const comment = String(rating.commentTh ?? "").trim();
+  const portionDescription = String(mealLog.portionDescription ?? "").trim();
+  const scoreChip = flexHealthScoreChip(rating.score);
+  const mealName = String(mealLog.mealNameTh ?? mealLog.mealNameEn ?? "มื้ออาหาร");
+
+  const headerContents: Array<Record<string, unknown>> = [
+    { type: "text", text: "บันทึกแล้ว", weight: "bold", size: "lg", color: "#FFFFFF" }
+  ];
+  if (streakCount > 1) {
+    headerContents.push({
+      type: "box",
+      layout: "horizontal",
+      backgroundColor: FLEX_CUSTOMER.streakBg,
+      cornerRadius: "999px",
+      paddingAll: "6px",
+      paddingStart: "12px",
+      paddingEnd: "12px",
+      margin: "md",
+      contents: [
+        {
+          type: "text",
+          text: `ติดต่อกัน ${streakCount} วันแล้ว`,
+          size: "xs",
+          weight: "bold",
+          color: FLEX_CUSTOMER.streakText,
+          align: "center"
+        }
+      ]
+    });
+  }
 
   const bodyContents: Array<Record<string, unknown>> = [
     {
       type: "box",
       layout: "horizontal",
       alignItems: "center",
+      spacing: "sm",
       contents: [
-        { type: "text", text: String(mealLog.mealNameTh ?? "มื้ออาหาร"), weight: "bold", size: "md", color: "#1F2937", flex: 1, wrap: true },
+        { type: "text", text: mealName, weight: "bold", size: "md", color: FLEX_CUSTOMER.ink, flex: 1, wrap: true, maxLines: 2 },
         {
           type: "box",
           layout: "vertical",
           flex: 0,
-          backgroundColor: "#FAEEDA",
-          cornerRadius: "6px",
+          backgroundColor: scoreChip.backgroundColor,
+          cornerRadius: "999px",
           paddingAll: "4px",
-          paddingStart: "8px",
-          paddingEnd: "8px",
-          contents: [{ type: "text", text: `${rating.score ?? "-"}/10`, size: "sm", weight: "bold", color: "#854F0B", align: "center" }]
+          paddingStart: "10px",
+          paddingEnd: "10px",
+          contents: [{ type: "text", text: `${rating.score ?? "-"}/10`, size: "sm", weight: "bold", color: scoreChip.color, align: "center" }]
         }
       ]
     },
@@ -4714,12 +6127,34 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
       layout: "baseline",
       margin: "md",
       contents: [
-        { type: "text", text: `${kcal}`, size: "xxl", weight: "bold", color: "#111827", flex: 0 },
-        { type: "text", text: "kcal", size: "sm", color: "#6B7280", margin: "sm", flex: 0 }
+        { type: "text", text: `${kcal}`, size: "xxl", weight: "bold", color: FLEX_CUSTOMER.ink, flex: 0 },
+        { type: "text", text: "kcal", size: "sm", color: FLEX_CUSTOMER.muted, margin: "sm", flex: 0 }
       ]
     },
-    { type: "text", text: `มื้อนี้ · P ${p} · C ${c} · F ${f} · Fiber ${fib} g`, size: "sm", color: "#9CA3AF", margin: "sm" }
+    {
+      type: "text",
+      text: `มื้อนี้ · โปรตีน ${p}g · คาร์บ ${c}g · ไขมัน ${f}g · ไฟเบอร์ ${fib.toFixed(1)}g`,
+      size: "sm",
+      color: FLEX_CUSTOMER.muted,
+      margin: "sm",
+      wrap: true
+    }
   ];
+
+  if (portionDescription) {
+    bodyContents.push({
+      type: "box",
+      layout: "vertical",
+      backgroundColor: "#F4F9F5",
+      cornerRadius: "10px",
+      paddingAll: "12px",
+      margin: "md",
+      contents: [
+        { type: "text", text: "AI ประเมิน", size: "xs", weight: "bold", color: FLEX_CUSTOMER.greenDeep, margin: "none" },
+        { type: "text", text: portionDescription, size: "sm", color: FLEX_CUSTOMER.ink, margin: "sm", wrap: true }
+      ]
+    });
+  }
 
   const dailyMacroRow = (label: string, consumed: number, remaining: number, color: string) => {
     const target = Math.round(consumed + remaining);
@@ -4730,45 +6165,65 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
   const dayConsumed = Math.round(summary.consumed.cal);
   const dayRemaining = Math.round(summary.remaining.cal);
   const overTarget = dayConsumed > dayTarget;
+  const encouragementText = dailySummaryEncouragementText(
+    dayTarget,
+    dayConsumed,
+    dayRemaining,
+    overTarget,
+    streakCount
+  );
+
   bodyContents.push(
     { type: "separator", margin: "lg" },
+    { type: "text", text: "ยอดวันนี้", size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, margin: "none" },
     {
       type: "box",
       layout: "horizontal",
-      margin: "lg",
+      margin: "sm",
       contents: [
-        { type: "text", text: "วันนี้", size: "sm", color: "#6B7280", flex: 1 },
-        { type: "text", text: `${dayConsumed} / ${dayTarget} kcal`, size: "sm", weight: "bold", color: "#374151", align: "end" }
+        { type: "text", text: "แคลอรี่", size: "sm", color: FLEX_CUSTOMER.muted, flex: 1 },
+        { type: "text", text: `${dayConsumed} / ${dayTarget} kcal`, size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, align: "end" }
       ]
     },
-    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? "#E0533F" : "#185FA5"),
+    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.green),
     {
       type: "text",
-      text: overTarget ? `เกินเป้าหมาย ${Math.abs(dayRemaining)} kcal` : `เหลือกินได้อีก ${dayRemaining} kcal`,
+      text: encouragementText,
       size: "sm",
       weight: "bold",
-      color: overTarget ? "#A32D2D" : "#0F6E56",
-      margin: "sm"
+      color: overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.greenDeep,
+      margin: "sm",
+      wrap: true
     },
-    dailyMacroRow("โปรตีน", summary.consumed.p, summary.remaining.p, "#1D9E75"),
-    dailyMacroRow("คาร์บ", summary.consumed.c, summary.remaining.c, "#BA7517"),
-    dailyMacroRow("ไขมัน", summary.consumed.f, summary.remaining.f, "#D85A30"),
-    dailyMacroRow("Fiber", summary.consumed.fib, summary.remaining.fib, "#845EF7")
+    dailyMacroRow("โปรตีน", summary.consumed.p, summary.remaining.p, FLEX_CUSTOMER.protein),
+    dailyMacroRow("คาร์บ", summary.consumed.c, summary.remaining.c, FLEX_CUSTOMER.carb),
+    dailyMacroRow("ไขมัน", summary.consumed.f, summary.remaining.f, FLEX_CUSTOMER.fat),
+    dailyMacroRow("ไฟเบอร์", summary.consumed.fib, summary.remaining.fib, FLEX_CUSTOMER.fiber)
   );
 
   if (comment) {
     bodyContents.push({
       type: "box",
       layout: "vertical",
-      backgroundColor: "#F3F4F6",
-      cornerRadius: "8px",
-      paddingAll: "10px",
+      backgroundColor: FLEX_CUSTOMER.track,
+      cornerRadius: "10px",
+      paddingAll: "12px",
       margin: "lg",
-      contents: [{ type: "text", text: comment, size: "sm", color: "#4B5563", wrap: true }]
+      contents: [
+        { type: "text", text: "จากโค้ช", size: "xs", color: FLEX_CUSTOMER.muted, margin: "none" },
+        { type: "text", text: comment, size: "sm", color: FLEX_CUSTOMER.ink, wrap: true, margin: "sm" }
+      ]
+    });
+  } else if (streakCount <= 1) {
+    bodyContents.push({
+      type: "text",
+      text: "วันแรกที่บันทึก — ไปต่อกันนะ",
+      size: "sm",
+      color: FLEX_CUSTOMER.greenDeep,
+      margin: "lg",
+      wrap: true
     });
   }
-
-  bodyContents.push({ type: "text", text: `🔥 ${streakText}`, size: "sm", color: "#993C1D", margin: "lg" });
 
   return {
     type: "flex",
@@ -4776,7 +6231,20 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
     contents: {
       type: "bubble",
       size: "mega",
-      body: { type: "box", layout: "vertical", backgroundColor: "#FFFFFF", paddingAll: "16px", contents: bodyContents },
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.green,
+        paddingAll: "16px",
+        contents: headerContents
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.surface,
+        paddingAll: "16px",
+        contents: bodyContents
+      },
       footer: {
         type: "box",
         layout: "vertical",
@@ -4785,15 +6253,44 @@ function buildMealReplyMessage(mealLog: Record<string, unknown>, summary: TodayS
         contents: [
           {
             type: "button",
-            style: "secondary",
+            style: "primary",
+            color: FLEX_CUSTOMER.green,
             height: "sm",
-            action: { type: "message", label: "หักของเหลือ", text: "หักของเหลือ" }
+            action: { type: "uri", label: "เปิดแดชบอร์ด", uri: dashboardUrl }
+          },
+          {
+            type: "box",
+            layout: "horizontal",
+            spacing: "sm",
+            contents: [
+              {
+                type: "button",
+                style: "secondary",
+                height: "sm",
+                flex: 1,
+                action: actions.editUrl
+                  ? { type: "uri", label: "แก้ผลประเมิน", uri: actions.editUrl }
+                  : { type: "message", label: "แก้ผลประเมิน", text: "แก้เป็น " }
+              },
+              {
+                type: "button",
+                style: "secondary",
+                height: "sm",
+                flex: 1,
+                action: actions.leftoverUrl
+                  ? { type: "uri", label: "หักของเหลือ", uri: actions.leftoverUrl }
+                  : { type: "message", label: "หักของเหลือ", text: "หักของเหลือ" }
+              }
+            ]
           },
           {
             type: "button",
-            style: "secondary",
+            style: "primary",
+            color: FLEX_CUSTOMER.danger,
             height: "sm",
-            action: { type: "uri", label: "ดูแดชบอร์ด", uri: `https://mydietitian.web.app/dashboard?uid=${encodeURIComponent(lineUserId)}` }
+            action: actions.deleteUrl
+              ? { type: "uri", label: "ลบมื้อนี้", uri: actions.deleteUrl }
+              : { type: "message", label: "ลบมื้อนี้", text: "ลบ" }
           }
         ]
       }
@@ -5146,6 +6643,7 @@ function normalizeProgram(profile: Record<string, unknown>): WeeklyProgram | nul
   const startDate = String(p.startDate ?? "");
   const adjustMacro: ProgramMacro =
     p.adjustMacro === "fat" || p.adjustMacro === "protein" ? p.adjustMacro : "carbs";
+  const immediateStart = p.immediateStart !== false; // default: cut starts in week 1
   const baselineRaw = (p.baseline ?? {}) as Record<string, unknown>;
   const baseline: ProgramBaseline = {
     calories: Number(baselineRaw.calories ?? 0),
@@ -5164,7 +6662,7 @@ function normalizeProgram(profile: Record<string, unknown>): WeeklyProgram | nul
     return null;
   }
 
-  return { type, startDate, weeks, stepKcalPerWeek, adjustMacro, baseline, status: "active" };
+  return { type, startDate, weeks, stepKcalPerWeek, adjustMacro, immediateStart, baseline, status: "active" };
 }
 
 // Bangkok calendar day as "YYYY-MM-DD" (en-CA yields that format directly).
@@ -5209,7 +6707,9 @@ function resolveProgramWeekIndex(program: WeeklyProgram, now: Date): number {
 // delta so week 1 always equals the baseline exactly.
 function applyProgramWeek(baseline: ProgramBaseline, program: WeeklyProgram, weekIndex: number) {
   const sign = program.type === "cut" ? -1 : 1;
-  const targetDeltaKcal = sign * program.stepKcalPerWeek * weekIndex;
+  // immediateStart shifts the ramp so week 1 already carries one step of change.
+  const steps = weekIndex + (program.immediateStart ? 1 : 0);
+  const targetDeltaKcal = sign * program.stepKcalPerWeek * steps;
   const kcalPerG = program.adjustMacro === "fat" ? 9 : 4;
   const floor = PROGRAM_MACRO_FLOOR_G[program.adjustMacro];
   const macroBaseG =
@@ -5265,6 +6765,7 @@ function resolveEffectiveTarget(profile: Record<string, unknown>, now: Date = ne
       startDate: program.startDate,
       adjustMacro: program.adjustMacro,
       stepKcalPerWeek: program.stepKcalPerWeek,
+      immediateStart: program.immediateStart,
       status: program.status,
       baseline
     }

@@ -106,6 +106,15 @@ Health and target profile used by the AI coach.
     "fatG": 60,
     "fiberG": 25
   },
+  "program": {
+    "type": "cut",
+    "startDate": "2026-07-07",
+    "weeks": 8,
+    "stepKcalPerWeek": 100,
+    "adjustMacro": "carbs",
+    "baseline": { "calories": 2100, "proteinG": 150, "carbsG": 220, "fatG": 60, "fiberG": 25 },
+    "status": "active"
+  },
   "subscription": {
     "status": "trial",
     "expiresAt": "timestamp"
@@ -119,6 +128,14 @@ Health and target profile used by the AI coach.
   "updatedAt": "timestamp"
 }
 ```
+
+Optional `program` is a weekly CUT/Bulk periodization plan (trainer-style, e.g. "cut carbs 100 kcal/week × 8 weeks"). `baseline` is the week-1 target snapshot; the effective daily target is resolved from the current week (`floor((today − startDate)/7)`, clamped to `weeks`, Asia/Bangkok). Each step shifts only `adjustMacro` (and calories) by `stepKcalPerWeek`, clamped at safe macro floors (protein 40 g, carbs 20 g, fat 20 g) and a 1000 kcal minimum. `resolveEffectiveTarget()` is the single choke point that applies this for the dashboard, daily summary, and AI coach. A program with `status` other than `active` (e.g. `completed`) is ignored, so the plain saved target applies. Managed by the `saveWeeklyProgram` / `cancelWeeklyProgram` endpoints (LIFF settings form); baseline is read server-side from the saved `target`, so targets must be set first.
+
+Lifecycle:
+
+- `saveWeeklyProgram` stamps `lastNotifiedWeek: 1` (week 1 is already in effect at save time).
+- `weeklyProgramTick` (scheduled daily 08:30 Asia/Bangkok) advances active programs: when the user crosses into a new week it LINE-pushes the new target and bumps `lastNotifiedWeek`; when `weeks` are up it sets `status: "completed"` (+ `completedAt`) and pushes a "set up what's next" prompt with the settings link. Week boundaries are compared by whole weeks so a missed run catches up rather than skipping a week. Requires a `lineUserId` on the profile to notify.
+- `saveSettingsFromWeb` deep-merges `program.baseline` when an active program exists, so re-saving targets rebases the running plan (keeping its type/start/duration/notification state).
 
 ### `mealLogs/{mealLogId}`
 
@@ -236,7 +253,8 @@ Weight and body composition history.
 
 ## Dashboard API Response
 
-`getDashboardData` returns legacy-compatible chart arrays and detailed Firestore history in one response:
+`getDashboardData` returns legacy-compatible chart arrays and detailed Firestore history in one response.
+Security: `getDashboardData` requires verified ownership by default. LIFF clients can send `X-Line-Id-Token: <LINE ID token>`. LINE Flex dashboard buttons use a random one-hour `dashboardAccessToken`; only its SHA-256 hash is stored in `dashboardAccessSessions`, and the backend resolves the canonical user from that session. A bare `userId` is never trusted. `DASHBOARD_AUTH_MODE=optional` is an emergency rollback setting only.
 
 ```json
 {
@@ -265,9 +283,7 @@ Weight and body composition history.
 
 ## LIFF Settings API
 
-`saveSettingsFromWeb` accepts the legacy LIFF form shape and writes Firestore profile/subscription/weight data.
-The staging endpoint returns a success response but does not push a LINE message, so the LIFF UI should show the confirmation itself until authenticated LIFF/API auth is added.
-The endpoint now rejects unsafe public IDs and out-of-range settings values, but it is still not production-authenticated. Before production cutover, the LIFF/native clients should send a verified LINE ID token or Firebase Auth ID token instead of trusting `userId` from the request body.
+`saveSettingsFromWeb` accepts the LIFF form shape and writes Firestore profile/subscription/weight data. The LIFF UI shows its own confirmation after a successful save.
 
 Validation guardrails:
 
@@ -279,9 +295,33 @@ Identity verification:
 
 - Firebase/native clients can send `Authorization: Bearer <Firebase ID token>`.
 - LIFF clients can send `X-Line-Id-Token: <LINE ID token>`. The backend falls back to channel ID `2009365288` from the current LIFF ID, and `LINE_CHANNEL_ID` can override it in the function environment.
-- The current default `PROFILE_AUTH_MODE=optional` verifies tokens when provided but still allows the legacy staging LIFF body-only flow.
-- Set `PROFILE_AUTH_MODE=required` only after the new LIFF/native clients reliably send verified tokens. In required mode, profile/settings writes without a valid token return `401 profile-auth-failed`.
+- `analyzeMeal`, `analyzeExercise`, dashboard reads, and profile/settings writes require a verified token by default. The app analysis endpoints also require a complete profile and active subscription before any AI call is made.
+- `PROFILE_AUTH_MODE=optional` is an emergency rollback setting only. In normal operation, profile/settings writes without a valid token return `401 profile-auth-failed`.
 - Verified writes store `authVerified`, `authProvider`, and a `profileAuthEvents` audit record.
+
+### Dashboard access links
+
+The configured LIFF endpoint remains dedicated to settings. Dashboard buttons open `https://mydietitian.web.app/dashboard?access=<random-token>` directly. The token expires after one hour; users can type `กราฟ` to receive a new link. Profile/settings writes remain protected by verified LIFF tokens.
+
+### `linkLineAccount` API
+
+Links a Firebase-authenticated native app account to the same canonical account as a verified LINE user. The client must send both:
+
+```http
+Authorization: Bearer <Firebase ID token>
+X-Line-Id-Token: <LINE ID token>
+```
+
+Request body:
+
+```json
+{
+  "lineUserId": "Uxxxxxxxx",
+  "firebaseAuthUid": "firebase-auth-uid"
+}
+```
+
+The backend verifies both tokens, rejects conflicting existing links, then writes `lineLinks/{lineUserId}`, `authLinks/{firebaseAuthUid}`, `users/{canonicalUserId}`, and `profiles/{canonicalUserId}` with `source.line=true` and `source.app=true`. If the LINE user already has a canonical account, that canonical ID wins; otherwise the LINE user ID becomes the canonical ID.
 
 Auto mode:
 

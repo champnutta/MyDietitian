@@ -1,17 +1,19 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-06-26T00:00:00.000Z",
+  "generatedAt": "2026-07-07T15:51:00.000Z",
   "title": "Design System: MyDietitian",
   "extensions": {
     "colorMeta": {
       "vital-green": { "role": "primary", "displayName": "Vital Green", "canonical": "#18B98C", "tonalRamp": ["#04382A", "#075240", "#0A6E55", "#0E8A67", "#18B98C", "#5FD3B2", "#9BE6CF", "#D6F7EC"] },
+      "admin-teal": { "role": "secondary", "displayName": "Admin Teal", "canonical": "#0D9488", "tonalRamp": ["#042F2C", "#064E47", "#0A6B62", "#0F766E", "#0D9488", "#5EEAD4", "#99F6E4", "#CCFBF1"] },
       "ink": { "role": "neutral", "displayName": "Ink", "canonical": "#1F2937", "tonalRamp": ["#0E141C", "#1F2937", "#33404F", "#4B5A6B", "#7A8088", "#A6ADB4", "#CFD4D8", "#EEF0F2"] },
       "bg": { "role": "neutral", "displayName": "Cool Field", "canonical": "#F4F6F5", "tonalRamp": ["#1A1D1C", "#33403B", "#5A655F", "#828B86", "#AEB6B1", "#D4DAD7", "#F4F6F5", "#FFFFFF"] },
       "danger": { "role": "semantic", "displayName": "Signal Coral-Red", "canonical": "#E0533F", "tonalRamp": ["#3F140D", "#5E2117", "#8A3122", "#B5402E", "#E0533F", "#EC8576", "#F4B4AB", "#FBE2DD"] },
       "warn": { "role": "semantic", "displayName": "Caution Amber", "canonical": "#B9770F", "tonalRamp": ["#3A2503", "#583906", "#7B4F0A", "#9C640C", "#B9770F", "#E0A23F", "#F0C988", "#FBEBD0"] },
+      "data-protein": { "role": "tertiary", "displayName": "Protein Blue", "canonical": "#2F6DB5", "tonalRamp": ["#0C1D31", "#132D4C", "#1B3E68", "#25578F", "#2F6DB5", "#6494CC", "#A2BCE0", "#DCE7F3"] },
       "data-carb": { "role": "tertiary", "displayName": "Carb Amber", "canonical": "#F2A93B", "tonalRamp": ["#4A3008", "#6E480C", "#946112", "#C4811C", "#F2A93B", "#F6C275", "#FADCAC", "#FDF0DC"] },
-      "data-fat": { "role": "tertiary", "displayName": "Fat Coral", "canonical": "#F0705F", "tonalRamp": ["#491A14", "#6D281E", "#94372A", "#C24A39", "#F0705F", "#F49A8D", "#F9C2BA", "#FDE7E3"] },
-      "data-fiber": { "role": "tertiary", "displayName": "Fiber Violet", "canonical": "#845EF7", "tonalRamp": ["#241646", "#352168", "#48308C", "#6444C0", "#845EF7", "#A98DF9", "#CBB9FB", "#E9E2FD"] },
+      "data-fat": { "role": "tertiary", "displayName": "Fat Violet", "canonical": "#845EF7", "tonalRamp": ["#241646", "#352168", "#48308C", "#6444C0", "#845EF7", "#A98DF9", "#CBB9FB", "#E9E2FD"] },
+      "data-fiber": { "role": "tertiary", "displayName": "Fiber Teal", "canonical": "#149E8E", "tonalRamp": ["#04211D", "#07332D", "#0B463E", "#0F6A5E", "#149E8E", "#4CBCAF", "#8CD5CC", "#CEEEE9"] },
       "data-calorie": { "role": "tertiary", "displayName": "Calorie Blue", "canonical": "#185FA5", "tonalRamp": ["#06243F", "#0A375E", "#0F4A7E", "#13549A", "#185FA5", "#4A87C4", "#8BB3DC", "#D2E2F1"] }
     },
     "typographyMeta": {
@@ -88,40 +90,56 @@
       "description": "Flush record row divided by a hairline; clickable rows wash on hover with a trailing chevron and a right-aligned bold value.",
       "html": "<div class=\"ds-row\"><div><div>Nonti</div><div class=\"ds-sub\">sub เหลือ 221 วัน</div></div><div class=\"ds-amt\">เงียบ 14+ วัน &rsaquo;</div></div>",
       "css": ".ds-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #EEF0EF; font-size: 14px; color: #1F2937; cursor: pointer; transition: background 0.15s ease; } .ds-row:first-child { border-top: 0; } .ds-row:hover { background: #FAFBFB; } .ds-row .ds-sub { color: #7A8088; font-size: 12px; margin-top: 2px; } .ds-row .ds-amt { font-weight: 700; white-space: nowrap; color: #B9770F; }"
+    },
+    {
+      "name": "Streak Pill",
+      "kind": "chip",
+      "refersTo": "streak-pill",
+      "description": "Earned-moment delight burst for logging streaks — warm tinted pill, not ambient decoration.",
+      "html": "<span class=\"ds-streak\">🔥 7 วันติด</span>",
+      "css": ".ds-streak { display: inline-block; background: #FFF3E0; color: #9A5B00; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 999px; white-space: nowrap; }"
     }
   ],
   "narrative": {
-    "northStar": "The Calm Coach",
-    "overview": "MyDietitian is a paid nutrition-coaching service that lives inside LINE. Its surfaces should feel like a calm, expert coach who already knows you: warm and encouraging, quietly precise, never clinical and never shouting. The premium quality is carried by space, restraint, and a single confident green — not by more chrome, more cards, or more color. Density is low for customer surfaces (one glanceable focal point per screen on a phone) and earns the right to be denser only in admin, where the owner scans the business.",
+    "northStar": "The Trusted Guide",
+    "overview": "MyDietitian is a paid nutrition-coaching service that lives inside LINE. Its surfaces should feel like a trusted guide who already knows you: warm and encouraging when it matters (a streak earned, a goal hit), quietly precise the rest of the time, never clinical and never shouting. Premium quality is carried by space, restraint, and a single confident green — with deliberate delight bursts reserved for moments that earn retention, not decoration. Density is low for customer surfaces (one glanceable focal point per screen on a phone) and earns the right to be denser only in admin, where the owner scans the business.",
     "keyCharacteristics": [
-      "One vital green carries identity and primary action; everything else is neutral or reserved data color.",
+      "One vital green carries customer identity and primary action; admin teal is owner-only; everything else is neutral or reserved data color.",
       "Soft 14–18px corners, near-flat surfaces, whisper-light shadows.",
       "Phone-first, Thai-first; glanceable before detailed.",
-      "Warmth from green, copy, and roundness — never from a warm-tinted background.",
+      "Warmth from green, encouraging copy, and roundness — never from a warm-tinted background or chatbot chrome.",
+      "Delight bursts (streak pill, goal-hit badge, progress fill) are earned moments — not ambient decoration.",
       "Restraint as the premium signal: space over decoration."
     ],
     "rules": [
-      { "name": "The One Green Rule", "body": "There is exactly one brand green: Vital Green #18B98C. The settings surface's brighter LINE-green (#1db446) on warm paper (#fffdf5) is drift to reconcile, not a second accent.", "section": "colors" },
+      { "name": "The One Green Rule", "body": "Customer surfaces have exactly one brand green: Vital Green #18B98C. The settings surface's brighter LINE-green (#1db446) on warm paper (#fffdf5) with Kanit is drift to reconcile, not a second accent.", "section": "colors" },
       { "name": "The Reserved-Data Rule", "body": "Amber, coral, violet, and calorie-blue are data colors only — macros, gauges, charts. Forbidden as decoration, button color, or section accent.", "section": "colors" },
-      { "name": "The Fixed-Scale Rule", "body": "Sizes are fixed px, never fluid clamp(). A heading that shrinks inside a panel looks worse, not designed.", "section": "typography" },
+      { "name": "The Encouragement-Tint Rule", "body": "Warm tinted fills (#FFF3E0/#9A5B00 for streaks, #E7F7F0/#0E8A67 for progress badges) are allowed only on earned-moment chips and badges — never as page backgrounds or card fields.", "section": "colors" },
+      { "name": "The Fixed-Scale Rule", "body": "Sizes are fixed px, never fluid clamp() on product UI headings. A heading that shrinks inside a panel looks worse, not designed.", "section": "typography" },
       { "name": "The Thai-Headroom Rule", "body": "Never set line-height below 1.3 on Thai headings; test real Thai copy and long member names at 360px before shipping.", "section": "typography" },
       { "name": "The Whisper Shadow Rule", "body": "Surfaces are flat at rest (0 1px 3px / 0.05). A heavier shadow is a response to state (hover, float), never decoration.", "section": "elevation" },
-      { "name": "The Flush-List Rule", "body": "Repeated records are flush rows divided by hairlines — never a grid of identical cards. The card grid is reserved for a handful of headline stats.", "section": "components" }
+      { "name": "The No-Glass Rule", "body": "backdrop-filter, frosted overlays, and gradient page backgrounds are forbidden on customer surfaces. Depth is tonal, not optical.", "section": "elevation" },
+      { "name": "The Flush-List Rule", "body": "Repeated records are flush rows divided by hairlines — never a grid of identical cards. The card grid is reserved for a handful of headline stats.", "section": "components" },
+      { "name": "The One-Hero Rule", "body": "Each admin tab and the customer dashboard lead with exactly one focal metric. Secondary numbers demote to a strip or recede in size — never six equal cards competing for attention.", "section": "components" }
     ],
     "dos": [
-      "Do keep one vital green (#18B98C) as the only identity + primary-action color; everything else neutral or reserved data hue.",
+      "Do keep one vital green (#18B98C) as the only customer identity + primary-action color; admin teal is owner-only.",
       "Do lead each surface with a single glanceable focal point and let the rest recede.",
+      "Do use encouragement chips (streak pill, progress badge) as earned delight bursts — warm copy + tinted pill, not more UI chrome.",
       "Do use flush hairline-divided rows for lists; reserve the card grid for a handful of headline stats.",
       "Do keep surfaces flat at rest (0 1px 3px / 0.05); let shadow appear only on hover/float.",
       "Do put :hover, :focus-visible, :active, and :disabled on every interactive element.",
-      "Do test real Thai copy and long member names at 360px before shipping."
+      "Do test real Thai copy and long member names at 360px before shipping.",
+      "Do unify settings.html to dashboard tokens (system sans, #18B98C, cool #F4F6F5 field)."
     ],
     "donts": [
       "Don't build a generic SaaS dashboard — endless identical icon-heading-number cards in a uniform grid.",
       "Don't drift toward clinical / hospital coldness — sterile blue-white, sharp grids, lab-report sterility.",
       "Don't ship cluttered number-walls — dense data with no hierarchy where everything is the same weight.",
+      "Don't look like a generic LINE chatbot or food-logging app — bubble UI clichés, neon fitness tropes, calorie-counter aesthetics.",
       "Don't use a warm cream/paper/parchment background; the field is the cool off-white #F4F6F5.",
-      "Don't introduce a second green (#1db446) or use data colors as decoration or buttons.",
+      "Don't introduce a second customer green (#1db446), Kanit as a second font, or glassmorphism on customer surfaces.",
+      "Don't use data colors (amber/coral/violet/blue) as decoration or buttons.",
       "Don't reach for a centered modal when a bottom-sheet drawer or inline expansion will do.",
       "Don't set muted gray (#7A8088) as body text on a tinted fill without checking 4.5:1."
     ]

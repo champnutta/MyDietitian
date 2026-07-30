@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <title>แก้ผลประเมินอาหาร | MyDietitian</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+      :root { --green:#1f8a43; --green-d:#146e33; --bg:#f4f6f5; --ink:#1f2937; --muted:#6b7280; --line:#dfe7e2; --danger:#c33d2d; }
+      * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans Thai",sans-serif; }
+      main { max-width:560px; margin:0 auto; padding:20px 16px 36px; } h1 { margin:0; font-size:23px; } h2 { margin:0; font-size:18px; } p { line-height:1.5; }
+      .eyebrow { color:var(--green-d); font-size:13px; font-weight:700; margin-bottom:6px; } .hint,.muted { color:var(--muted); font-size:14px; }
+      .card { background:#fff; border-radius:18px; padding:18px; margin:15px 0; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+      .meal-meta { color:var(--muted); font-size:14px; margin:7px 0 0; } .portion { background:#eff8f1; color:var(--green-d); border-radius:10px; padding:10px 12px; font-size:14px; margin-top:13px; }
+      label { display:block; color:#48545c; font-size:14px; font-weight:650; margin:18px 0 8px; } textarea { width:100%; min-height:110px; border:1px solid var(--line); border-radius:12px; padding:12px; font:inherit; font-size:15px; resize:vertical; }
+      .choices { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; } .choice { min-height:48px; border:1px solid var(--line); border-radius:11px; background:#fff; color:var(--ink); font:inherit; font-weight:650; cursor:pointer; }
+      .choice.active { border-color:var(--green); background:#e9f7ee; color:var(--green-d); box-shadow:inset 0 0 0 1px var(--green); }
+      button.primary, button.secondary { width:100%; min-height:50px; border:0; border-radius:12px; font:inherit; font-size:16px; font-weight:700; cursor:pointer; margin-top:14px; }
+      button.primary { background:var(--green); color:#fff; } button.secondary { background:#fff; color:var(--green-d); border:1px solid #b8d9c2; } button:disabled { opacity:.55; cursor:wait; }
+      #status { min-height:20px; margin:12px 2px; font-size:14px; color:var(--green-d); } #status.error { color:var(--danger); }.hidden { display:none!important; }
+      .success { text-align:center; padding:28px 12px; }.check { width:58px;height:58px;border-radius:50%;background:#e7f7ed;color:var(--green-d);display:grid;place-items:center;font-size:32px;margin:0 auto 14px; }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <div class="eyebrow">MYDIETITIAN</div>
+      <h1>แก้ผลประเมิน</h1>
+      <p class="hint">ตรวจและแก้ไขเฉพาะมื้อนี้ ข้อมูลมื้ออื่นจะไม่ถูกเปลี่ยน</p>
+      <div class="card" id="loadingCard"><p class="muted">กำลังเปิดข้อมูลมื้ออาหาร…</p></div>
+      <section class="card hidden" id="formCard">
+        <h2 id="mealName"></h2>
+        <p class="meal-meta" id="mealMacro"></p>
+        <div class="portion" id="aiPortion"></div>
+        <label>กินจริงประมาณเท่าไร</label>
+        <div class="choices" id="portionChoices">
+          <button class="choice" type="button" data-ratio="1">ครบ</button>
+          <button class="choice" type="button" data-ratio="0.75">3/4</button>
+          <button class="choice active" type="button" data-ratio="0.5">ครึ่ง</button>
+          <button class="choice" type="button" data-ratio="0.25">1/4</button>
+        </div>
+        <label id="noteLabel" for="note">รายละเอียดที่แก้ไข <span class="muted">(ถ้ามี)</span></label>
+        <textarea id="note" maxlength="600" placeholder="เช่น เป็นหมู ไม่ใช่ไก่ / ไม่มีไข่ดาว / ซอสเป็นน้ำมันมะกอก"></textarea>
+        <p class="hint">ถ้าแก้แค่ปริมาณ ระบบจะคำนวณจากรายการเดิมทันที ถ้าแก้ชนิดหรือส่วนประกอบ ระบบจะประเมินใหม่</p>
+        <button class="primary" id="save" type="button">ยืนยันการแก้ไข</button>
+        <button class="secondary" id="close" type="button">กลับไปที่แชต</button>
+      </section>
+      <div id="status" aria-live="polite"></div>
+    </main>
+    <script src="/config.js"></script>
+    <script>
+      const LIFF_ID = "2009365288-Aua3Fli1";
+      const API = `${window.MD_FUNCTIONS_BASE}/`;
+      const mealLogId = new URLSearchParams(location.search).get("mealId") || "";
+      const state = { idToken:"", lineUserId:"", meal:null, portionRatio:0.5 };
+      const $ = (id) => document.getElementById(id);
+
+      document.querySelectorAll(".choice").forEach((button) => button.addEventListener("click", () => {
+        state.portionRatio = Number(button.dataset.ratio);
+        document.querySelectorAll(".choice").forEach((item) => item.classList.toggle("active", item === button));
+      }));
+      $("save").addEventListener("click", save);
+      $("close").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
+      init();
+
+      async function init() {
+        try {
+          if (!mealLogId) throw new Error("ไม่พบรายการอาหารที่ต้องการแก้ไข");
+          await liff.init({ liffId: LIFF_ID });
+          if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+          state.idToken = liff.getIDToken() || "";
+          const profile = await liff.getProfile();
+          state.lineUserId = profile.userId || "";
+          if (!state.idToken || !state.lineUserId) throw new Error("ไม่สามารถยืนยันตัวตนผ่าน LINE ได้");
+          const result = await request("getMealForLiff", { mealLogId });
+          state.meal = result.meal;
+          renderMeal();
+        } catch (error) { setStatus(error.message || "เปิดข้อมูลไม่สำเร็จ", true); }
+      }
+
+      function renderMeal() {
+        const meal = state.meal, n = meal.nutrients;
+        $("loadingCard").classList.add("hidden"); $("formCard").classList.remove("hidden");
+        $("mealName").textContent = meal.mealNameTh;
+        $("mealMacro").textContent = `${n.caloriesKcal} kcal · P ${n.proteinG}g · C ${n.carbsG}g · F ${n.fatG}g`;
+        $("aiPortion").textContent = `AI ประเมิน: ${meal.portionDescription || "ไม่ได้ระบุปริมาณ"}`;
+        if (meal.inputType === "text") {
+          $("noteLabel").innerHTML = "แก้ไขข้อความรายการอาหาร";
+          $("note").value = meal.originalText || "";
+          $("note").placeholder = "เช่น ข้าวกะเพราหมู ไม่มีไข่ดาว ข้าวครึ่งทัพพี";
+        }
+      }
+
+      async function request(path, body) {
+        const response = await fetch(API + path, { method:"POST", headers:{ "Content-Type":"application/json", "X-Line-Id-Token":state.idToken }, body:JSON.stringify({ userId:state.lineUserId, lineUserId:state.lineUserId, ...body }) });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || result.error || "ทำรายการไม่สำเร็จ");
+        return result;
+      }
+
+      async function save() {
+        const button = $("save"), note = $("note").value.trim();
+        const correctionText = state.meal.inputType === "text"
+          ? (note !== (state.meal.originalText || "").trim() ? note : "")
+          : note;
+        try {
+          button.disabled = true; setStatus("กำลังบันทึกการแก้ไข…");
+          await request("saveMealEditFromLiff", { mealLogId, portionRatio:state.portionRatio, correctionText:correctionText || undefined });
+          $("app").innerHTML = '<div class="success"><div class="check">✓</div><h1>บันทึกการแก้ไขแล้ว</h1><p class="hint">ยอดโภชนาการของวันนี้ได้รับการปรับแล้ว</p><button class="primary" id="done">กลับไปที่แชต</button></div>';
+          $("done").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
+        } catch (error) { setStatus(error.message || "บันทึกไม่สำเร็จ", true); button.disabled = false; }
+      }
+
+      function setStatus(message, error = false) { const el = $("status"); el.textContent = message; el.classList.toggle("error", error); }
+    </script>
+  </body>
+</html>

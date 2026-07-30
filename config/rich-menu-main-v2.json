@@ -1,0 +1,35 @@
+{
+  "size": {
+    "width": 2500,
+    "height": 1686
+  },
+  "selected": true,
+  "name": "MyDietitian Main v2",
+  "chatBarText": "เมนูหลัก",
+  "areas": [
+    {
+      "bounds": { "x": 0, "y": 0, "width": 833, "height": 843 },
+      "action": { "type": "uri", "uri": "https://line.me/R/nv/camera/" }
+    },
+    {
+      "bounds": { "x": 833, "y": 0, "width": 833, "height": 843 },
+      "action": { "type": "message", "text": "กินอะไรดี" }
+    },
+    {
+      "bounds": { "x": 1666, "y": 0, "width": 834, "height": 843 },
+      "action": { "type": "message", "text": "คู่มือ" }
+    },
+    {
+      "bounds": { "x": 0, "y": 843, "width": 833, "height": 843 },
+      "action": { "type": "message", "text": "กราฟ" }
+    },
+    {
+      "bounds": { "x": 833, "y": 843, "width": 833, "height": 843 },
+      "action": { "type": "message", "text": "ตั้งค่า" }
+    },
+    {
+      "bounds": { "x": 1666, "y": 843, "width": 834, "height": 843 },
+      "action": { "type": "message", "text": "สรุป" }
+    }
+  ]
+}

@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="1686" viewBox="0 0 2500 1686">
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F8F5EE"/>
+      <stop offset="1" stop-color="#EAF3EC"/>
+    </linearGradient>
+    <linearGradient id="greenTile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F5FBF6"/>
+      <stop offset="1" stop-color="#DCECDF"/>
+    </linearGradient>
+    <linearGradient id="warmTile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFF9EF"/>
+      <stop offset="1" stop-color="#F7E6D0"/>
+    </linearGradient>
+    <linearGradient id="darkTile" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#183D28"/>
+      <stop offset="1" stop-color="#0D2418"/>
+    </linearGradient>
+    <filter id="softShadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="18" stdDeviation="24" flood-color="#10271A" flood-opacity=".13"/>
+    </filter>
+    <filter id="iconShadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#10271A" flood-opacity=".16"/>
+    </filter>
+    <style>
+      .title { font-family: "Leelawadee UI","Tahoma",sans-serif; font-size: 72px; font-weight: 700; fill: #173323; text-anchor: middle; }
+      .subtitle { font-family: "Leelawadee UI","Tahoma",sans-serif; font-size: 35px; font-weight: 400; fill: #607064; text-anchor: middle; }
+      .dark-title { fill: #FFFFFF; }
+      .dark-subtitle { fill: #CFE2D4; }
+      .line { fill: none; stroke: #146E33; stroke-width: 24; stroke-linecap: round; stroke-linejoin: round; }
+      .line-warm { fill: none; stroke: #C86C2B; stroke-width: 24; stroke-linecap: round; stroke-linejoin: round; }
+      .line-light { fill: none; stroke: #E8F5EC; stroke-width: 24; stroke-linecap: round; stroke-linejoin: round; }
+      .badge { font-family: "Leelawadee UI","Tahoma",sans-serif; font-size: 27px; font-weight: 700; letter-spacing: 2px; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="2500" height="1686" fill="url(#canvas)"/>
+
+  <g transform="translate(18 18)">
+    <rect width="797" height="807" rx="42" fill="url(#greenTile)"/>
+    <g transform="translate(398 280)" filter="url(#iconShadow)">
+      <rect x="-157" y="-116" width="314" height="230" rx="42" fill="#FFFFFF" opacity=".93"/>
+      <path class="line" d="M-103-73h57l24-35h76l24 35h27c28 0 50 22 50 50v84c0 28-22 50-50 50h-208c-28 0-50-22-50-50v-84c0-28 22-50 50-50z"/>
+      <circle class="line" cx="15" cy="16" r="66"/>
+      <circle cx="109" cy="-18" r="13" fill="#E07A2F"/>
+    </g>
+    <text class="title" x="398" y="595">บันทึกอาหาร</text>
+    <text class="subtitle" x="398" y="664">ถ่ายรูป หรือพิมพ์ชื่อเมนู</text>
+    <rect x="292" y="712" width="212" height="50" rx="25" fill="#146E33"/>
+    <text class="badge" x="398" y="747" fill="#FFFFFF">AI วิเคราะห์</text>
+  </g>
+
+  <g transform="translate(851 18)">
+    <rect width="797" height="807" rx="42" fill="url(#warmTile)"/>
+    <g transform="translate(398 285)" filter="url(#iconShadow)">
+      <path d="M-140 25h280c0 92-63 158-140 158S-140 117-140 25z" fill="#FFFFFF" opacity=".9"/>
+      <path class="line-warm" d="M-140 25h280c0 92-63 158-140 158S-140 117-140 25zM-170 25h340"/>
+      <path class="line-warm" d="M-78-58c31-34 69-34 100 0M18-92c29-28 58-29 89-4"/>
+      <path d="M-153-112l13-36 14 36 36 14-36 13-14 36-13-36-36-13z" fill="#146E33"/>
+      <path d="M146-55l9-25 10 25 25 10-25 9-10 25-9-25-25-9z" fill="#E07A2F"/>
+    </g>
+    <text class="title" x="398" y="595">โค้ช AI</text>
+    <text class="subtitle" x="398" y="664">แนะนำเมนูจากยอดวันนี้</text>
+    <rect x="296" y="712" width="204" height="50" rx="25" fill="#E07A2F"/>
+    <text class="badge" x="398" y="747" fill="#FFFFFF">กินอะไรดี</text>
+  </g>
+
+  <g transform="translate(1684 18)">
+    <rect width="798" height="807" rx="42" fill="#FFFFFF"/>
+    <g transform="translate(399 287)" filter="url(#iconShadow)">
+      <path d="M0-114c-61-36-128-37-189-7v243c61-30 128-29 189 7 61-36 128-37 189-7v-243c-61-30-128-29-189 7z" fill="#EDF6EF"/>
+      <path class="line" d="M0-114c-61-36-128-37-189-7v243c61-30 128-29 189 7 61-36 128-37 189-7v-243c-61-30-128-29-189 7zM0-114v243"/>
+      <path d="M-148-59h92M-148-9h92M56-59h92M56-9h92" stroke="#E07A2F" stroke-width="17" stroke-linecap="round"/>
+    </g>
+    <text class="title" x="399" y="595">คู่มือใช้งาน</text>
+    <text class="subtitle" x="399" y="664">เริ่มใช้ • แก้ไข • หัก • ลบ</text>
+    <rect x="318" y="712" width="162" height="50" rx="25" fill="#E8F3EA"/>
+    <text class="badge" x="399" y="747" fill="#146E33">ดูวิธีใช้</text>
+  </g>
+
+  <g transform="translate(18 861)">
+    <rect width="797" height="807" rx="42" fill="url(#darkTile)"/>
+    <g transform="translate(398 286)" filter="url(#iconShadow)">
+      <rect x="-177" y="-119" width="354" height="250" rx="38" fill="#244C33" stroke="#4F7E5C" stroke-width="8"/>
+      <path class="line-light" d="M-119 68l71-81 67 44 101-119"/>
+      <circle cx="-119" cy="68" r="16" fill="#F2B36F"/>
+      <circle cx="-48" cy="-13" r="16" fill="#F2B36F"/>
+      <circle cx="19" cy="31" r="16" fill="#F2B36F"/>
+      <circle cx="120" cy="-88" r="16" fill="#F2B36F"/>
+      <path d="M-119 99v-54M-48 99V18M19 99V64M88 99V-12M120 99V-58" stroke="#E8F5EC" stroke-width="18" stroke-linecap="round" opacity=".62"/>
+    </g>
+    <text class="title dark-title" x="398" y="595">แดชบอร์ด</text>
+    <text class="subtitle dark-subtitle" x="398" y="664">กราฟ • ประวัติ • น้ำหนัก</text>
+    <rect x="301" y="712" width="194" height="50" rx="25" fill="#F2B36F"/>
+    <text class="badge" x="398" y="747" fill="#173323">ดูสถิติ</text>
+  </g>
+
+  <g transform="translate(851 861)">
+    <rect width="797" height="807" rx="42" fill="#FFFFFF"/>
+    <g transform="translate(398 286)" filter="url(#iconShadow)">
+      <circle cx="0" cy="0" r="145" fill="#EDF6EF"/>
+      <circle class="line" cx="0" cy="0" r="99"/>
+      <circle class="line" cx="0" cy="0" r="43"/>
+      <path class="line" d="M0-163v35M0 128v35M-163 0h35M128 0h35"/>
+      <path d="M87-102l17-47 18 47 47 18-47 17-18 47-17-47-47-17z" fill="#E07A2F"/>
+      <path class="line" d="M-108 108L-36 36"/>
+    </g>
+    <text class="title" x="398" y="595">ตั้งค่าเป้าหมาย</text>
+    <text class="subtitle" x="398" y="664">TDEE • สารอาหาร • CUT / Bulk</text>
+    <rect x="298" y="712" width="200" height="50" rx="25" fill="#146E33"/>
+    <text class="badge" x="398" y="747" fill="#FFFFFF">ปรับแผน</text>
+  </g>
+
+  <g transform="translate(1684 861)">
+    <rect width="798" height="807" rx="42" fill="url(#warmTile)"/>
+    <g transform="translate(399 283)" filter="url(#iconShadow)">
+      <rect x="-158" y="-133" width="316" height="278" rx="39" fill="#FFFFFF" opacity=".94"/>
+      <path class="line-warm" d="M-96-77h70M-96-12h70M-96 53h70"/>
+      <path d="M-126-77l14 14 27-32M-126-12l14 14 27-32M-126 53l14 14 27-32" fill="none" stroke="#146E33" stroke-width="17" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect x="16" y="-77" width="98" height="20" rx="10" fill="#DDEBE0"/>
+      <rect x="16" y="-12" width="77" height="20" rx="10" fill="#DDEBE0"/>
+      <rect x="16" y="53" width="119" height="20" rx="10" fill="#DDEBE0"/>
+      <path d="M83-151l12-34 13 34 34 13-34 12-13 34-12-34-34-12z" fill="#E07A2F"/>
+    </g>
+    <text class="title" x="399" y="595">สรุปวันนี้</text>
+    <text class="subtitle" x="399" y="664">อาหาร • สารอาหาร • กิจกรรม</text>
+    <rect x="309" y="712" width="180" height="50" rx="25" fill="#E07A2F"/>
+    <text class="badge" x="399" y="747" fill="#FFFFFF">เช็กยอด</text>
+  </g>
+</svg>

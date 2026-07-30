@@ -1,27 +1,5 @@
 #!/usr/bin/env node
 
-const { spawnSync } = require("node:child_process");
-const os = require("node:os");
-const path = require("node:path");
-
-const repoRoot = path.resolve(__dirname, "..");
-const buildCommand = os.platform() === "win32" ? "cmd.exe" : "npm";
-const buildArgs = os.platform() === "win32"
-  ? ["/d", "/s", "/c", "npm", "--workspace", "@mydietitian/backend", "run", "build"]
-  : ["--workspace", "@mydietitian/backend", "run", "build"];
-const build = spawnSync(buildCommand, buildArgs, {
-  cwd: repoRoot,
-  encoding: "utf8",
-  shell: false,
-  maxBuffer: 20 * 1024 * 1024
-});
-
-if (build.status !== 0) {
-  console.error(build.stdout || "");
-  console.error(build.stderr || "");
-  process.exit(build.status || 1);
-}
-
 main().catch((error) => {
   console.error(error instanceof Error ? error.stack || error.message : String(error));
   process.exit(1);

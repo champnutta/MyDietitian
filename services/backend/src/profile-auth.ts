@@ -5,14 +5,14 @@ import { db } from "./runtime.js";
 
 const DEFAULT_LINE_CHANNEL_ID = "2009365288";
 
-type ProfileIdentityRequest = {
+export type ProfileIdentityRequest = {
   userId: string;
   canonicalUserId?: string;
   lineUserId?: string;
   firebaseAuthUid?: string;
 };
 
-type VerifiedProfileOwner = {
+export type VerifiedProfileOwner = {
   verified: boolean;
   provider: "firebase" | "line" | "none";
   subject: string | null;
@@ -49,8 +49,30 @@ export async function verifyProfileOwnership(
   return { verified: false, provider: "none", subject: null };
 }
 
+export async function verifyFirebaseProfileOwnership(
+  request: Request,
+  identity: ProfileIdentityRequest
+): Promise<VerifiedProfileOwner> {
+  const firebaseToken = readBearerToken(request);
+  if (!firebaseToken) {
+    throw new ProfileAuthError("missing Firebase identity token");
+  }
+  return verifyFirebaseOwner(firebaseToken, identity);
+}
+
+export async function verifyLineProfileOwnership(
+  request: Request,
+  identity: ProfileIdentityRequest
+): Promise<VerifiedProfileOwner> {
+  const lineIdToken = readHeader(request, "x-line-id-token");
+  if (!lineIdToken) {
+    throw new ProfileAuthError("missing LINE identity token");
+  }
+  return verifyLineOwner(lineIdToken, identity);
+}
+
 export function isProfileAuthRequired() {
-  return (process.env.PROFILE_AUTH_MODE ?? "optional").toLowerCase() === "required";
+  return (process.env.PROFILE_AUTH_MODE ?? "required").toLowerCase() === "required";
 }
 
 function readBearerToken(request: Request) {
@@ -73,8 +95,17 @@ async function verifyFirebaseOwner(token: string, identity: ProfileIdentityReque
 
   const link = await db.collection("authLinks").doc(firebaseAuthUid).get();
   const linkedCanonicalUserId = link.exists ? String(link.data()?.canonicalUserId ?? "") : "";
+  if (linkedCanonicalUserId && identity.userId !== firebaseAuthUid && identity.userId !== linkedCanonicalUserId) {
+    throw new ProfileAuthError("userId does not match Firebase account link");
+  }
   if (identity.canonicalUserId && linkedCanonicalUserId && identity.canonicalUserId !== linkedCanonicalUserId) {
     throw new ProfileAuthError("canonicalUserId does not match Firebase account link");
+  }
+  if (!linkedCanonicalUserId && identity.userId !== firebaseAuthUid) {
+    throw new ProfileAuthError("Firebase account is not linked to requested user");
+  }
+  if (!linkedCanonicalUserId && identity.canonicalUserId && identity.canonicalUserId !== firebaseAuthUid) {
+    throw new ProfileAuthError("Firebase account is not linked to requested canonicalUserId");
   }
 
   return {
@@ -140,7 +171,7 @@ async function verifyLineIdToken(token: string, channelId: string): Promise<{ su
 }
 
 export async function writeProfileAuthAudit(
-  functionName: "saveSettingsFromWeb" | "updateProfile",
+  functionName: "saveSettingsFromWeb" | "updateProfile" | "saveWeeklyProgram" | "linkLineAccount",
   canonicalUserId: string,
   owner: VerifiedProfileOwner
 ) {

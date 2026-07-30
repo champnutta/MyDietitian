@@ -7,8 +7,10 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
     <style>
       :root {
-        --green: #18B98C; --green-d: #0E8A67; --amber: #F2A93B; --coral: #F0705F;
-        --fiber: #845EF7; --ink: #1F2937; --muted: #7A8088; --line: #EEF0EF;
+        --green: #1F8A43; --green-d: #146E33; --amber: #F2A93B;
+        --orange: #E5861C; --orange-d: #C76A12;
+        --protein: #2F6DB5; --fat: #845EF7; --fiber: #149E8E;
+        --ink: #1F2937; --muted: #7A8088; --line: #EEF0EF;
         --bg: #F4F6F5; --card: #FFFFFF; --red: #E0533F; --track: #EDF1EF;
       }
       * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -18,7 +20,7 @@
       header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
       header .who { font-size: 20px; font-weight: 700; }
       header .who small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
-      .streak { background: #FFF3E0; color: #9A5B00; font-size: 13px; font-weight: 600;
+      .streak { background: #FFF3E0; color: #C76A12; font-size: 13px; font-weight: 600;
         padding: 6px 12px; border-radius: 999px; white-space: nowrap; }
       .card { background: var(--card); border-radius: 18px; padding: 18px 16px; margin-bottom: 14px;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
@@ -44,6 +46,9 @@
       .mrow.active { background: #E9F6F0; box-shadow: inset 0 0 0 1px #C9E8D8; }
       .day-nav { display: flex; align-items: center; justify-content: space-between; }
       .day-nav h2 { margin: 0; }
+      .prog-badge { margin: 8px auto 0; text-align: center; font-size: 12px; font-weight: 700;
+        color: var(--green-d); background: #E7F7F0; border: 1px solid #C7ECDE;
+        border-radius: 999px; padding: 5px 12px; width: fit-content; }
       .day-arrow { border: none; background: transparent; font-size: 26px; line-height: 1; color: var(--green-d); padding: 2px 14px; cursor: pointer; }
       .day-arrow:disabled { color: #CBD5D0; cursor: default; }
       .mrow { margin: 12px 0; }
@@ -90,6 +95,7 @@
           <h2 id="dayLabel">วันนี้</h2>
           <button class="day-arrow" id="dayNext" aria-label="วันถัดไป">›</button>
         </div>
+        <div class="prog-badge" id="progBadge" style="display:none"></div>
         <div class="ring-wrap">
           <svg class="ring" viewBox="0 0 120 120">
             <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
@@ -134,11 +140,11 @@
     <script>
       const DASHBOARD_URL = `${window.MD_FUNCTIONS_BASE}/getDashboardData`;
       const params = new URLSearchParams(location.search);
-      const userId = params.get("uid") || params.get("userId") || "";
+      const accessToken = params.get("access") || "";
       const MACROS = [
-        { key: "proteinG", tkey: "p", label: "โปรตีน", color: "var(--green)" },
+        { key: "proteinG", tkey: "p", label: "โปรตีน", color: "var(--protein)" },
         { key: "carbsG", tkey: "c", label: "คาร์บ", color: "var(--amber)" },
-        { key: "fatG", tkey: "f", label: "ไขมัน", color: "var(--coral)" },
+        { key: "fatG", tkey: "f", label: "ไขมัน", color: "var(--fat)" },
         { key: "fiberG", tkey: "fib", label: "Fiber", color: "var(--fiber)" }
       ];
       let calChart, bodyChart, state = null, chartMode = "all", dayIndex = 0, period = 7, periodOffset = 0, deviceFilter = "all";
@@ -198,16 +204,20 @@
       load();
 
       async function load(keepScroll) {
-        if (!userId || userId.length < 2) return status("ไม่พบ user id กรุณาเปิดจาก LINE อีกครั้ง", true);
+        if (!accessToken) return status("ลิงก์แดชบอร์ดไม่ถูกต้อง กรุณาพิมพ์ กราฟ ใน LINE เพื่อรับลิงก์ใหม่", true);
         const trendTopBefore = keepScroll ? document.getElementById("trendCard").getBoundingClientRect().top : null;
         try {
           status("กำลังโหลดข้อมูล…");
           const res = await fetch(DASHBOARD_URL, {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ userId, option: period, offsetDays: periodOffset })
+            body: JSON.stringify({ dashboardAccessToken: accessToken, option: period, offsetDays: periodOffset })
           });
           const data = await res.json();
-          if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
+          if (!res.ok || !data.ok) {
+            throw new Error(res.status === 401
+              ? "ลิงก์หมดอายุ กรุณาพิมพ์ กราฟ ใน LINE เพื่อรับลิงก์ใหม่"
+              : (data.message || data.error || "โหลดข้อมูลไม่สำเร็จ"));
+          }
           state = data; status("");
           populateDevices(data);
           renderCalChart(data); renderBodyChart(data); renderStats(data);
@@ -243,6 +253,16 @@
         document.getElementById("dayNext").disabled = isToday;
         document.getElementById("rangeText").textContent = `อัปเดต ${fmt(data.range.end)}`;
         document.getElementById("streakBadge").textContent = `🔥 ${data.current?.streak?.count || 0} วัน`;
+
+        const prog = data.program;
+        const progBadge = document.getElementById("progBadge");
+        if (prog && prog.status === "active") {
+          const macroLabel = { carbs: "คาร์บ", fat: "ไขมัน", protein: "โปรตีน" }[prog.adjustMacro] || prog.adjustMacro;
+          progBadge.textContent = `${prog.type === "cut" ? "CUT" : "Bulk"} • สัปดาห์ ${prog.week}/${prog.weeks} • ปรับ${macroLabel} ${prog.stepKcalPerWeek} kcal/สัปดาห์`;
+          progBadge.style.display = "";
+        } else {
+          progBadge.style.display = "none";
+        }
         const cal = Math.round(t.calories || 0);
         const calTarget = Math.round(t.dynamicTargetCalories || tgt.cal || 0);
         const remain = Math.round(t.remainingCalories || 0);
@@ -253,7 +273,7 @@
         const pc = (t.proteinG || 0) * 4, cc = (t.carbsG || 0) * 4, fc = (t.fatG || 0) * 9;
         const totMacro = pc + cc + fc || 1;
         let segOffset = 0;
-        [["segP", pc, "var(--green)"], ["segC", cc, "var(--amber)"], ["segF", fc, "var(--coral)"]].forEach(([id, mc, color]) => {
+        [["segP", pc, "var(--protein)"], ["segC", cc, "var(--amber)"], ["segF", fc, "var(--fat)"]].forEach(([id, mc, color]) => {
           const len = C * filled * (mc / totMacro);
           const el = document.getElementById(id);
           el.style.stroke = color;
@@ -299,7 +319,7 @@
       function renderCalChart(data) {
         if (calChart) calChart.destroy();
         const m = data.macros || {};
-        const conf = { p: { label: "โปรตีน", color: "#18B98C" }, c: { label: "คาร์บ", color: "#F2A93B" },
+        const conf = { p: { label: "โปรตีน", color: "#1F8A43" }, c: { label: "คาร์บ", color: "#F2A93B" },
           f: { label: "ไขมัน", color: "#F0705F" }, fib: { label: "Fiber", color: "#845EF7" } }[chartMode];
         const single = Boolean(conf);
         let datasets;
@@ -307,14 +327,14 @@
           const goal = Math.round(data.profile?.target?.[chartMode] || 0);
           datasets = [
             { label: `${conf.label} (g)`, data: (m[chartMode] || []).map((x) => Math.round(x)), backgroundColor: conf.color, borderRadius: 5, order: 2 },
-            { label: "เป้าหมาย", data: data.labels.map(() => goal), type: "line", borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5, order: 1 }
+            { label: "เป้าหมาย", data: data.labels.map(() => goal), type: "line", borderColor: "#146E33", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5, order: 1 }
           ];
         } else {
           datasets = [
-            { label: "โปรตีน", data: (m.p || []).map((x) => Math.round(x * 4)), backgroundColor: "#18B98C", stack: "kcal", order: 3 },
+            { label: "โปรตีน", data: (m.p || []).map((x) => Math.round(x * 4)), backgroundColor: "#1F8A43", stack: "kcal", order: 3 },
             { label: "คาร์บ", data: (m.c || []).map((x) => Math.round(x * 4)), backgroundColor: "#F2A93B", stack: "kcal", order: 3 },
             { label: "ไขมัน", data: (m.f || []).map((x) => Math.round(x * 9)), backgroundColor: "#F0705F", stack: "kcal", order: 3 },
-            { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1, borderColor: "#0E8A67", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
+            { label: "เป้าหมาย", data: data.tdeeLine, type: "line", order: 1, borderColor: "#146E33", borderDash: [5, 4], pointRadius: 0, borderWidth: 1.5 }
           ];
         }
         calChart = new Chart(document.getElementById("calChart"), {

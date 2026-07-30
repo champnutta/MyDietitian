@@ -31,7 +31,14 @@ type GeminiPart = {
 type GeminiGenerationConfig = {
   temperature?: number;
   response_mime_type?: "application/json";
+  maxOutputTokens?: number;
 };
+
+// Thai output is token-dense, so a coaching answer (especially a 3-option menu
+// recommendation) easily overran the old 1024-token ceiling and got cut off
+// mid-sentence. This gives ample headroom while staying under LINE's 4900-char
+// message cap.
+const COACH_MAX_OUTPUT_TOKENS = 2048;
 
 type AiProviderApiKeys = {
   gemini?: string;
@@ -204,7 +211,8 @@ export async function callGeminiCoachConsultation(
     parts: [{ text: prompt }],
     anthropicPrompt: prompt,
     generationConfig: {
-      temperature: agent.temperature
+      temperature: agent.temperature,
+      maxOutputTokens: COACH_MAX_OUTPUT_TOKENS
     },
     errorPrefix: "Gemini coach consultation"
   });
@@ -326,6 +334,7 @@ async function callGeminiWithFallback(input: {
           prompt: input.anthropicPrompt,
           image: input.anthropicImage,
           wantsJson: input.generationConfig.response_mime_type === "application/json",
+          maxOutputTokens: input.generationConfig.maxOutputTokens,
           errorPrefix: input.errorPrefix
         });
       } else if (candidate.provider === "gemini") {
@@ -397,6 +406,7 @@ async function callAnthropicWithRetry(input: {
   prompt: string;
   image?: { base64: string; mimeType: string };
   wantsJson: boolean;
+  maxOutputTokens?: number;
   errorPrefix: string;
 }): Promise<string> {
   const maxAttempts = input.agent.maxAttempts ?? 2;
@@ -421,6 +431,7 @@ async function callAnthropicOnce(input: {
   prompt: string;
   image?: { base64: string; mimeType: string };
   wantsJson: boolean;
+  maxOutputTokens?: number;
   errorPrefix: string;
 }): Promise<string> {
   const controller = new AbortController();
@@ -464,7 +475,7 @@ async function callAnthropicOnce(input: {
       signal: controller.signal,
       body: JSON.stringify({
         model: input.agent.model,
-        max_tokens: input.wantsJson ? 2048 : 1024,
+        max_tokens: input.maxOutputTokens ?? (input.wantsJson ? 2048 : 1024),
         temperature: input.agent.temperature,
         messages: [{ role: "user", content }]
       })
@@ -608,12 +619,12 @@ Health score (1-10):
 - 4-6: moderate / balanced.
 - 7-10: high protein, whole foods, low oil and sugar.
 
-Language: "dish_name.th" and "health_rating.comment" MUST be in Thai only. Keep "comment" a short, practical coaching note.
+Language: "dish_name.th", "portion_description", and "health_rating.comment" MUST be in Thai only. Keep "comment" a short, practical coaching note. In "portion_description", give a useful 2–3 sentence assessment: state the estimated serving size and the visible main components, include separate sides/proteins and sauces when present, and name any material uncertainty or assumption. This is shown directly to the user, so do not make it overly terse.
 
 Return JSON only with this exact shape:
 {
   "dish_name": { "th": "Thai dish name", "en": "English dish name" },
-  "portion_description": "Short Thai portion description",
+  "portion_description": "Detailed Thai assessment of portion, visible components, sides/sauces, and key uncertainty",
   "nutrients": {
     "calories_kcal": 0,
     "protein_g": 0,

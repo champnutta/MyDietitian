@@ -27,6 +27,30 @@
         "destination": "/dashboard.html"
       },
       {
+        "source": "/meal-edit",
+        "destination": "/meal-edit.html"
+      },
+      {
+        "source": "/settings/meal-edit",
+        "destination": "/meal-edit.html"
+      },
+      {
+        "source": "/meal-delete",
+        "destination": "/meal-delete.html"
+      },
+      {
+        "source": "/settings/meal-delete",
+        "destination": "/meal-delete.html"
+      },
+      {
+        "source": "/leftover",
+        "destination": "/leftover.html"
+      },
+      {
+        "source": "/settings/leftover",
+        "destination": "/leftover.html"
+      },
+      {
         "source": "/admin",
         "destination": "/admin.html"
       }
@@ -39,7 +63,13 @@
         ]
       },
       {
-        "source": "/@(settings|dashboard|admin)",
+        "source": "/@(settings|dashboard|meal-edit|meal-delete|leftover|admin)",
+        "headers": [
+          { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
+        ]
+      },
+      {
+        "source": "/settings/@(meal-edit|meal-delete|leftover)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
         ]

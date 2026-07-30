@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <title>ลบมื้ออาหาร | MyDietitian</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+      :root { --red:#c33d2d; --red-bg:#fff0ef; --green:#1f8a43; --ink:#1f2937; --muted:#6b7280; --bg:#f4f6f5; --line:#e7d5d2; }
+      * { box-sizing:border-box; } body { margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans Thai",sans-serif; }
+      main { max-width:560px;margin:0 auto;padding:24px 16px 36px; } h1 { margin:0;font-size:23px; } h2 { font-size:18px;margin:0; }.eyebrow{font-size:13px;font-weight:700;color:var(--red);margin-bottom:6px}.hint{font-size:14px;color:var(--muted);line-height:1.55}.card{background:#fff;border-radius:18px;padding:18px;margin-top:16px;box-shadow:0 1px 3px rgba(0,0,0,.05)}.meal{background:var(--red-bg);border-radius:12px;padding:13px;margin:14px 0;font-weight:700}.meal small{display:block;color:var(--muted);font-weight:400;margin-top:5px}.warn{font-size:14px;line-height:1.5;color:#84413b}.primary,.secondary{width:100%;min-height:50px;border-radius:12px;font:inherit;font-size:16px;font-weight:700;cursor:pointer;margin-top:12px}.primary{border:0;background:var(--red);color:#fff}.secondary{border:1px solid #bdd9c4;background:#fff;color:var(--green)}button:disabled{opacity:.55;cursor:wait}#status{min-height:20px;margin:12px 2px;font-size:14px;color:var(--red)}.success{text-align:center;padding:28px 12px}.check{width:58px;height:58px;border-radius:50%;background:var(--red-bg);color:var(--red);display:grid;place-items:center;font-size:32px;margin:0 auto 14px}
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <div class="eyebrow">MYDIETITIAN</div>
+      <h1>ลบมื้อนี้</h1>
+      <p class="hint">ตรวจสอบรายการก่อนยืนยัน</p>
+      <section class="card" id="card"><p class="hint">กำลังเปิดข้อมูลมื้ออาหาร…</p></section>
+      <div id="status" aria-live="polite"></div>
+    </main>
+    <script src="/config.js"></script>
+    <script>
+      const LIFF_ID = "2009365288-Aua3Fli1", API = `${window.MD_FUNCTIONS_BASE}/`;
+      const mealLogId = new URLSearchParams(location.search).get("mealId") || "";
+      const state = { idToken:"", lineUserId:"", meal:null };
+      const $ = (id) => document.getElementById(id);
+      init();
+      async function init() {
+        try {
+          if (!mealLogId) throw new Error("ไม่พบมื้ออาหารที่ต้องการลบ");
+          await liff.init({ liffId:LIFF_ID });
+          if (!liff.isLoggedIn()) { liff.login({ redirectUri:location.href }); return; }
+          state.idToken = liff.getIDToken() || "";
+          const profile = await liff.getProfile(); state.lineUserId = profile.userId || "";
+          if (!state.idToken || !state.lineUserId) throw new Error("ไม่สามารถยืนยันตัวตนผ่าน LINE ได้");
+          const result = await request("getMealForLiff", { mealLogId }); state.meal = result.meal; render();
+        } catch (error) { status(error.message || "เปิดข้อมูลไม่สำเร็จ"); }
+      }
+      function render() {
+        const n = state.meal.nutrients;
+        $("card").innerHTML = `<h2>ต้องการลบรายการนี้ใช่ไหม?</h2><div class="meal">${escapeHtml(state.meal.mealNameTh)}<small>${n.caloriesKcal} kcal · P ${n.proteinG}g · C ${n.carbsG}g · F ${n.fatG}g</small></div><p class="warn">รายการนี้จะถูกลบออกจากยอดโภชนาการของวันนี้ และไม่สามารถกู้คืนจากหน้านี้ได้</p><button class="primary" id="confirm">ลบมื้อนี้</button><button class="secondary" id="cancel">ยกเลิก</button>`;
+        $("confirm").addEventListener("click", remove); $("cancel").addEventListener("click", close);
+      }
+      async function request(path, body) {
+        const response = await fetch(API + path, { method:"POST", headers:{"Content-Type":"application/json","X-Line-Id-Token":state.idToken}, body:JSON.stringify({userId:state.lineUserId,lineUserId:state.lineUserId,...body}) });
+        const result = await response.json(); if (!response.ok || !result.ok) throw new Error(result.message || result.error || "ทำรายการไม่สำเร็จ"); return result;
+      }
+      async function remove() {
+        const button = $("confirm");
+        try { button.disabled = true; status("กำลังลบรายการ…"); await request("deleteMealFromLiff", { mealLogId }); $("app").innerHTML = '<div class="success"><div class="check">✓</div><h1>ลบมื้อนี้แล้ว</h1><p class="hint">ยอดโภชนาการของวันนี้ได้รับการปรับแล้ว</p><button class="secondary" id="done">กลับไปที่แชต</button></div>'; $("done").addEventListener("click", close); }
+        catch (error) { status(error.message || "ลบรายการไม่สำเร็จ"); button.disabled = false; }
+      }
+      function close() { liff.isInClient() ? liff.closeWindow() : history.back(); }
+      function status(message) { $("status").textContent = message; }
+      function escapeHtml(value) { const node = document.createElement("div"); node.textContent = String(value || ""); return node.innerHTML; }
+    </script>
+  </body>
+</html>

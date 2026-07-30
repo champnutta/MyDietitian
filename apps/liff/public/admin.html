@@ -54,9 +54,19 @@
       .empty { color: var(--muted); padding: 10px 0; font-size: 14px; }
       .errdetail { font-size: 12px; color: var(--muted); padding: 0 0 11px; white-space: pre-wrap; word-break: break-word; display: none; }
       .errdetail.show { display: block; }
-      .ai { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
+      .ai { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; padding: 12px 0; border-top: 1px solid var(--line); }
       .ai:first-child { border-top: 0; } .ai .badge { font-size: 11px; padding: 3px 8px; border-radius: 20px; }
       .badge.anthropic { background: #EDE9FE; color: #6D28D9; } .badge.gemini { background: #E0EDFF; color: #1D4ED8; }
+      .ai-main { flex: 1; min-width: 0; }
+      .ai-model { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--ink); word-break: break-all; }
+      .ai-config { margin-top: 7px; }
+      .ai-config summary { color: var(--green-d); font-size: 12px; cursor: pointer; width: max-content; }
+      .ai-model-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 8px; align-items: end; margin-top: 9px; }
+      .ai-model-grid label { display: block; color: var(--muted); font-size: 11px; }
+      .ai-model-grid input { display: block; width: 100%; margin-top: 4px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink); background: #fff; font: 12px ui-monospace, SFMono-Regular, Consolas, monospace; }
+      .ai-model-grid input:focus { outline: 2px solid var(--accent-soft); border-color: var(--green); }
+      .ai-model-actions { display: flex; gap: 6px; }
+      .ai-save-result { min-height: 17px; margin-top: 5px; font-size: 11px; color: var(--muted); }
       .flip { font-size: 12px; padding: 6px 10px; }
       .btn-quiet { border-color: transparent; background: transparent; color: var(--muted); text-decoration: underline; text-underline-offset: 2px; padding: 6px 4px; }
       .btn-quiet:hover { color: var(--ink); }
@@ -84,6 +94,7 @@
       textarea.push-ta { width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; outline: none; }
       textarea.push-ta:focus { border-color: var(--green); }
       #pushResult { font-size: 13px; margin-top: 8px; }
+      @media (max-width: 620px) { .ai { display: block; } .ai > .flip { margin-top: 8px; } .ai-model-grid { grid-template-columns: 1fr; } }
       @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; } }
     </style>
   </head>
@@ -345,7 +356,7 @@
         const ar = d.atRisk || [];
         $("atrisk").innerHTML = ar.length ? ar.map((u) =>
           `<div class="prow click" data-uid="${u.canonicalUserId}"><div><div>${esc(u.name) || "Member"}</div>
-            <div class="sub">sub เหลือ ${u.expiresInDays ?? "-"} วัน</div></div>
+            <div class="sub">${u.lifetime ? "👑 VIP Lifetime" : `sub เหลือ ${u.expiresInDays ?? "-"} วัน`}</div></div>
             <div class="amt" style="color:var(--amber)">เงียบ ${u.quietDays >= 99 ? "14+" : u.quietDays} วัน ›</div></div>`).join("")
           : `<div class="empty">ไม่มีลูกค้าเสี่ยงหลุด 🎉</div>`;
         $("atrisk").querySelectorAll(".prow.click").forEach((el) => { el.onclick = () => openUser(el.dataset.uid); });
@@ -388,7 +399,8 @@
         const gemHint = fallbackPct >= 60 ? `<div class="note" style="margin-bottom:12px"><i class="ti ti-alert-triangle"></i> Fallback ${fallbackPct}% (24ชม.) — provider หลักน่าจะ overload พิจารณาสลับ primary</div>` : "";
         const testBar = `<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
           <button id="aiTestBtn" class="flip"><i class="ti ti-activity-heartbeat"></i> ทดสอบ provider เดี๋ยวนี้</button>
-          <div id="aiTestRes" style="font-size:13px;color:var(--muted)">เช็คว่า Gemini กลับมาหรือยัง (มันเป็น fallback แล้ว สถิติไม่บอก)</div></div>`;
+          <div id="aiTestRes" style="font-size:13px;color:var(--muted)">เช็คว่า Gemini กลับมาหรือยัง (มันเป็น fallback แล้ว สถิติไม่บอก)</div></div>
+          <div class="note" style="margin-bottom:12px"><i class="ti ti-settings"></i> เปลี่ยน Model ID ได้โดยไม่ต้อง deploy ปุ่มบันทึกจะเปิดหลังทดสอบชื่อ model ผ่านเท่านั้น</div>`;
         $("aihealth").innerHTML = testBar + gemHint + Object.keys(agents).map((id) => {
           const a = cfg[id]; if (!a) return "";
           const canFlip = flippable.includes(id);
@@ -399,13 +411,79 @@
           const statLine = s.runs7d
             ? `${s.runs7d} ครั้ง/7วัน · fallback ${fb7}% (24ชม. ${fb24}%)${s.failed7d ? ` · fail ${s.failed7d}` : ""}${s.lastFallbackAt ? ` · fallback ล่าสุด ${fmt(s.lastFallbackAt)}` : ""}`
             : "ยังไม่มีการใช้งานใน 7 วัน";
-          return `<div class="ai"><div style="flex:1;min-width:0"><div>${agents[id]}</div>
-            <div class="sub">primary <span class="badge ${a.provider}">${a.provider}</span> → fallback ${a.fallback || "-"}</div>
-            <div class="sub" style="margin-top:3px">${statLine}</div></div>
+          const fallbackText = a.fallback ? `<span class="badge ${esc(a.fallback)}">${esc(a.fallback)}</span> <span class="ai-model">${esc(a.fallbackModel || "-")}</span>` : "-";
+          const updated = a.updatedAt ? ` · แก้ล่าสุด ${fmt(a.updatedAt)}` : "";
+          return `<div class="ai"><div class="ai-main"><div>${agents[id]}</div>
+            <div class="sub">primary <span class="badge ${esc(a.provider)}">${esc(a.provider)}</span> <span class="ai-model">${esc(a.model || "-")}</span></div>
+            <div class="sub">fallback ${fallbackText}</div>
+            <div class="sub" style="margin-top:3px">${statLine}${updated}</div>
+            <details class="ai-config" data-agent="${id}"><summary><i class="ti ti-edit"></i> ตั้งค่า model</summary>
+              <div class="ai-model-grid">
+                <label>Primary model<input class="model-primary" value="${esc(a.model || "")}" maxlength="120" autocomplete="off" spellcheck="false"></label>
+                ${a.fallback ? `<label>Fallback model<input class="model-fallback" value="${esc(a.fallbackModel || "")}" maxlength="120" autocomplete="off" spellcheck="false"></label>` : ""}
+                <div class="ai-model-actions"><button class="ai-test-model" data-test-model="${id}">ทดสอบชื่อ</button><button class="primary ai-save" data-save="${id}" disabled>บันทึก</button></div>
+              </div><div class="ai-save-result" aria-live="polite"></div>
+            </details></div>
             ${canFlip ? `<button class="flip btn-quiet" data-flip="${id}" data-to="${other}">สลับเป็น ${other}</button>` : ""}</div>`;
         }).join("");
         $("aihealth").querySelectorAll(".flip[data-flip]").forEach((b) => { b.onclick = () => flip(b.dataset.flip, b.dataset.to, b); });
+        $("aihealth").querySelectorAll(".ai-save[data-save]").forEach((b) => { b.onclick = () => saveAiModels(b.dataset.save, b); });
+        $("aihealth").querySelectorAll(".ai-test-model[data-test-model]").forEach((b) => { b.onclick = () => testAiModels(b.dataset.testModel, b); });
+        $("aihealth").querySelectorAll(".ai-config input").forEach((input) => { input.oninput = () => invalidateAiModelTest(input.closest(".ai-config")); });
         $("aiTestBtn").onclick = testAi;
+      }
+
+      function aiModelDraft(editor, agentId) {
+        const primaryModel = editor.querySelector(".model-primary")?.value.trim();
+        const fallbackInput = editor.querySelector(".model-fallback");
+        const fallbackModel = fallbackInput?.value.trim();
+        return { primaryModel, fallbackInput, fallbackModel, body: { agentId, primaryModel, ...(fallbackInput ? { fallbackModel } : {}) } };
+      }
+
+      function aiModelSignature(draft) { return JSON.stringify(draft.body); }
+
+      function invalidateAiModelTest(editor) {
+        editor.dataset.testedSignature = "";
+        editor.querySelector(".ai-save").disabled = true;
+        const result = editor.querySelector(".ai-save-result");
+        result.style.color = "var(--muted)"; result.textContent = "แก้ไขแล้ว กรุณาทดสอบชื่อ model อีกครั้ง";
+      }
+
+      async function testAiModels(agentId, btn) {
+        const editor = btn.closest(".ai-config");
+        const result = editor.querySelector(".ai-save-result");
+        const saveBtn = editor.querySelector(".ai-save");
+        const draft = aiModelDraft(editor, agentId);
+        if (!draft.primaryModel || (draft.fallbackInput && !draft.fallbackModel)) { result.style.color = "var(--red)"; result.textContent = "กรอก Model ID ให้ครบ"; return; }
+        const old = btn.textContent; btn.disabled = true; saveBtn.disabled = true; btn.textContent = "กำลังทดสอบ…"; result.textContent = "";
+        try {
+          const res = await fetch(`${BASE}/testAiAgentModels`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(draft.body) });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.message || d.error || "test failed");
+          result.innerHTML = (d.results || []).map((item) => item.ok
+            ? `<span style="color:var(--green-d)">✓ ${esc(item.role)} ${esc(item.provider)}/${esc(item.model)} (${item.ms}ms)</span>`
+            : `<span style="color:var(--red)">✕ ${esc(item.role)} ${esc(item.provider)}/${esc(item.model)}: ${esc((item.error || "").slice(0, 100))}</span>`).join("<br>");
+          if (d.allPassed) { editor.dataset.testedSignature = aiModelSignature(draft); saveBtn.disabled = false; }
+        } catch (e) { result.style.color = "var(--red)"; result.textContent = e.message; }
+        btn.disabled = false; btn.textContent = old;
+      }
+
+      async function saveAiModels(agentId, btn) {
+        const editor = btn.closest(".ai-config");
+        const result = editor.querySelector(".ai-save-result");
+        const draft = aiModelDraft(editor, agentId);
+        if (editor.dataset.testedSignature !== aiModelSignature(draft)) { invalidateAiModelTest(editor); return; }
+        if (!confirm(`บันทึก model ใหม่สำหรับ ${agentId}?\nPrimary: ${draft.primaryModel}${draft.fallbackInput ? `\nFallback: ${draft.fallbackModel}` : ""}`)) return;
+        const old = btn.textContent; btn.disabled = true; btn.textContent = "กำลังบันทึก…"; result.textContent = "";
+        try {
+          const res = await fetch(`${BASE}/setAiAgentModels`, { method: "POST",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(draft.body) });
+          const d = await res.json();
+          if (!res.ok || !d.ok) throw new Error(d.message || d.error || "save failed");
+          result.style.color = "var(--green-d)"; result.textContent = "บันทึกแล้ว กำลังรีเฟรช…";
+          await load();
+        } catch (e) { result.style.color = "var(--red)"; result.textContent = e.message; btn.disabled = false; btn.textContent = old; }
       }
 
       async function testAi() {
@@ -415,10 +493,10 @@
           const res = await fetch(`${BASE}/testAiProvider`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: "{}" });
           const d = await res.json();
           if (!res.ok || !d.ok) throw new Error(d.error || "test failed");
-          const one = (p, name) => p.ok
-            ? `<span style="color:var(--green-d)">🟢 ${name} ปกติ (${p.ms}ms)</span>`
-            : `<span style="color:var(--red)">🔴 ${name} ล่ม: ${esc((p.error || "").slice(0, 90))}</span>`;
-          r.innerHTML = `${one(d.gemini, "Gemini")} · ${one(d.anthropic, "Anthropic")}`;
+          const one = (p) => p.ok
+            ? `<span style="color:var(--green-d)">🟢 ${esc(p.provider)} / ${esc(p.model)} ปกติ (${p.ms}ms)</span>`
+            : `<span style="color:var(--red)">🔴 ${esc(p.provider)} / ${esc(p.model)} ล้มเหลว: ${esc((p.error || "").slice(0, 90))}</span>`;
+          r.innerHTML = (d.results || []).map(one).join("<br>");
         } catch (e) { r.style.color = "var(--red)"; r.textContent = e.message; }
         btn.disabled = false; btn.innerHTML = old;
       }

@@ -72,14 +72,17 @@ export type ProgramMacro = "carbs" | "fat" | "protein";
 
 // Weekly CUT/Bulk periodization program stored on the profile. Each week the
 // chosen macro (and calories) shift by a fixed kcal step, e.g. a trainer's
-// "cut carbs 100 kcal/week for 8 weeks". `baseline` is the week-1 target
-// snapshot; the effective daily target is derived from the current week.
+// "cut carbs 100 kcal/week for 8 weeks". `baseline` is the maintenance target
+// (what the user eats with no cut); the effective daily target is derived from
+// the current week. `immediateStart` = true applies the first step in week 1
+// (cut starts now); false keeps week 1 at baseline and starts cutting in week 2.
 export interface WeeklyProgram {
   type: "cut" | "bulk";
   startDate: string; // "YYYY-MM-DD" Bangkok calendar day the program begins
   weeks: number;
   stepKcalPerWeek: number; // magnitude (> 0); direction comes from `type`
   adjustMacro: ProgramMacro;
+  immediateStart: boolean;
   baseline: {
     calories: number;
     proteinG: number;
@@ -99,6 +102,7 @@ export interface SaveWeeklyProgramRequest {
   weeks: number;
   stepKcalPerWeek: number;
   adjustMacro: ProgramMacro;
+  immediateStart?: boolean; // defaults to true (cut/bulk starts in week 1)
   startDate?: string; // defaults to today (Bangkok) when omitted
 }
 
@@ -109,9 +113,18 @@ export interface CancelWeeklyProgramRequest {
   firebaseAuthUid?: string;
 }
 
+export interface LinkLineAccountRequest {
+  userId?: string;
+  lineUserId?: string;
+  canonicalUserId?: string;
+  firebaseAuthUid?: string;
+}
+
 export interface AnalyzeMealRequest {
   userId: string;
   canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
   source: SourceChannel;
   inputType: "text" | "image";
   text?: string;
@@ -127,6 +140,8 @@ export interface AnalyzeMealRequest {
 export interface AnalyzeExerciseRequest {
   userId: string;
   canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
   source: SourceChannel;
   text: string;
 }
@@ -162,13 +177,45 @@ export interface CoachConsultationRequest {
 }
 
 export interface DashboardDataRequest {
-  userId: string;
+  userId?: string;
   canonicalUserId?: string;
+  lineUserId?: string;
+  firebaseAuthUid?: string;
+  dashboardAccessToken?: string;
   option?: number | "custom";
   offsetDays?: number;
   customStartStr?: string;
   customEndStr?: string;
 }
+
+export interface LiffMealRequestIdentity {
+  userId: string;
+  lineUserId?: string;
+  canonicalUserId?: string;
+  firebaseAuthUid?: string;
+}
+
+export interface GetMealForLiffRequest extends LiffMealRequestIdentity {
+  mealLogId: string;
+}
+
+export interface SaveMealEditFromLiffRequest extends GetMealForLiffRequest {
+  // A portion-only update is deterministic. Any accompanying note is treated
+  // as a correction and is re-analysed against the original meal context.
+  portionRatio?: number;
+  correctionText?: string;
+}
+
+export interface PreviewLeftoverFromLiffRequest extends GetMealForLiffRequest {
+  imageBase64: string;
+  mimeType: string;
+}
+
+export interface ConfirmLeftoverFromLiffRequest extends LiffMealRequestIdentity {
+  previewId: string;
+}
+
+export interface DeleteMealFromLiffRequest extends GetMealForLiffRequest {}
 
 export interface MealAnalysisResult {
   dish_name: {
