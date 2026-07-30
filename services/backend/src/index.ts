@@ -5701,9 +5701,12 @@ const FLEX_CUSTOMER = {
   orange: "#E5861C",
   orangeDeep: "#C76A12",
   ink: "#1F2937",
+  inkSoft: "#55605A",
   muted: "#7A8088",
   track: "#EDF1EF",
   surface: "#FFFFFF",
+  tint: "#F4F8F5",
+  chipGreen: "#E1F2E7",
   danger: "#E0533F",
   streakBg: "#FFF3E0",
   streakText: "#C76A12",
@@ -5717,6 +5720,11 @@ const FLEX_CUSTOMER = {
   fiber: "#149E8E",
   headerSub: "#D6F7EC"
 } as const;
+
+// Help-guide icon set: white line icons on transparent, hosted on Firebase.
+// Source SVGs + build script: tools/build-icons.mjs (npm run icons:build).
+// The solid green chip is drawn by Flex; the PNG is white-on-transparent.
+const ICON_BASE = "https://mydietitian.web.app/assets/icons";
 
 function isExerciseRecommendationRequest(text: string): boolean {
   return text === "แนะนำออกกำลังกายวันนี้" || text === "ออกกำลังกายวันนี้";
@@ -6320,7 +6328,7 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
   });
 
   const guideRow = (
-    icon: string,
+    iconName: string,
     title: string,
     detail: string
   ): Record<string, unknown> => ({
@@ -6328,7 +6336,7 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
     layout: "horizontal",
     spacing: "md",
     paddingAll: "12px",
-    backgroundColor: "#F4F8F5",
+    backgroundColor: FLEX_CUSTOMER.tint,
     cornerRadius: "12px",
     contents: [
       {
@@ -6336,11 +6344,11 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
         layout: "vertical",
         width: "36px",
         height: "36px",
-        backgroundColor: "#E1F2E7",
+        backgroundColor: FLEX_CUSTOMER.green,
         cornerRadius: "18px",
         justifyContent: "center",
         alignItems: "center",
-        contents: [{ type: "text", text: icon, size: "md", align: "center" }]
+        contents: [{ type: "image", url: `${ICON_BASE}/${iconName}.png`, size: "20px", aspectMode: "fit" }]
       },
       {
         type: "box",
@@ -6349,14 +6357,14 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
         spacing: "xs",
         contents: [
           { type: "text", text: title, weight: "bold", size: "sm", color: FLEX_CUSTOMER.ink },
-          { type: "text", text: detail, wrap: true, size: "xs", color: FLEX_CUSTOMER.muted }
+          { type: "text", text: detail, wrap: true, size: "xs", color: FLEX_CUSTOMER.inkSoft }
         ]
       }
     ]
   });
 
   const card = (
-    step: string,
+    position: string,
     title: string,
     subtitle: string,
     rows: Array<Record<string, unknown>>,
@@ -6368,27 +6376,35 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
       header: {
         type: "box",
         layout: "vertical",
-        backgroundColor: FLEX_CUSTOMER.greenDeep,
+        backgroundColor: FLEX_CUSTOMER.surface,
         paddingAll: "20px",
+        paddingBottom: "0px",
         spacing: "sm",
         contents: [
           {
             type: "box",
             layout: "horizontal",
-            contents: [{
-              type: "box",
-              layout: "vertical",
-              backgroundColor: FLEX_CUSTOMER.surface,
-              cornerRadius: "12px",
-              paddingStart: "10px",
-              paddingEnd: "10px",
-              paddingTop: "4px",
-              paddingBottom: "4px",
-              contents: [{ type: "text", text: step, weight: "bold", size: "xxs", color: FLEX_CUSTOMER.greenDeep }]
-            }, { type: "filler" }]
+            alignItems: "center",
+            contents: [
+              {
+                type: "box",
+                layout: "vertical",
+                flex: 0,
+                backgroundColor: FLEX_CUSTOMER.chipGreen,
+                cornerRadius: "10px",
+                paddingStart: "9px",
+                paddingEnd: "9px",
+                paddingTop: "3px",
+                paddingBottom: "3px",
+                contents: [{ type: "text", text: "คู่มือ", weight: "bold", size: "xxs", color: FLEX_CUSTOMER.greenDeep }]
+              },
+              { type: "filler" },
+              { type: "text", text: position, size: "xs", color: FLEX_CUSTOMER.inkSoft, align: "end", flex: 0 }
+            ]
           },
-          { type: "text", text: title, weight: "bold", color: FLEX_CUSTOMER.surface, size: "xl", wrap: true },
-          { type: "text", text: subtitle, color: FLEX_CUSTOMER.headerSub, size: "xs", wrap: true }
+          { type: "text", text: title, weight: "bold", color: FLEX_CUSTOMER.greenDeep, size: "xl", wrap: true },
+          { type: "text", text: subtitle, color: FLEX_CUSTOMER.inkSoft, size: "xs", wrap: true },
+          { type: "box", layout: "vertical", height: "2px", backgroundColor: FLEX_CUSTOMER.green, contents: [{ type: "filler" }] }
         ]
       },
       body: {
@@ -6418,33 +6434,33 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
     contents: {
       type: "carousel",
       contents: [
-        card("01 · START", "บันทึกมื้อให้แม่น", "ส่งรูปหรือข้อความ แล้วจัดการมื้อนั้นจากการ์ดได้เลย", [
-          guideRow("📷", "บันทึกอาหาร", "ส่งรูป หรือพิมพ์ชื่ออาหาร เช่น “ข้าวมันไก่”"),
-          guideRow("✏️", "จัดการเฉพาะมื้อ", "แก้ผล หักของเหลือ หรือลบจากปุ่มใต้การ์ด"),
-          guideRow("✓", "ตรวจสอบก่อนบันทึก", "ระบบจะแสดงมื้อที่เลือกและให้ยืนยันทุกครั้ง")
+        card("1 / 4", "บันทึกมื้อให้แม่น", "ส่งรูปหรือข้อความ แล้วจัดการมื้อนั้นจากการ์ดได้เลย", [
+          guideRow("camera", "บันทึกอาหาร", "ส่งรูป หรือพิมพ์ชื่ออาหาร เช่น “ข้าวมันไก่”"),
+          guideRow("edit", "จัดการเฉพาะมื้อ", "แก้ผล หักของเหลือ หรือลบจากปุ่มใต้การ์ด"),
+          guideRow("check", "ตรวจสอบก่อนบันทึก", "ระบบจะแสดงมื้อที่เลือกและให้ยืนยันทุกครั้ง")
         ], [
           uriBtn("ถ่ายรูปอาหาร", "https://line.me/R/nv/camera/", FLEX_CUSTOMER.green)
         ]),
-        card("02 · BODY", "ร่างกายและกิจกรรม", "เก็บข้อมูลที่ช่วยให้เป้าหมายรายวันแม่นขึ้น", [
-          guideRow("🏃", "บันทึกกิจกรรม", "เช่น “วิ่ง 30 นาที” ระบบจะปรับโควต้าวันนี้"),
-          guideRow("⚖️", "ติดตามน้ำหนัก", "เช่น “หนัก 65 fat 20 muscle 28”"),
-          guideRow("🧾", "วิเคราะห์ BIA", "ส่งรายงาน InBody/BIA เป็นรูปหรือ PDF")
+        card("2 / 4", "ร่างกายและกิจกรรม", "เก็บข้อมูลที่ช่วยให้เป้าหมายรายวันแม่นขึ้น", [
+          guideRow("dumbbell", "บันทึกกิจกรรม", "เช่น “วิ่ง 30 นาที” ระบบจะปรับโควต้าวันนี้"),
+          guideRow("scale", "ติดตามน้ำหนัก", "เช่น “หนัก 65 fat 20 muscle 28”"),
+          guideRow("report", "วิเคราะห์ BIA", "ส่งรายงาน InBody/BIA เป็นรูปหรือ PDF")
         ], [
           msgBtn("ดูวิธีบันทึกกิจกรรม", "ออกกำลังกาย")
         ]),
-        card("03 · PROGRESS", "ติดตามความคืบหน้า", "ดูวันนี้ ภาพรวม และปรับแผนให้เข้ากับเป้าหมาย", [
-          guideRow("◎", "สรุปวันนี้", "ดูสารอาหาร มื้อที่บันทึก และคำแนะนำถัดไป"),
-          guideRow("⌁", "Dashboard ส่วนตัว", "ดูกราฟและประวัติผ่านลิงก์อายุ 1 ชั่วโมง"),
-          guideRow("⚙️", "เป้าหมาย / CUT / Bulk", "ตั้งเป้าหมายหรือให้ระบบปรับแผนรายสัปดาห์")
+        card("3 / 4", "ติดตามความคืบหน้า", "ดูวันนี้ ภาพรวม และปรับแผนให้เข้ากับเป้าหมาย", [
+          guideRow("summary", "สรุปวันนี้", "ดูสารอาหาร มื้อที่บันทึก และคำแนะนำถัดไป"),
+          guideRow("trend", "Dashboard ส่วนตัว", "ดูกราฟและประวัติผ่านลิงก์อายุ 1 ชั่วโมง"),
+          guideRow("target", "เป้าหมาย / CUT / Bulk", "ตั้งเป้าหมายหรือให้ระบบปรับแผนรายสัปดาห์")
         ], [
+          uriBtn("เปิด Dashboard", dashboardUrl, FLEX_CUSTOMER.green),
           msgBtn("สรุปวันนี้", "สรุป"),
-          uriBtn("เปิด Dashboard", dashboardUrl),
-          uriBtn("ตั้งค่าเป้าหมาย", liffUrl, FLEX_CUSTOMER.green)
+          uriBtn("ตั้งค่าเป้าหมาย", liffUrl)
         ]),
-        card("04 · SUPPORT", "โค้ชและความช่วยเหลือ", "รับคำแนะนำ ดูสิทธิ์ และคุยกับทีมงานได้ใน LINE", [
-          guideRow("🥗", "โค้ช AI", "พิมพ์ “กินอะไรดี” เพื่อรับเมนูตามยอดวันนี้"),
-          guideRow("🎫", "บัญชีและวันใช้งาน", "พิมพ์ “เช็คสถานะ” หรือ “เติมวัน”"),
-          guideRow("💬", "ติดต่อทีมงาน", "พิมพ์ “แอดมิน <ข้อความ>” แล้วตอบผ่านปุ่มที่ได้รับ")
+        card("4 / 4", "โค้ชและความช่วยเหลือ", "รับคำแนะนำ ดูสิทธิ์ และคุยกับทีมงานได้ใน LINE", [
+          guideRow("bowl", "โค้ช AI", "พิมพ์ “กินอะไรดี” เพื่อรับเมนูตามยอดวันนี้"),
+          guideRow("ticket", "บัญชีและวันใช้งาน", "พิมพ์ “เช็คสถานะ” หรือ “เติมวัน”"),
+          guideRow("chat", "ติดต่อทีมงาน", "พิมพ์ “แอดมิน <ข้อความ>” แล้วตอบผ่านปุ่มที่ได้รับ")
         ], [
           msgBtn("ให้ AI แนะนำเมนู", "กินอะไรดี"),
           msgBtn("ติดต่อทีมงาน", "แอดมิน")

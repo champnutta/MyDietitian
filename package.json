@@ -16,6 +16,7 @@
     "seed:app-config": "node tools/seed_app_config.js",
     "seed:subscription-plans": "node tools/seed_subscription_plans.js",
     "rich-menu:publish": "node tools/publish_rich_menu.js",
+    "icons:build": "node tools/build-icons.mjs",
     "test:line-webhook": "node tools/signed_line_webhook_test.js",
     "line:uat-report": "node tools/line_staging_uat_report.js",
     "test:portion-adjustment": "npm --workspace @mydietitian/backend run build && node tools/portion_adjustment_contract_check.js",
@@ -44,6 +45,7 @@
     "firestore:index-coverage": "node tools/firestore_index_coverage_check.js"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "jose": "^4.15.9"
   }
 }
