@@ -40,7 +40,7 @@ Fast-track migration workspace for moving the current Google Apps Script + Googl
 - `GEMINI_API_KEY` and `ANTHROPIC_API_KEY` must both exist in `mydietitian`; do not rely on a duplicate or AI-Studio-generated project with a similar display name.
 - `aiAgents/{agentId}` in Firestore controls provider/model settings. Current primary is Gemini `gemini-3.5-flash`; current fallback is Anthropic `claude-sonnet-4-6`.
 - `analyzeMeal` writes both `aiRuns` and `mealLogs` in Firestore, including provider/model audit metadata and whether fallback was used.
-- `lineWebhook` verifies LINE signatures, deduplicates events, and supports the migrated Firestore staging flows for onboarding, subscriptions, text/image food, corrections, portion adjustments, leftovers, exercise, BIA/file, slips, coach/menu, weight, redeem codes, contact-admin, and admin approve/reject.
+- `lineWebhook` verifies LINE signatures, deduplicates events, and supports onboarding, subscriptions, text/image food, corrections, portion adjustments, leftovers, exercise, BIA/file, slips, coach/menu, weight, redeem codes, support tickets, and admin approve/reject.
 - `getDashboardData` is available for post-migration dashboard verification against Firestore data.
 - Text requests should be sent as UTF-8 JSON. Some Windows PowerShell inline JSON tests can garble Thai text.
 - Google Sheet data migration is intentionally deferred until the final pre-production cutover window.

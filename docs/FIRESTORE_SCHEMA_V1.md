@@ -645,6 +645,81 @@ Maps native app Firebase Auth users to the shared canonical user.
 }
 ```
 
+### `supportTickets/{ticketId}`
+
+Stores customer support threads managed from Admin Dashboard.
+
+```json
+{
+  "ticketId": "auto-id",
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "displayName": "Customer",
+  "status": "open",
+  "state": "waiting-admin",
+  "unreadAdmin": 1,
+  "messageCount": 3,
+  "lastMessageText": "ขอเปลี่ยนวันเริ่ม",
+  "lastMessageDirection": "customer-to-admin",
+  "lastMessageAt": "timestamp",
+  "openedAt": "timestamp",
+  "closedAt": null,
+  "closedBy": null,
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp"
+}
+```
+
+- `status`: `open` or `closed`
+- `state`: `waiting-admin`, `waiting-customer`, or `closed`
+- `unreadAdmin` increments when a customer message arrives and resets when an admin opens the thread.
+
+#### `supportTickets/{ticketId}/messages/{messageId}`
+
+```json
+{
+  "messageId": "auto-id",
+  "direction": "customer-to-admin",
+  "senderType": "customer",
+  "senderLabel": "Customer",
+  "text": "ขอเปลี่ยนวันเริ่ม",
+  "deliveryStatus": "delivered",
+  "createdAt": "timestamp"
+}
+```
+
+`direction` is `customer-to-admin`, `admin-to-customer`, or `system`. Admin replies are pushed to LINE as a Flex message with a “ตอบแอดมิน” action.
+
+### `supportTicketPointers/{canonicalUserId}`
+
+Points to the customer's current open ticket so repeated `แอดมิน <ข้อความ>` commands append to the same thread.
+
+```json
+{
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "activeTicketId": "support-ticket-id",
+  "updatedAt": "timestamp"
+}
+```
+
+### `supportReplyIntents/{canonicalUserId}`
+
+Short-lived, one-shot intent created when the customer taps “ตอบแอดมิน”.
+
+```json
+{
+  "canonicalUserId": "canonical-user-id",
+  "lineUserId": "Uxxxxxxxx",
+  "ticketId": "support-ticket-id",
+  "expiresAt": "timestamp",
+  "createdAt": "timestamp",
+  "updatedAt": "timestamp"
+}
+```
+
+The next text message within 10 minutes is appended to that ticket, then the intent is deleted. This avoids a global chat mode intercepting later meal messages.
+
 ### `aiAgents/{agentId}`
 
 Admin-configurable AI agent settings. Backend reads this before calling the provider.

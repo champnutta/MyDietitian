@@ -15,7 +15,7 @@
       * { box-sizing: border-box; }
       body { margin: 0; background: var(--bg); color: var(--ink);
         font-family: -apple-system, "Segoe UI", "Noto Sans Thai", sans-serif; }
-      main { max-width: 920px; margin: 0 auto; padding: 18px 16px 64px; }
+      main { max-width: 1120px; margin: 0 auto; padding: 18px 16px 64px; }
       header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
       header b { font-size: 20px; } header b small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
       button { font: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: #fff; padding: 8px 14px; }
@@ -24,6 +24,9 @@
       .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); margin-bottom: 16px; overflow-x: auto; }
       .tab { padding: 9px 13px; font: inherit; font-size: 14px; color: var(--muted); white-space: nowrap; cursor: pointer; background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
       .tab.active { color: var(--green-d); border-bottom-color: var(--green); font-weight: 600; }
+      .tab-count { display: inline-flex; min-width: 18px; height: 18px; padding: 0 5px; margin-left: 3px; align-items: center; justify-content: center;
+        border-radius: 9px; background: #FEE2E2; color: #B91C1C; font-size: 10px; font-weight: 700; vertical-align: 1px; }
+      .tab-count:empty { display: none; }
       .tab:focus-visible, .stat:focus-visible, .prow:focus-visible { outline: 2px solid var(--green); outline-offset: 2px; border-radius: 6px; }
       .tabpanel { display: none; } .tabpanel.active { display: block; }
       /* Hero: the single focal metric that leads each tab. */
@@ -94,6 +97,51 @@
       textarea.push-ta { width: 100%; min-height: 80px; resize: vertical; border: 1px solid var(--line); border-radius: 10px; padding: 10px; font: inherit; font-size: 13px; outline: none; }
       textarea.push-ta:focus { border-color: var(--green); }
       #pushResult { font-size: 13px; margin-top: 8px; }
+      .support-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+      .support-toolbar h2 { margin: 0; font-size: 20px; letter-spacing: -.01em; }
+      .support-toolbar p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+      .support-actions { display: flex; align-items: center; gap: 8px; }
+      .support-actions select { padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: #fff; color: var(--ink); font: inherit; font-size: 13px; }
+      .support-shell { display: grid; grid-template-columns: 330px minmax(0, 1fr); min-height: 590px; background: var(--card); border: 1px solid var(--line);
+        border-radius: 18px; overflow: hidden; box-shadow: 0 2px 10px rgba(15,23,42,.05); }
+      .support-list { border-right: 1px solid var(--line); overflow-y: auto; max-height: 680px; background: #FBFCFD; }
+      .ticket-item { width: 100%; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; padding: 14px 15px; text-align: left; background: transparent; }
+      .ticket-item:hover { background: #F3F8F7; } .ticket-item.active { background: #E9F7F4; box-shadow: inset 3px 0 var(--green); }
+      .ticket-top { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+      .ticket-name { font-weight: 650; font-size: 14px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ticket-preview { margin-top: 5px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .ticket-meta { display: flex; gap: 7px; align-items: center; margin-top: 7px; color: var(--muted); font-size: 10.5px; }
+      .ticket-unread { min-width: 19px; height: 19px; padding: 0 5px; display: inline-flex; align-items: center; justify-content: center; border-radius: 10px;
+        background: var(--red); color: #fff; font-size: 10px; font-weight: 700; }
+      .state-pill { display: inline-flex; align-items: center; gap: 4px; border-radius: 20px; padding: 3px 8px; font-size: 10.5px; font-weight: 600; }
+      .state-pill.waiting-admin { background: #FEF3C7; color: #92400E; }
+      .state-pill.waiting-customer { background: #E0F2FE; color: #075985; }
+      .state-pill.closed { background: #EEF2F6; color: #64748B; }
+      .support-thread { display: flex; min-width: 0; min-height: 590px; flex-direction: column; background: #fff; }
+      .support-empty { margin: auto; max-width: 320px; padding: 32px; text-align: center; color: var(--muted); }
+      .support-empty i { display: block; font-size: 38px; margin-bottom: 8px; color: #A7C9C5; }
+      .thread-view { display: flex; flex-direction: column; min-height: 590px; height: 100%; }
+      .thread-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 15px 18px; border-bottom: 1px solid var(--line); }
+      .thread-head h3 { margin: 0; font-size: 16px; } .thread-head .sub { margin-top: 3px; font-size: 11px; color: var(--muted); word-break: break-all; }
+      .thread-messages { flex: 1; overflow-y: auto; padding: 20px; background: #F6F8FA; max-height: 470px; }
+      .message-row { display: flex; margin-bottom: 12px; } .message-row.outgoing { justify-content: flex-end; } .message-row.system { justify-content: center; }
+      .message-bubble { max-width: min(78%, 520px); padding: 10px 13px; border-radius: 15px 15px 15px 4px; background: #fff; border: 1px solid var(--line);
+        box-shadow: 0 1px 2px rgba(15,23,42,.04); white-space: pre-wrap; word-break: break-word; font-size: 13px; line-height: 1.55; }
+      .outgoing .message-bubble { background: var(--green-d); color: #fff; border-color: var(--green-d); border-radius: 15px 15px 4px 15px; }
+      .system .message-bubble { padding: 5px 10px; border: 0; border-radius: 20px; box-shadow: none; background: #E9EEF3; color: var(--muted); font-size: 11px; }
+      .message-time { margin-top: 4px; font-size: 9.5px; color: #8A94A3; } .outgoing .message-time { color: #CDEBE7; text-align: right; }
+      .thread-compose { border-top: 1px solid var(--line); padding: 13px 15px; background: #fff; }
+      .thread-compose textarea { width: 100%; min-height: 70px; max-height: 170px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 11px 12px;
+        font: inherit; font-size: 13px; outline: none; }
+      .thread-compose textarea:focus { border-color: var(--green); box-shadow: 0 0 0 3px var(--accent-soft); }
+      .compose-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+      .compose-result { color: var(--muted); font-size: 11px; min-height: 16px; }
+      .closed-note { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; background: #F8FAFC; border-top: 1px solid var(--line); }
+      @media (max-width: 760px) {
+        .support-toolbar { align-items: flex-start; } .support-actions { flex-direction: column; align-items: stretch; }
+        .support-shell { grid-template-columns: 1fr; } .support-list { max-height: 270px; border-right: 0; border-bottom: 1px solid var(--line); }
+        .support-thread, .thread-view { min-height: 520px; } .thread-messages { max-height: 380px; }
+      }
       @media (max-width: 620px) { .ai { display: block; } .ai > .flip { margin-top: 8px; } .ai-model-grid { grid-template-columns: 1fr; } }
       @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; scroll-behavior: auto !important; } }
     </style>
@@ -119,6 +167,57 @@
           <h3>มื้ออาหารที่บันทึก (14 วัน)</h3>
           <div class="card"><div class="chartbox"><canvas id="actChart"></canvas></div></div>
           <div class="strip" id="ovStrip" style="margin-top:14px"></div>
+        </div>
+
+        <div class="tabpanel" data-panel="support">
+          <div class="support-toolbar">
+            <div>
+              <h2>ข้อความลูกค้า</h2>
+              <p>อ่าน ตอบผ่าน LINE และปิดเคสได้จากที่เดียว</p>
+            </div>
+            <div class="support-actions">
+              <select id="supportFilter" aria-label="กรองสถานะเคส">
+                <option value="open">เคสที่เปิดอยู่</option>
+                <option value="waiting-admin">รอทีมงานตอบ</option>
+                <option value="waiting-customer">รอลูกค้าตอบ</option>
+                <option value="closed">ปิดแล้ว</option>
+                <option value="all">ทั้งหมด</option>
+              </select>
+              <button id="supportRefresh"><i class="ti ti-refresh"></i> รีเฟรช</button>
+            </div>
+          </div>
+          <div class="support-shell">
+            <aside class="support-list" id="supportList" aria-label="รายการเคส">
+              <div class="support-empty"><i class="ti ti-loader-2"></i>กำลังโหลด…</div>
+            </aside>
+            <section class="support-thread" aria-label="บทสนทนา">
+              <div class="support-empty" id="supportEmpty">
+                <i class="ti ti-messages"></i>
+                <div>เลือกข้อความทางซ้ายเพื่อเริ่มตอบ</div>
+              </div>
+              <div class="thread-view" id="supportConversation" hidden>
+                <div class="thread-head">
+                  <div>
+                    <h3 id="supportCustomerName">ลูกค้า</h3>
+                    <div class="sub" id="supportTicketMeta"></div>
+                  </div>
+                  <span id="supportState" class="state-pill waiting-admin"></span>
+                </div>
+                <div class="thread-messages" id="supportMessages" aria-live="polite"></div>
+                <div class="thread-compose" id="supportCompose">
+                  <textarea id="supportReply" maxlength="2000" placeholder="พิมพ์คำตอบ… (Ctrl + Enter เพื่อส่ง)"></textarea>
+                  <div class="compose-actions">
+                    <div>
+                      <button id="supportClose">ปิดเคส</button>
+                      <span class="compose-result" id="supportResult"></span>
+                    </div>
+                    <button class="primary" id="supportSend"><i class="ti ti-send"></i> ส่งผ่าน LINE</button>
+                  </div>
+                </div>
+                <div class="closed-note" id="supportClosed" hidden>เคสนี้ปิดแล้ว หากลูกค้าติดต่ออีกครั้ง ระบบจะเปิดเคสใหม่</div>
+              </div>
+            </section>
+          </div>
         </div>
 
         <div class="tabpanel" data-panel="retention">
@@ -221,9 +320,12 @@
       const BASE = window.MD_FUNCTIONS_BASE;
       const $ = (id) => document.getElementById(id);
       let chart, token, DATA, curName, CUSTOMERS = null;
+      let SUPPORT_TICKETS = null, SUPPORT_SELECTED = null, SUPPORT_THREAD = null;
 
       const TABS = [
-        ["overview", '<i class="ti ti-layout-dashboard"></i> ภาพรวม'], ["retention", '<i class="ti ti-users"></i> รักษาลูกค้า'], ["customers", '<i class="ti ti-address-book"></i> ลูกค้า'],
+        ["overview", '<i class="ti ti-layout-dashboard"></i> ภาพรวม'],
+        ["support", '<i class="ti ti-messages"></i> ข้อความ <span id="supportTabCount" class="tab-count"></span>'],
+        ["retention", '<i class="ti ti-users"></i> รักษาลูกค้า'], ["customers", '<i class="ti ti-address-book"></i> ลูกค้า'],
         ["system", '<i class="ti ti-server"></i> ระบบ'], ["finance", '<i class="ti ti-coin"></i> การเงิน'], ["growth", '<i class="ti ti-trending-up"></i> เติบโต']
       ];
       const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -237,6 +339,9 @@
         document.querySelectorAll(".tabpanel").forEach((p) => p.classList.toggle("active", p.dataset.panel === key));
         window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
         if (key === "customers" && !CUSTOMERS) loadCustomers();
+        if (key === "support" && !SUPPORT_TICKETS) loadSupportTickets();
+        if (key === "support") history.replaceState(null, "", "#support");
+        else if (location.hash === "#support") history.replaceState(null, "", location.pathname + location.search);
       }
       $("tabs").onclick = (e) => { const t = e.target.closest(".tab"); if (t) showTab(t.dataset.go); };
 
@@ -258,6 +363,7 @@
           if (res.status === 401) throw new Error("บัญชีนี้ไม่มีสิทธิ์ admin");
           if (!res.ok || !data.ok) throw new Error(data.message || data.error || "โหลดข้อมูลไม่สำเร็จ");
           DATA = data; render(data); $("panel").hidden = false; msg("");
+          if (location.hash === "#support") showTab("support");
         } catch (e) {
           $("msg").classList.add("error");
           $("msg").innerHTML = `โหลดข้อมูลไม่สำเร็จ: ${esc(e.message || String(e))} <button id="retryBtn" class="primary" style="margin-left:8px;padding:6px 14px">ลองใหม่</button>`;
@@ -292,6 +398,7 @@
         ].join("");
 
         const todos = [];
+        if (c.supportOpen) todos.push(["ti-messages", "red", `ข้อความลูกค้ารอจัดการ ${c.supportOpen} เคส`, "support"]);
         if (c.pendingReviews) todos.push(["ti-receipt-2", "red", `สลิปรออนุมัติ ${c.pendingReviews} รายการ`, "system"]);
         if (c.errors24h) todos.push(["ti-bug", "red", `error ${c.errors24h} รายการใน 24 ชม.`, "system"]);
         if (c.expiringSoon) todos.push(["ti-clock-hour-4", "amber", `ลูกค้าใกล้หมดอายุ ${c.expiringSoon} คน`, "retention"]);
@@ -302,6 +409,7 @@
             `<div class="prow click" data-go2="${tab}"><div><i class="ti ${ic}" style="margin-right:7px;color:var(--${col})"></i>${label}</div><div class="amt" style="color:var(--muted);font-weight:400">›</div></div>`).join("")
             : `<div class="empty" style="padding:2px 0">ไม่มีงานค้าง ✓</div>`}</div>`;
         $("ovTodo").querySelectorAll("[data-go2]").forEach((el) => { el.onclick = () => showTab(el.dataset.go2); });
+        $("supportTabCount").textContent = c.supportOpen ? String(c.supportOpen) : "";
 
         const eng = c.payingEngaged7dPct ?? 0;
         $("retHero").innerHTML = hero(
@@ -684,6 +792,157 @@
         } catch (e) { res.textContent = e.message; res.style.color = "var(--red)"; }
         btn.disabled = false; btn.textContent = "ส่งข้อความ";
       }
+
+      async function supportApi(path, body = {}) {
+        const res = await fetch(`${BASE}/${path}`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) throw new Error(data.message || data.error || "ดำเนินการไม่สำเร็จ");
+        return data;
+      }
+
+      function supportStateInfo(ticket) {
+        if (ticket.status === "closed" || ticket.state === "closed") return ["closed", "ปิดแล้ว"];
+        if (ticket.state === "waiting-customer") return ["waiting-customer", "รอลูกค้าตอบ"];
+        return ["waiting-admin", "รอทีมงานตอบ"];
+      }
+
+      async function loadSupportTickets(force = false) {
+        const refresh = $("supportRefresh");
+        if (!SUPPORT_TICKETS || force) $("supportList").innerHTML = `<div class="support-empty"><i class="ti ti-loader-2"></i>กำลังโหลด…</div>`;
+        refresh.disabled = true;
+        try {
+          const data = await supportApi("getSupportTickets");
+          SUPPORT_TICKETS = data.tickets || [];
+          $("supportTabCount").textContent = data.openCount ? String(data.openCount) : "";
+          renderSupportTickets();
+        } catch (e) {
+          $("supportList").innerHTML = `<div class="support-empty" style="color:var(--red)"><i class="ti ti-alert-circle"></i>${esc(e.message)}</div>`;
+        }
+        refresh.disabled = false;
+      }
+
+      function renderSupportTickets() {
+        if (!SUPPORT_TICKETS) return;
+        const filter = $("supportFilter").value;
+        const list = SUPPORT_TICKETS.filter((ticket) => {
+          if (filter === "all") return true;
+          if (filter === "open") return ticket.status === "open";
+          if (filter === "closed") return ticket.status === "closed";
+          return ticket.status === "open" && ticket.state === filter;
+        });
+        $("supportList").innerHTML = list.length ? list.map((ticket) => {
+          const [stateClass, stateLabel] = supportStateInfo(ticket);
+          const unread = Number(ticket.unreadAdmin || 0);
+          return `<button class="ticket-item ${ticket.ticketId === SUPPORT_SELECTED ? "active" : ""}" data-ticket="${esc(ticket.ticketId)}">
+            <div class="ticket-top">
+              <span class="ticket-name">${esc(ticket.displayName || "Member")}</span>
+              ${unread ? `<span class="ticket-unread">${Math.min(99, unread)}</span>` : ""}
+            </div>
+            <div class="ticket-preview">${esc(ticket.lastMessageText || "ยังไม่มีข้อความ")}</div>
+            <div class="ticket-meta">
+              <span class="state-pill ${stateClass}">${stateLabel}</span>
+              <span>${fmt(ticket.lastMessageAt || ticket.openedAt)}</span>
+            </div>
+          </button>`;
+        }).join("") : `<div class="support-empty"><i class="ti ti-inbox"></i>ไม่มีเคสในหมวดนี้</div>`;
+        $("supportList").querySelectorAll("[data-ticket]").forEach((item) => {
+          item.onclick = () => openSupportTicket(item.dataset.ticket);
+        });
+      }
+
+      async function openSupportTicket(ticketId) {
+        SUPPORT_SELECTED = ticketId;
+        renderSupportTickets();
+        $("supportEmpty").hidden = true;
+        $("supportConversation").hidden = false;
+        $("supportMessages").innerHTML = `<div class="support-empty"><i class="ti ti-loader-2"></i>กำลังโหลดบทสนทนา…</div>`;
+        try {
+          const data = await supportApi("getSupportThread", { ticketId });
+          SUPPORT_THREAD = data;
+          const local = SUPPORT_TICKETS?.find((ticket) => ticket.ticketId === ticketId);
+          if (local) local.unreadAdmin = 0;
+          renderSupportTickets();
+          renderSupportThread(data);
+        } catch (e) {
+          $("supportMessages").innerHTML = `<div class="support-empty" style="color:var(--red)"><i class="ti ti-alert-circle"></i>${esc(e.message)}</div>`;
+        }
+      }
+
+      function renderSupportThread(data) {
+        const ticket = data.ticket;
+        const [stateClass, stateLabel] = supportStateInfo(ticket);
+        $("supportCustomerName").textContent = ticket.displayName || "Member";
+        $("supportTicketMeta").textContent = `เคส ${ticket.ticketId} · ${ticket.canonicalUserId || "-"}`;
+        $("supportState").className = `state-pill ${stateClass}`;
+        $("supportState").textContent = stateLabel;
+        const messages = data.messages || [];
+        $("supportMessages").innerHTML = messages.length ? messages.map((message) => {
+          const rowClass = message.direction === "admin-to-customer" ? "outgoing" : (message.direction === "system" ? "system" : "incoming");
+          return `<div class="message-row ${rowClass}"><div class="message-bubble">
+            <div>${esc(message.text)}</div>
+            ${rowClass === "system" ? "" : `<div class="message-time">${esc(message.senderLabel || "")} · ${fmt(message.createdAt)}</div>`}
+          </div></div>`;
+        }).join("") : `<div class="support-empty">ยังไม่มีข้อความ</div>`;
+        const closed = ticket.status === "closed";
+        $("supportCompose").hidden = closed;
+        $("supportClosed").hidden = !closed;
+        $("supportReply").disabled = closed;
+        $("supportClose").disabled = closed;
+        $("supportMessages").scrollTop = $("supportMessages").scrollHeight;
+      }
+
+      async function sendSupportReply() {
+        if (!SUPPORT_SELECTED) return;
+        const message = $("supportReply").value.trim();
+        if (!message) { $("supportResult").textContent = "พิมพ์คำตอบก่อนครับ"; $("supportResult").style.color = "var(--red)"; return; }
+        const btn = $("supportSend");
+        btn.disabled = true; $("supportClose").disabled = true;
+        const old = btn.innerHTML; btn.textContent = "กำลังส่ง…";
+        $("supportResult").textContent = "";
+        try {
+          await supportApi("replySupportTicket", { ticketId: SUPPORT_SELECTED, message });
+          $("supportReply").value = "";
+          $("supportResult").style.color = "var(--green-d)";
+          $("supportResult").textContent = "ส่งแล้ว";
+          await loadSupportTickets(true);
+          await openSupportTicket(SUPPORT_SELECTED);
+        } catch (e) {
+          $("supportResult").style.color = "var(--red)";
+          $("supportResult").textContent = e.message;
+        }
+        btn.disabled = false; $("supportClose").disabled = false; btn.innerHTML = old;
+      }
+
+      async function closeSupportTicket() {
+        if (!SUPPORT_SELECTED || !confirm("ปิดเคสนี้?\nลูกค้าจะได้รับข้อความแจ้ง และติดต่อใหม่ได้ทุกเมื่อ")) return;
+        const btn = $("supportClose");
+        btn.disabled = true; $("supportSend").disabled = true;
+        try {
+          await supportApi("closeSupportTicket", { ticketId: SUPPORT_SELECTED });
+          await loadSupportTickets(true);
+          await openSupportTicket(SUPPORT_SELECTED);
+        } catch (e) {
+          $("supportResult").style.color = "var(--red)";
+          $("supportResult").textContent = e.message;
+        }
+        btn.disabled = false; $("supportSend").disabled = false;
+      }
+
+      $("supportFilter").onchange = renderSupportTickets;
+      $("supportRefresh").onclick = () => loadSupportTickets(true);
+      $("supportSend").onclick = sendSupportReply;
+      $("supportClose").onclick = closeSupportTicket;
+      $("supportReply").onkeydown = (event) => {
+        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          sendSupportReply();
+        }
+      };
+
       async function loadCustomers() {
         $("custList").innerHTML = `<div class="empty">กำลังโหลด…</div>`;
         try {

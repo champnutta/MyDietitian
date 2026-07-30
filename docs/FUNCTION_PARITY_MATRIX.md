@@ -6,7 +6,7 @@ Production LINE OA must remain on GAS until every required behavior is marked `d
 
 - GAS production: still authoritative.
 - Firebase backend: migration/staging only.
-- Firebase `lineWebhook`: verifies signature, logs events, and supports staging onboarding, manual profile setup, subscription gate, text/image food, latest-meal correction/portion adjustment, leftover image subtraction, exercise, coach/menu consultation, weight, contact-admin, subscription request, payment slip review, BIA image/PDF/file review, redeem-code, and admin approve/reject flows.
+- Firebase `lineWebhook`: verifies signature, logs events, and supports onboarding, manual profile setup, subscription gate, text/image food, latest-meal correction/portion adjustment, leftover image subtraction, exercise, coach/menu consultation, weight, support-ticket contact/replies, subscription request, payment slip review, BIA image/PDF/file review, redeem-code, and admin approve/reject flows.
 - Firestore: ready for migrated data.
 - Data migration: deferred until final production cutover.
 

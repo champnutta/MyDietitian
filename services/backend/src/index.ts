@@ -1,6 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { onSchedule } from "firebase-functions/v2/scheduler";
-import { Timestamp, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
+import { FieldValue, Timestamp, type DocumentSnapshot, type Transaction } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import {
@@ -60,6 +60,7 @@ import {
   type VerifiedProfileOwner
 } from "./profile-auth.js";
 import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
+import { normalizeSupportText, parseSupportReplyControl } from "./support-utils.js";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
   formatSubscriptionPlanLine,
@@ -148,6 +149,9 @@ type SubscriptionTarget = {
   canonicalUserId: string;
   lineUserId: string | null;
 };
+
+type SupportTicketStatus = "open" | "closed";
+type SupportTicketState = "waiting-admin" | "waiting-customer" | "closed";
 
 type SubscriptionState = {
   active: boolean;
@@ -1335,7 +1339,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
 
   // Avoid a status+createdAt composite index by fetching pending reviews
   // unordered and sorting in memory.
-  const [usersCount, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap] = await Promise.all([
+  const [usersCount, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap, openSupportCount] = await Promise.all([
     db.collection("users").count().get(),
     db.collection("subscriptions").where("expiresAt", "<", now).count().get(),
     db.collection("users").where("createdAt", ">=", since7).count().get(),
@@ -1348,7 +1352,8 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     db.collection("subscriptions").where("status", "==", "active").get(),
     db.collection("profiles").get(),
     db.collection("adminAuditLogs").orderBy("createdAt", "desc").limit(60).get(),
-    db.collection("aiAgents").get()
+    db.collection("aiAgents").get(),
+    db.collection("supportTickets").where("status", "==", "open").count().get()
   ]);
 
   let aiTotal = 0, aiFallback = 0, aiFailed = 0, ai24 = 0, aiFallback24 = 0;
@@ -1498,6 +1503,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       expired: expiredSubs.data().count,
       revenue30d: revenue30,
       pendingReviews: pendingCount.data().count,
+      supportOpen: openSupportCount.data().count,
       mealsToday: mealsToday.data().count,
       aiRuns7d: aiTotal,
       aiFallbackPct: aiTotal ? Math.round((aiFallback / aiTotal) * 100) : 0,
@@ -1936,6 +1942,311 @@ export const adminPushToUsers = onRequest(
       response.json({ ok: true, sent, failed, skipped, promoDays });
     } catch (error) {
       response.status(500).json({ ok: false, error: "push-failed", message: error instanceof Error ? error.message : String(error) });
+    }
+  }
+);
+
+export const getSupportTickets = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  try {
+    await requireAdminEmail(request);
+  } catch {
+    response.status(401).json({ ok: false, error: "admin-auth-failed" });
+    return;
+  }
+
+  try {
+    const snap = await db.collection("supportTickets")
+      .orderBy("lastMessageAt", "desc")
+      .limit(100)
+      .get();
+    const tickets = snap.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        ticketId: doc.id,
+        canonicalUserId: String(data.canonicalUserId ?? ""),
+        lineUserId: String(data.lineUserId ?? ""),
+        displayName: String(data.displayName ?? "Member"),
+        status: String(data.status ?? "open"),
+        state: String(data.state ?? "waiting-admin"),
+        unreadAdmin: Math.max(0, Number(data.unreadAdmin ?? 0)),
+        messageCount: Math.max(0, Number(data.messageCount ?? 0)),
+        lastMessageText: String(data.lastMessageText ?? ""),
+        lastMessageDirection: String(data.lastMessageDirection ?? ""),
+        lastMessageAt: timestampToIso(data.lastMessageAt),
+        openedAt: timestampToIso(data.openedAt),
+        closedAt: timestampToIso(data.closedAt)
+      };
+    });
+    response.json({
+      ok: true,
+      openCount: tickets.filter((ticket) => ticket.status === "open").length,
+      unreadCount: tickets.reduce((sum, ticket) => sum + ticket.unreadAdmin, 0),
+      tickets
+    });
+  } catch (error) {
+    response.status(500).json({
+      ok: false,
+      error: "support-tickets-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+export const getSupportThread = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  let adminEmail: string;
+  try {
+    adminEmail = await requireAdminEmail(request);
+  } catch {
+    response.status(401).json({ ok: false, error: "admin-auth-failed" });
+    return;
+  }
+
+  try {
+    const ticketId = String((request.body as { ticketId?: string } | undefined)?.ticketId ?? "").trim();
+    if (!isSafePublicId(ticketId)) {
+      response.status(400).json({ ok: false, error: "invalid-ticket-id" });
+      return;
+    }
+    const ticketRef = db.collection("supportTickets").doc(ticketId);
+    const [ticketSnap, messagesSnap] = await Promise.all([
+      ticketRef.get(),
+      ticketRef.collection("messages").orderBy("createdAt", "asc").limit(250).get()
+    ]);
+    if (!ticketSnap.exists) {
+      response.status(404).json({ ok: false, error: "ticket-not-found" });
+      return;
+    }
+    const data = ticketSnap.data() ?? {};
+    if (Number(data.unreadAdmin ?? 0) > 0) {
+      await ticketRef.set({
+        unreadAdmin: 0,
+        lastReadByAdmin: adminEmail,
+        lastReadAt: Timestamp.now()
+      }, { merge: true });
+    }
+    response.json({
+      ok: true,
+      ticket: {
+        ticketId,
+        canonicalUserId: String(data.canonicalUserId ?? ""),
+        lineUserId: String(data.lineUserId ?? ""),
+        displayName: String(data.displayName ?? "Member"),
+        status: String(data.status ?? "open"),
+        state: String(data.state ?? "waiting-admin"),
+        messageCount: Math.max(0, Number(data.messageCount ?? messagesSnap.size)),
+        openedAt: timestampToIso(data.openedAt),
+        closedAt: timestampToIso(data.closedAt)
+      },
+      messages: messagesSnap.docs.map((doc) => {
+        const message = doc.data();
+        return {
+          messageId: doc.id,
+          direction: String(message.direction ?? ""),
+          senderType: String(message.senderType ?? ""),
+          senderLabel: String(message.senderLabel ?? ""),
+          text: String(message.text ?? ""),
+          deliveryStatus: String(message.deliveryStatus ?? "delivered"),
+          createdAt: timestampToIso(message.createdAt)
+        };
+      })
+    });
+  } catch (error) {
+    response.status(500).json({
+      ok: false,
+      error: "support-thread-failed",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+export const replySupportTicket = onRequest(
+  { secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 60 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") {
+      response.status(405).json({ ok: false, error: "method-not-allowed" });
+      return;
+    }
+    let adminEmail: string;
+    try {
+      adminEmail = await requireAdminEmail(request);
+    } catch {
+      response.status(401).json({ ok: false, error: "admin-auth-failed" });
+      return;
+    }
+
+    try {
+      const body = (request.body ?? {}) as { ticketId?: string; message?: string };
+      const ticketId = String(body.ticketId ?? "").trim();
+      const message = normalizeSupportText(body.message, 2000);
+      if (!isSafePublicId(ticketId) || !message) {
+        response.status(400).json({ ok: false, error: "invalid-support-reply" });
+        return;
+      }
+      const ticketRef = db.collection("supportTickets").doc(ticketId);
+      const ticketSnap = await ticketRef.get();
+      const ticket = ticketSnap.data() ?? {};
+      if (!ticketSnap.exists) {
+        response.status(404).json({ ok: false, error: "ticket-not-found" });
+        return;
+      }
+      if (ticket.status !== "open") {
+        response.status(409).json({ ok: false, error: "ticket-closed" });
+        return;
+      }
+      const lineUserId = String(ticket.lineUserId ?? "");
+      if (!lineUserId) {
+        response.status(409).json({ ok: false, error: "ticket-has-no-line-user" });
+        return;
+      }
+
+      await pushMessages(lineUserId, [buildSupportReplyMessage(ticketId, message)]);
+      const now = Timestamp.now();
+      const messageRef = ticketRef.collection("messages").doc();
+      const batch = db.batch();
+      batch.set(messageRef, {
+        messageId: messageRef.id,
+        direction: "admin-to-customer",
+        senderType: "admin",
+        senderLabel: adminEmail,
+        text: message,
+        deliveryStatus: "delivered",
+        deliveredAt: now,
+        createdAt: now
+      });
+      batch.set(ticketRef, {
+        status: "open" satisfies SupportTicketStatus,
+        state: "waiting-customer" satisfies SupportTicketState,
+        unreadAdmin: 0,
+        lastMessageText: message,
+        lastMessageDirection: "admin-to-customer",
+        lastMessageAt: now,
+        lastAdminReplyAt: now,
+        lastAdminEmail: adminEmail,
+        messageCount: FieldValue.increment(1),
+        updatedAt: now
+      }, { merge: true });
+      batch.set(db.collection("adminAuditLogs").doc(), {
+        type: "support-ticket-replied",
+        ticketId,
+        canonicalUserId: String(ticket.canonicalUserId ?? ""),
+        adminEmail,
+        createdAt: now
+      });
+      await batch.commit();
+      response.json({ ok: true, ticketId, messageId: messageRef.id, state: "waiting-customer" });
+    } catch (error) {
+      response.status(500).json({
+        ok: false,
+        error: "support-reply-failed",
+        message: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+);
+
+export const closeSupportTicket = onRequest(
+  { secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 60 },
+  async (request, response) => {
+    if (handleCorsPreflight(request, response)) return;
+    if (request.method !== "POST") {
+      response.status(405).json({ ok: false, error: "method-not-allowed" });
+      return;
+    }
+    let adminEmail: string;
+    try {
+      adminEmail = await requireAdminEmail(request);
+    } catch {
+      response.status(401).json({ ok: false, error: "admin-auth-failed" });
+      return;
+    }
+
+    try {
+      const ticketId = String((request.body as { ticketId?: string } | undefined)?.ticketId ?? "").trim();
+      if (!isSafePublicId(ticketId)) {
+        response.status(400).json({ ok: false, error: "invalid-ticket-id" });
+        return;
+      }
+      const ticketRef = db.collection("supportTickets").doc(ticketId);
+      const ticketSnap = await ticketRef.get();
+      if (!ticketSnap.exists) {
+        response.status(404).json({ ok: false, error: "ticket-not-found" });
+        return;
+      }
+      const ticket = ticketSnap.data() ?? {};
+      if (ticket.status === "closed") {
+        response.json({ ok: true, ticketId, alreadyClosed: true });
+        return;
+      }
+
+      const canonicalUserId = String(ticket.canonicalUserId ?? "");
+      if (!canonicalUserId) {
+        response.status(409).json({ ok: false, error: "ticket-has-no-canonical-user" });
+        return;
+      }
+      const now = Timestamp.now();
+      const pointerRef = db.collection("supportTicketPointers").doc(canonicalUserId);
+      const systemMessageRef = ticketRef.collection("messages").doc();
+      const auditRef = db.collection("adminAuditLogs").doc();
+      await db.runTransaction(async (transaction) => {
+        const pointerSnap = await transaction.get(pointerRef);
+        transaction.set(ticketRef, {
+          status: "closed" satisfies SupportTicketStatus,
+          state: "closed" satisfies SupportTicketState,
+          unreadAdmin: 0,
+          messageCount: FieldValue.increment(1),
+          closedAt: now,
+          closedBy: adminEmail,
+          updatedAt: now
+        }, { merge: true });
+        transaction.set(systemMessageRef, {
+          messageId: systemMessageRef.id,
+          direction: "system",
+          senderType: "system",
+          senderLabel: "MyDietitian",
+          text: "ปิดเคสแล้ว",
+          deliveryStatus: "delivered",
+          createdAt: now
+        });
+        transaction.set(auditRef, {
+          type: "support-ticket-closed",
+          ticketId,
+          canonicalUserId,
+          adminEmail,
+          createdAt: now
+        });
+        if (pointerSnap.exists && pointerSnap.data()?.activeTicketId === ticketId) {
+          transaction.delete(pointerRef);
+        }
+      });
+
+      let customerNotified = false;
+      const lineUserId = String(ticket.lineUserId ?? "");
+      if (lineUserId) {
+        try {
+          await pushMessage(lineUserId, "ทีมงานปิดเคสนี้แล้วครับ หากต้องการความช่วยเหลือเพิ่มเติม พิมพ์ `แอดมิน` ตามด้วยข้อความเพื่อเปิดเคสใหม่ได้เลย");
+          customerNotified = true;
+        } catch {
+          customerNotified = false;
+        }
+      }
+      response.json({ ok: true, ticketId, customerNotified });
+    } catch (error) {
+      response.status(500).json({
+        ok: false,
+        error: "support-close-failed",
+        message: error instanceof Error ? error.message : String(error)
+      });
     }
   }
 );
@@ -2741,9 +3052,19 @@ async function handleLineEvent(event: LineEvent) {
   }
 
   const canonicalUserId = await resolveLineCanonicalUserId(lineUserId);
-  const forwardedToAdmin = await forwardCustomerReplyIfAdminChatActive(text, lineUserId, canonicalUserId);
+  const supportControl = await handleSupportReplyControlCommand(text, replyToken, canonicalUserId, lineUserId);
+  if (supportControl) {
+    return { ok: true, type: event.type, canonicalUserId, ...supportControl };
+  }
+
+  const forwardedToAdmin = await forwardCustomerReplyIfSupportIntent(
+    text,
+    replyToken,
+    lineUserId,
+    canonicalUserId
+  );
   if (forwardedToAdmin) {
-    return { ok: true, type: event.type, canonicalUserId, status: "customer-reply-forwarded-to-admin" };
+    return { ok: true, type: event.type, canonicalUserId, status: "support-reply-forwarded-to-admin" };
   }
 
   const commandResult = await handleLineTextCommand(text, replyToken, canonicalUserId, lineUserId);
@@ -3314,61 +3635,22 @@ async function handleAdminTextCommand(
   replyToken: string,
   adminLineUserId: string
 ): Promise<Record<string, unknown> | null> {
-  const activeChat = await getActiveAdminChat(adminLineUserId);
   const subscriptionCommand = parseAdminSubscriptionCommand(text);
   if (subscriptionCommand) {
     const result = await handleAdminSubscriptionCommand(subscriptionCommand, replyToken, adminLineUserId);
     return { status: `admin-subscription-${subscriptionCommand.action}`, ...result };
   }
 
-  if (text === "จบ" || text === "ออก" || text.toLowerCase() === "exit") {
-    if (!activeChat) {
-      await replyToLine(replyToken, "ไม่ได้อยู่ในโหมดคุยครับ");
-      return { status: "admin-chat-not-active" };
-    }
-
-    await db.collection("adminChatSessions").doc(adminLineUserId).set(
-      {
-        status: "closed",
-        closedAt: Timestamp.now(),
-        updatedAt: Timestamp.now()
-      },
-      { merge: true }
+  const legacyChatCommand = text.startsWith("คุย") ||
+    text === "จบ" ||
+    text === "ออก" ||
+    text.toLowerCase() === "exit";
+  if (legacyChatCommand) {
+    await replyToLine(
+      replyToken,
+      "ระบบคุยแบบเดิมย้ายไปที่ Admin Dashboard แล้วครับ\nเปิดเมนู “ข้อความลูกค้า” เพื่ออ่าน ตอบ และปิดเคสได้โดยไม่ต้องจำคำสั่ง"
     );
-    await replyToLine(replyToken, "จบการสนทนา กลับสู่โหมดบอทปกติแล้วครับ");
-    return { status: "admin-chat-closed", targetLineUserId: activeChat.targetLineUserId };
-  }
-
-  if (activeChat) {
-    await pushMessage(activeChat.targetLineUserId, `Admin: ${text}`);
-    await db.collection("adminChatMessages").add({
-      adminLineUserId,
-      targetLineUserId: activeChat.targetLineUserId,
-      direction: "admin-to-customer",
-      text,
-      createdAt: Timestamp.now()
-    });
-    return { status: "admin-message-forwarded", targetLineUserId: activeChat.targetLineUserId };
-  }
-
-  if (text.startsWith("คุย")) {
-    const targetLineUserId = text.split(/\s+/)[1]?.trim();
-    if (!targetLineUserId) {
-      await replyToLine(replyToken, "กรุณาระบุ User ID เช่น `คุย Uxxxxxxxx`");
-      return { status: "admin-chat-missing-target" };
-    }
-
-    const expiresAt = Timestamp.fromMillis(Date.now() + 30 * 60 * 1000);
-    await db.collection("adminChatSessions").doc(adminLineUserId).set({
-      adminLineUserId,
-      targetLineUserId,
-      status: "active",
-      expiresAt,
-      createdAt: Timestamp.now(),
-      updatedAt: Timestamp.now()
-    });
-    await replyToLine(replyToken, `เริ่มแชทกับลูกค้า ${targetLineUserId}\nทุกข้อความที่คุณพิมพ์จะส่งไปหาเขา\nพิมพ์ "จบ" เพื่อออก`);
-    return { status: "admin-chat-started", targetLineUserId };
+    return { status: "admin-support-dashboard-replied" };
   }
 
   return null;
@@ -4244,73 +4526,263 @@ async function handleContactAdmin(
   canonicalUserId: string,
   lineUserId: string
 ): Promise<Record<string, unknown>> {
-  const message = text.replace(/^(ติดต่อ|แอดมิน|admin)/i, "").trim();
+  const message = normalizeSupportText(text.replace(/^(ติดต่อ|แอดมิน|admin)/i, ""), 2000);
   if (!message) {
-    await replyToLine(replyToken, "พิมพ์ข้อความต่อท้ายได้เลยครับ เช่น `ติดต่อ ขอเปลี่ยนวันเริ่ม`");
+    await replyToLine(replyToken, "พิมพ์ข้อความต่อท้ายได้เลยครับ เช่น `แอดมิน ขอเปลี่ยนวันเริ่ม`");
     return { forwarded: false, reason: "empty-contact-message" };
   }
 
   const profile = await getUserProfile(canonicalUserId);
-  const adminMessage = [
-    "ข้อความจากลูกค้า",
-    `ชื่อ: ${profile.name}`,
-    `LINE User ID: ${lineUserId}`,
-    `Canonical ID: ${canonicalUserId}`,
-    `ข้อความ: ${message}`,
-    "",
-    `ตอบกลับ: คุย ${lineUserId}`
-  ].join("\n");
-
-  await db.collection("adminContactRequests").add({
+  const ticket = await getOrCreateOpenSupportTicket(
+    canonicalUserId,
+    lineUserId,
+    profile.name
+  );
+  await appendCustomerSupportMessage(ticket.ticketId, {
     canonicalUserId,
     lineUserId,
     displayName: profile.name,
-    message,
-    status: "forwarded",
-    createdAt: Timestamp.now()
+    text: message
   });
 
-  await pushMessage(ADMIN_LINE_USER_ID.value(), adminMessage);
-  await replyToLine(replyToken, "ส่งข้อความถึงแอดมินเรียบร้อยครับ");
-  return { forwarded: true };
+  const adminMessage = [
+    "ข้อความลูกค้าใหม่",
+    `ชื่อ: ${profile.name}`,
+    `Ticket: ${ticket.ticketId}`,
+    `ข้อความ: ${message}`,
+    "",
+    "ตอบกลับที่ Admin Dashboard > ข้อความลูกค้า",
+    "https://mydietitian.web.app/admin#support"
+  ].join("\n");
+
+  try {
+    await pushMessage(ADMIN_LINE_USER_ID.value(), adminMessage);
+  } catch (error) {
+    await db.collection("adminAuditLogs").add({
+      type: "support-admin-notification-failed",
+      ticketId: ticket.ticketId,
+      error: error instanceof Error ? error.message : String(error),
+      createdAt: Timestamp.now()
+    });
+  }
+  await replyToLine(
+    replyToken,
+    `ส่งข้อความถึงทีมงานแล้วครับ (เคส ${ticket.ticketId.slice(0, 8)})\nเมื่อทีมงานตอบ คุณจะได้รับข้อความใน LINE พร้อมปุ่ม “ตอบแอดมิน”`
+  );
+  return { forwarded: true, ticketId: ticket.ticketId, created: ticket.created };
 }
 
-async function forwardCustomerReplyIfAdminChatActive(
+async function handleSupportReplyControlCommand(
   text: string,
+  replyToken: string,
+  canonicalUserId: string,
+  lineUserId: string
+): Promise<Record<string, unknown> | null> {
+  const control = parseSupportReplyControl(text);
+  if (!control) return null;
+
+  const intentRef = db.collection("supportReplyIntents").doc(canonicalUserId);
+  if (control.action === "cancel") {
+    await intentRef.delete();
+    await replyToLine(replyToken, "ยกเลิกการตอบแอดมินแล้วครับ ข้อความถัดไปจะกลับไปใช้กับบอทตามปกติ");
+    return { status: "support-reply-intent-cancelled" };
+  }
+
+  const ticketRef = db.collection("supportTickets").doc(control.ticketId);
+  const ticketSnap = await ticketRef.get();
+  const ticket = ticketSnap.data() ?? {};
+  if (!ticketSnap.exists ||
+      ticket.status !== "open" ||
+      String(ticket.canonicalUserId ?? "") !== canonicalUserId) {
+    await replyToLine(replyToken, "ไม่พบเคสที่เปิดอยู่ครับ กรุณาพิมพ์ `แอดมิน` ตามด้วยข้อความเพื่อเปิดเคสใหม่");
+    return { status: "support-reply-ticket-not-found" };
+  }
+
+  const now = Timestamp.now();
+  await intentRef.set({
+    canonicalUserId,
+    lineUserId,
+    ticketId: control.ticketId,
+    expiresAt: Timestamp.fromMillis(now.toMillis() + 10 * 60 * 1000),
+    createdAt: now,
+    updatedAt: now
+  });
+  await replyToLine(
+    replyToken,
+    "พร้อมรับข้อความตอบกลับแล้วครับ\nส่งข้อความถัดไป 1 ข้อความภายใน 10 นาที หรือพิมพ์ `ยกเลิกตอบแอดมิน`"
+  );
+  return { status: "support-reply-intent-set", ticketId: control.ticketId };
+}
+
+async function forwardCustomerReplyIfSupportIntent(
+  text: string,
+  replyToken: string,
   lineUserId: string,
   canonicalUserId: string
 ): Promise<boolean> {
-  const activeChat = await getActiveAdminChat(ADMIN_LINE_USER_ID.value());
-  if (!activeChat || activeChat.targetLineUserId !== lineUserId) {
-    return false;
-  }
+  const normalizedText = normalizeSupportText(text, 2000);
+  if (!normalizedText) return false;
 
-  const profile = await getUserProfile(canonicalUserId);
-  await pushMessage(ADMIN_LINE_USER_ID.value(), `${profile.name} ตอบกลับ:\n${text}`);
-  await db.collection("adminChatMessages").add({
-    adminLineUserId: ADMIN_LINE_USER_ID.value(),
-    targetLineUserId: lineUserId,
-    canonicalUserId,
-    direction: "customer-to-admin",
-    text,
-    createdAt: Timestamp.now()
+  const intentRef = db.collection("supportReplyIntents").doc(canonicalUserId);
+  const forwarded = await db.runTransaction(async (transaction) => {
+    const intentSnap = await transaction.get(intentRef);
+    if (!intentSnap.exists) return null;
+
+    const intent = intentSnap.data() ?? {};
+    const ticketId = String(intent.ticketId ?? "");
+    const expiresAt = normalizeTimestamp(intent.expiresAt);
+    if (!isSafePublicId(ticketId) || !expiresAt || expiresAt.toMillis() <= Date.now()) {
+      transaction.delete(intentRef);
+      return null;
+    }
+
+    const ticketRef = db.collection("supportTickets").doc(ticketId);
+    const ticketSnap = await transaction.get(ticketRef);
+    const ticket = ticketSnap.data() ?? {};
+    if (!ticketSnap.exists ||
+        ticket.status !== "open" ||
+        String(ticket.canonicalUserId ?? "") !== canonicalUserId) {
+      transaction.delete(intentRef);
+      return null;
+    }
+
+    const now = Timestamp.now();
+    const messageRef = ticketRef.collection("messages").doc();
+    transaction.set(messageRef, {
+      messageId: messageRef.id,
+      direction: "customer-to-admin",
+      senderType: "customer",
+      senderLabel: String(ticket.displayName ?? "Member"),
+      text: normalizedText,
+      deliveryStatus: "delivered",
+      createdAt: now
+    });
+    transaction.set(ticketRef, {
+      status: "open" satisfies SupportTicketStatus,
+      state: "waiting-admin" satisfies SupportTicketState,
+      unreadAdmin: FieldValue.increment(1),
+      lastMessageText: normalizedText,
+      lastMessageDirection: "customer-to-admin",
+      lastMessageAt: now,
+      lastCustomerReplyAt: now,
+      messageCount: FieldValue.increment(1),
+      updatedAt: now
+    }, { merge: true });
+    transaction.delete(intentRef);
+    return {
+      ticketId,
+      displayName: String(ticket.displayName ?? "Member")
+    };
   });
+
+  if (!forwarded) return false;
+
+  try {
+    await pushMessage(
+      ADMIN_LINE_USER_ID.value(),
+      `${forwarded.displayName} ตอบกลับเคส ${forwarded.ticketId}\n${normalizedText}\n\nเปิด Inbox: https://mydietitian.web.app/admin#support`
+    );
+  } catch {
+    // The ticket remains safely queued in the dashboard even if the LINE alert fails.
+  }
+  await replyToLine(replyToken, "ส่งคำตอบให้ทีมงานแล้วครับ ข้อความถัดไปจะกลับไปใช้กับบอทตามปกติ");
   return true;
 }
 
-async function getActiveAdminChat(adminLineUserId: string): Promise<{ targetLineUserId: string } | null> {
-  const snap = await db.collection("adminChatSessions").doc(adminLineUserId).get();
-  if (!snap.exists) return null;
+async function getOrCreateOpenSupportTicket(
+  canonicalUserId: string,
+  lineUserId: string,
+  displayName: string
+): Promise<{ ticketId: string; created: boolean }> {
+  const pointerRef = db.collection("supportTicketPointers").doc(canonicalUserId);
+  return db.runTransaction(async (transaction) => {
+    const pointerSnap = await transaction.get(pointerRef);
+    const activeTicketId = String(pointerSnap.data()?.activeTicketId ?? "");
+    if (isSafePublicId(activeTicketId)) {
+      const activeRef = db.collection("supportTickets").doc(activeTicketId);
+      const activeSnap = await transaction.get(activeRef);
+      const active = activeSnap.data() ?? {};
+      if (activeSnap.exists &&
+          active.status === "open" &&
+          String(active.canonicalUserId ?? "") === canonicalUserId) {
+        transaction.set(activeRef, {
+          lineUserId,
+          displayName,
+          updatedAt: Timestamp.now()
+        }, { merge: true });
+        return { ticketId: activeTicketId, created: false };
+      }
+    }
 
-  const data = snap.data() ?? {};
-  const expiresAt = data.expiresAt instanceof Timestamp ? data.expiresAt.toMillis() : 0;
-  if (data.status !== "active" || expiresAt <= Date.now()) {
-    return null;
+    const now = Timestamp.now();
+    const ticketRef = db.collection("supportTickets").doc();
+    transaction.set(ticketRef, {
+      ticketId: ticketRef.id,
+      canonicalUserId,
+      lineUserId,
+      displayName,
+      status: "open" satisfies SupportTicketStatus,
+      state: "waiting-admin" satisfies SupportTicketState,
+      unreadAdmin: 0,
+      messageCount: 0,
+      lastMessageText: "",
+      lastMessageDirection: "",
+      lastMessageAt: now,
+      openedAt: now,
+      createdAt: now,
+      updatedAt: now
+    });
+    transaction.set(pointerRef, {
+      canonicalUserId,
+      lineUserId,
+      activeTicketId: ticketRef.id,
+      updatedAt: now
+    });
+    return { ticketId: ticketRef.id, created: true };
+  });
+}
+
+async function appendCustomerSupportMessage(
+  ticketId: string,
+  input: {
+    canonicalUserId: string;
+    lineUserId: string;
+    displayName: string;
+    text: string;
   }
-
-  return {
-    targetLineUserId: String(data.targetLineUserId)
-  };
+): Promise<void> {
+  const ticketRef = db.collection("supportTickets").doc(ticketId);
+  await db.runTransaction(async (transaction) => {
+    const ticketSnap = await transaction.get(ticketRef);
+    if (!ticketSnap.exists || ticketSnap.data()?.status !== "open") {
+      throw new Error("support-ticket-not-open");
+    }
+    const now = Timestamp.now();
+    const messageRef = ticketRef.collection("messages").doc();
+    transaction.set(messageRef, {
+      messageId: messageRef.id,
+      direction: "customer-to-admin",
+      senderType: "customer",
+      senderLabel: input.displayName,
+      text: input.text,
+      deliveryStatus: "delivered",
+      createdAt: now
+    });
+    transaction.set(ticketRef, {
+      canonicalUserId: input.canonicalUserId,
+      lineUserId: input.lineUserId,
+      displayName: input.displayName,
+      status: "open" satisfies SupportTicketStatus,
+      state: "waiting-admin" satisfies SupportTicketState,
+      unreadAdmin: FieldValue.increment(1),
+      lastMessageText: input.text,
+      lastMessageDirection: "customer-to-admin",
+      lastMessageAt: now,
+      lastCustomerReplyAt: now,
+      messageCount: FieldValue.increment(1),
+      updatedAt: now
+    }, { merge: true });
+  });
 }
 
 async function getUserReadiness(userId: string): Promise<UserReadiness> {
@@ -5726,13 +6198,72 @@ function formatHelpReply(): string {
     "จดน้ำหนัก: `หนัก 65 fat 20 muscle 28`",
     "โค้ช AI: พิมพ์ `กินอะไรดี` หรือถามเรื่องอาหารได้เลย",
     "Dashboard: พิมพ์ `กราฟ` หรือ `dashboard` (ลิงก์มีอายุ 1 ชั่วโมง)",
-    "ตั้งเป้าหมาย/CUT/Bulk: พิมพ์ `ตั้งค่า`"
+    "ตั้งเป้าหมาย/CUT/Bulk: พิมพ์ `ตั้งค่า`",
+    "ติดต่อทีมงาน: `แอดมิน <ข้อความ>` และใช้ปุ่ม “ตอบแอดมิน” เมื่อได้รับคำตอบ"
   ].join("\n");
 }
 
-// Categorised usage guide, ported from the GAS Flex carousel (4 cards) and
-// upgraded with tappable action buttons (message + LIFF/dashboard URIs) so users
-// tap instead of typing commands. Keeps the same sectioned look as GAS.
+function buildSupportReplyMessage(ticketId: string, message: string): LineMessage {
+  return {
+    type: "flex",
+    altText: "ทีมงาน MyDietitian ตอบกลับเคสของคุณ",
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.greenDeep,
+        paddingAll: "20px",
+        spacing: "sm",
+        contents: [
+          { type: "text", text: "MYDIETITIAN SUPPORT", size: "xxs", weight: "bold", color: FLEX_CUSTOMER.headerSub },
+          { type: "text", text: "ข้อความจากทีมงาน", size: "xl", weight: "bold", color: FLEX_CUSTOMER.surface },
+          { type: "text", text: `เคส ${ticketId.slice(0, 8)}`, size: "xs", color: FLEX_CUSTOMER.headerSub }
+        ]
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "20px",
+        spacing: "md",
+        contents: [
+          {
+            type: "box",
+            layout: "vertical",
+            backgroundColor: "#F4F8F5",
+            cornerRadius: "14px",
+            paddingAll: "16px",
+            contents: [
+              { type: "text", text: message, wrap: true, size: "sm", color: FLEX_CUSTOMER.ink }
+            ]
+          },
+          {
+            type: "text",
+            text: "หากต้องการตอบกลับ แตะปุ่มด้านล่าง แล้วส่งข้อความถัดไป 1 ข้อความ",
+            wrap: true,
+            size: "xs",
+            color: FLEX_CUSTOMER.muted
+          }
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "16px",
+        paddingTop: "0px",
+        contents: [{
+          type: "button",
+          style: "primary",
+          color: FLEX_CUSTOMER.green,
+          height: "sm",
+          action: { type: "message", label: "ตอบแอดมิน", text: `ตอบแอดมิน ${ticketId}` }
+        }]
+      }
+    }
+  };
+}
+
 function buildSettingsLinkMessage(settingsUrl: string): LineMessage {
   return {
     type: "flex",
@@ -5774,7 +6305,6 @@ function buildSettingsLinkMessage(settingsUrl: string): LineMessage {
 }
 
 function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessage {
-
   const msgBtn = (label: string, text: string) => ({
     type: "button",
     style: "secondary",
@@ -5789,38 +6319,95 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
     action: { type: "uri", label, uri }
   });
 
-  const card = (
-    backgroundColor: string,
-    color: string,
+  const guideRow = (
+    icon: string,
     title: string,
-    lines: Array<{ text: string; color?: string; weight?: "bold" }>,
+    detail: string
+  ): Record<string, unknown> => ({
+    type: "box",
+    layout: "horizontal",
+    spacing: "md",
+    paddingAll: "12px",
+    backgroundColor: "#F4F8F5",
+    cornerRadius: "12px",
+    contents: [
+      {
+        type: "box",
+        layout: "vertical",
+        width: "36px",
+        height: "36px",
+        backgroundColor: "#E1F2E7",
+        cornerRadius: "18px",
+        justifyContent: "center",
+        alignItems: "center",
+        contents: [{ type: "text", text: icon, size: "md", align: "center" }]
+      },
+      {
+        type: "box",
+        layout: "vertical",
+        flex: 1,
+        spacing: "xs",
+        contents: [
+          { type: "text", text: title, weight: "bold", size: "sm", color: FLEX_CUSTOMER.ink },
+          { type: "text", text: detail, wrap: true, size: "xs", color: FLEX_CUSTOMER.muted }
+        ]
+      }
+    ]
+  });
+
+  const card = (
+    step: string,
+    title: string,
+    subtitle: string,
+    rows: Array<Record<string, unknown>>,
     buttons?: Array<Record<string, unknown>>
   ) => {
-    const contents: Array<Record<string, unknown>> = [];
-    lines.forEach((line, index) => {
-      if (index > 0) contents.push({ type: "separator", margin: "sm" });
-      contents.push({
-        type: "text",
-        text: line.text,
-        wrap: true,
-        size: "sm",
-        color: line.color ?? "#374151",
-        ...(line.weight ? { weight: line.weight } : {})
-      });
-    });
     const bubble: Record<string, unknown> = {
       type: "bubble",
-      size: "kilo",
+      size: "mega",
       header: {
         type: "box",
         layout: "vertical",
-        backgroundColor,
-        contents: [{ type: "text", text: title, weight: "bold", color, size: "md" }]
+        backgroundColor: FLEX_CUSTOMER.greenDeep,
+        paddingAll: "20px",
+        spacing: "sm",
+        contents: [
+          {
+            type: "box",
+            layout: "horizontal",
+            contents: [{
+              type: "box",
+              layout: "vertical",
+              backgroundColor: FLEX_CUSTOMER.surface,
+              cornerRadius: "12px",
+              paddingStart: "10px",
+              paddingEnd: "10px",
+              paddingTop: "4px",
+              paddingBottom: "4px",
+              contents: [{ type: "text", text: step, weight: "bold", size: "xxs", color: FLEX_CUSTOMER.greenDeep }]
+            }, { type: "filler" }]
+          },
+          { type: "text", text: title, weight: "bold", color: FLEX_CUSTOMER.surface, size: "xl", wrap: true },
+          { type: "text", text: subtitle, color: FLEX_CUSTOMER.headerSub, size: "xs", wrap: true }
+        ]
       },
-      body: { type: "box", layout: "vertical", spacing: "sm", contents }
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        paddingAll: "16px",
+        contents: rows
+      }
     };
     if (buttons && buttons.length) {
-      bubble.footer = { type: "box", layout: "vertical", spacing: "sm", paddingAll: "12px", contents: buttons };
+      bubble.footer = {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        paddingAll: "16px",
+        paddingTop: "0px",
+        contents: buttons
+      };
     }
     return bubble;
   };
@@ -5831,34 +6418,36 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
     contents: {
       type: "carousel",
       contents: [
-        card("#E8F5E9", "#146E33", "🍽️ 1. บันทึกและจัดการมื้อ", [
-          { text: "📸 ส่งรูปอาหาร หรือพิมพ์ชื่อ เช่น \"ข้าวมันไก่\"" },
-          { text: "✏️ หลังบันทึก ใช้ปุ่มใต้การ์ดมื้อเพื่อแก้ผล หักของเหลือ หรือลบ", color: "#146E33", weight: "bold" },
-          { text: "✅ ระบบจะแสดงมื้อที่เลือกและให้ยืนยันก่อนเปลี่ยนข้อมูล", color: "#666666" }
-        ]),
-        card("#FFF3E0", "#FF9800", "🏃‍♂️ 2. ร่างกายและกิจกรรม", [
-          { text: "⏱️ บันทึกกิจกรรม เช่น \"วิ่ง 30 นาที\" ระบบจะปรับโควต้าวันนี้ให้" },
-          { text: "⚖️ จดน้ำหนัก เช่น \"หนัก 65 fat 20%\"", color: "#666666" },
-          { text: "🏥 ส่งรายงาน InBody/BIA เป็นรูปหรือ PDF เพื่อให้โค้ชประเมิน", color: "#666666" }
+        card("01 · START", "บันทึกมื้อให้แม่น", "ส่งรูปหรือข้อความ แล้วจัดการมื้อนั้นจากการ์ดได้เลย", [
+          guideRow("📷", "บันทึกอาหาร", "ส่งรูป หรือพิมพ์ชื่ออาหาร เช่น “ข้าวมันไก่”"),
+          guideRow("✏️", "จัดการเฉพาะมื้อ", "แก้ผล หักของเหลือ หรือลบจากปุ่มใต้การ์ด"),
+          guideRow("✓", "ตรวจสอบก่อนบันทึก", "ระบบจะแสดงมื้อที่เลือกและให้ยืนยันทุกครั้ง")
         ], [
-          msgBtn("📋 วิธีออกกำลังกาย", "ออกกำลังกาย")
+          uriBtn("ถ่ายรูปอาหาร", "https://line.me/R/nv/camera/", FLEX_CUSTOMER.green)
         ]),
-        card("#E3F2FD", "#2196F3", "📊 3. ติดตามผลและเป้าหมาย", [
-          { text: "📈 สรุปวันนี้: ดูยอดสารอาหาร มื้อที่บันทึก และทางลัดโค้ช", color: "#374151" },
-          { text: "📊 แดชบอร์ด: ดูกราฟและประวัติผ่านลิงก์ส่วนตัวอายุ 1 ชั่วโมง", color: "#666666" },
-          { text: "⚙️ ตั้งเป้าหมาย หรือให้ระบบค่อย ๆ ลด/เพิ่มเป้าหมายทุกสัปดาห์ด้วย CUT/Bulk", color: "#146E33", weight: "bold" }
+        card("02 · BODY", "ร่างกายและกิจกรรม", "เก็บข้อมูลที่ช่วยให้เป้าหมายรายวันแม่นขึ้น", [
+          guideRow("🏃", "บันทึกกิจกรรม", "เช่น “วิ่ง 30 นาที” ระบบจะปรับโควต้าวันนี้"),
+          guideRow("⚖️", "ติดตามน้ำหนัก", "เช่น “หนัก 65 fat 20 muscle 28”"),
+          guideRow("🧾", "วิเคราะห์ BIA", "ส่งรายงาน InBody/BIA เป็นรูปหรือ PDF")
         ], [
-          msgBtn("📈 สรุปวันนี้", "สรุป"),
-          uriBtn("📊 ดูแดชบอร์ด", dashboardUrl),
-          uriBtn("⚙️ ตั้งค่าเป้าหมาย / โปรแกรม", liffUrl, "#2196F3")
+          msgBtn("ดูวิธีบันทึกกิจกรรม", "ออกกำลังกาย")
         ]),
-        card("#F3E5F5", "#9C27B0", "💡 4. โค้ชและบัญชี", [
-          { text: "🥗 แตะ \"โค้ช AI\" หรือพิมพ์ \"กินอะไรดี\" เพื่อรับเมนูตามยอดวันนี้", color: "#374151" },
-          { text: "👤 เช็ควันคงเหลือด้วย \"เช็คสถานะ\" หรือต่ออายุด้วย \"เติมวัน\"", color: "#666666" },
-          { text: "👨‍⚕️ ติดต่อผู้ดูแลด้วย \"แอดมิน\" หรือใช้สิทธิ์ด้วย \"โค้ด [รหัส]\"", color: "#666666" }
+        card("03 · PROGRESS", "ติดตามความคืบหน้า", "ดูวันนี้ ภาพรวม และปรับแผนให้เข้ากับเป้าหมาย", [
+          guideRow("◎", "สรุปวันนี้", "ดูสารอาหาร มื้อที่บันทึก และคำแนะนำถัดไป"),
+          guideRow("⌁", "Dashboard ส่วนตัว", "ดูกราฟและประวัติผ่านลิงก์อายุ 1 ชั่วโมง"),
+          guideRow("⚙️", "เป้าหมาย / CUT / Bulk", "ตั้งเป้าหมายหรือให้ระบบปรับแผนรายสัปดาห์")
         ], [
-          msgBtn("🥗 กินอะไรดี (AI แนะนำเมนู)", "กินอะไรดี"),
-          msgBtn("🎫 เติมวัน / ต่ออายุ", "เติมวัน")
+          msgBtn("สรุปวันนี้", "สรุป"),
+          uriBtn("เปิด Dashboard", dashboardUrl),
+          uriBtn("ตั้งค่าเป้าหมาย", liffUrl, FLEX_CUSTOMER.green)
+        ]),
+        card("04 · SUPPORT", "โค้ชและความช่วยเหลือ", "รับคำแนะนำ ดูสิทธิ์ และคุยกับทีมงานได้ใน LINE", [
+          guideRow("🥗", "โค้ช AI", "พิมพ์ “กินอะไรดี” เพื่อรับเมนูตามยอดวันนี้"),
+          guideRow("🎫", "บัญชีและวันใช้งาน", "พิมพ์ “เช็คสถานะ” หรือ “เติมวัน”"),
+          guideRow("💬", "ติดต่อทีมงาน", "พิมพ์ “แอดมิน <ข้อความ>” แล้วตอบผ่านปุ่มที่ได้รับ")
+        ], [
+          msgBtn("ให้ AI แนะนำเมนู", "กินอะไรดี"),
+          msgBtn("ติดต่อทีมงาน", "แอดมิน")
         ])
       ]
     }
