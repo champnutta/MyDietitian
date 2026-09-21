@@ -60,6 +60,13 @@ import {
   type VerifiedProfileOwner
 } from "./profile-auth.js";
 import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
+import {
+  bangkokLoggedAtForDayKey,
+  formatThaiShortDayLabel,
+  isBareBackdateCommand,
+  parseMealBackdateCommand,
+  validateLoggedAtDayKey
+} from "./meal-backdate.js";
 import { normalizeSupportText, parseSupportReplyControl } from "./support-utils.js";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
@@ -1076,21 +1083,31 @@ export const getDashboardData = onRequest(async (request, response) => {
       listExerciseHistoryItems(canonicalUserId, startDate, endDate),
       listWeightHistoryItems(canonicalUserId, startDate, endDate)
     ]);
-    const daily = labels.map((key) => ({
-      date: key,
-      calories: history[key].cal,
-      proteinG: history[key].p,
-      carbsG: history[key].c,
-      fatG: history[key].f,
-      fiberG: history[key].fib,
-      burnedCalories: history[key].burn,
-      dynamicTargetCalories: target.cal + history[key].burn,
-      remainingCalories: target.cal + history[key].burn - history[key].cal,
-      weightKg: history[key].weight,
-      bodyFatPct: history[key].fat,
-      muscleMassKg: history[key].muscle,
-      deviceName: history[key].device
-    }));
+    const daily = [];
+    const cursor = new Date(startDate);
+    while (cursor <= endDate) {
+      const key = formatDayKey(cursor);
+      const bucket = history[key];
+      if (bucket) {
+        daily.push({
+          date: key,
+          isoDate: formatBangkokIsoDayKey(cursor),
+          calories: bucket.cal,
+          proteinG: bucket.p,
+          carbsG: bucket.c,
+          fatG: bucket.f,
+          fiberG: bucket.fib,
+          burnedCalories: bucket.burn,
+          dynamicTargetCalories: target.cal + bucket.burn,
+          remainingCalories: target.cal + bucket.burn - bucket.cal,
+          weightKg: bucket.weight,
+          bodyFatPct: bucket.fat,
+          muscleMassKg: bucket.muscle,
+          deviceName: bucket.device
+        });
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
 
     response.json({
       ok: true,
@@ -2379,12 +2396,35 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
     return;
   }
 
+  let loggedAtDayKey: string | undefined;
+  if (body.loggedAtDayKey) {
+    const validation = validateLoggedAtDayKey(String(body.loggedAtDayKey));
+    if (!validation.ok) {
+      response.status(400).json({
+        ok: false,
+        error: validation.error,
+        message: validation.error === "future-day-not-allowed"
+          ? "ไม่สามารถบันทึกมื้อในวันอนาคตได้"
+          : validation.error === "day-too-old"
+            ? "บันทึกย้อนหลังได้ไม่เกิน 14 วัน"
+            : "รูปแบบวันที่ไม่ถูกต้อง (ใช้ YYYY-MM-DD)"
+      });
+      return;
+    }
+    loggedAtDayKey = validation.dayKey;
+  }
+
   try {
     const owner = await requireVerifiedProfileOwner(request, profileIdentityFromRequestBody(body));
     const canonicalUserId = owner.canonicalUserId;
     const readiness = await getUserReadiness(canonicalUserId);
     if (sendReadinessGate(response, readiness)) return;
-    const saved = await analyzeAndSaveMeal({ ...body, canonicalUserId, userId: canonicalUserId });
+    const saved = await analyzeAndSaveMeal({
+      ...body,
+      canonicalUserId,
+      userId: canonicalUserId,
+      loggedAtDayKey
+    });
 
     response.json({
       ok: true,
@@ -2629,8 +2669,14 @@ async function analyzeAndSaveMeal(
     const existingData = existingMeal?.data() ?? {};
     const mealLogRef = existingMeal?.ref ?? db.collection("mealLogs").doc();
     const savedAt = Timestamp.now();
+    const resolvedDay = resolveMealLoggedAt(request.loggedAtDayKey, savedAt.toDate());
+    const loggedAt = existingData.loggedAt ?? resolvedDay.loggedAt;
+    const isBackdated = Boolean(existingData.backdated) || resolvedDay.isBackdated;
+    const intendedDayKey = existingData.intendedDayKey
+      ? String(existingData.intendedDayKey)
+      : resolvedDay.dayKey;
 
-    const mealLog = {
+    const mealLog: Record<string, unknown> = {
       userId: existingData.userId ?? request.userId,
       canonicalUserId: existingData.canonicalUserId ?? request.canonicalUserId ?? request.userId,
       source: existingData.source ?? request.source,
@@ -2662,16 +2708,27 @@ async function analyzeAndSaveMeal(
         promptVersion: agent.promptVersion,
         fallbackUsed
       },
-      loggedAt: existingData.loggedAt ?? savedAt,
+      loggedAt,
       createdAt: existingData.createdAt ?? savedAt,
       updatedAt: savedAt
     };
+    if (isBackdated) {
+      mealLog.backdated = true;
+      mealLog.intendedDayKey = intendedDayKey;
+    }
 
     // Re-analysing a saved meal must retain its identity and timestamp. In
-    // particular, editing a historical entry must never advance today's streak.
-    const streak = existingMeal
-      ? normalizeStreak(existingData)
-      : await updateMealStreak(request.canonicalUserId ?? request.userId, savedAt);
+    // particular, editing or backdating a historical entry must never advance
+    // (or reset) today's streak.
+    const canonicalUserId = request.canonicalUserId ?? request.userId;
+    let streak: ReturnType<typeof normalizeStreak> | Awaited<ReturnType<typeof updateMealStreak>>;
+    if (existingMeal) {
+      streak = normalizeStreak(existingData);
+    } else if (isBackdated) {
+      streak = await readProfileStreak(canonicalUserId);
+    } else {
+      streak = await updateMealStreak(canonicalUserId, loggedAt instanceof Timestamp ? loggedAt : Timestamp.fromDate(loggedAt as Date));
+    }
     const mealLogWithStreak = {
       ...mealLog,
       streak
@@ -2692,7 +2749,8 @@ async function analyzeAndSaveMeal(
         model: agent.model,
         fallbackUsed,
         completedAt: savedAt,
-        output: analysis
+        output: analysis,
+        ...(isBackdated ? { backdated: true, intendedDayKey } : {})
       },
       { merge: true }
     );
@@ -2709,6 +2767,33 @@ async function analyzeAndSaveMeal(
     );
     throw error;
   }
+}
+
+function resolveMealLoggedAt(
+  dayKey: string | undefined,
+  now: Date
+): { loggedAt: Timestamp; dayKey: string; isBackdated: boolean } {
+  const todayKey = formatBangkokIsoDayKey(now);
+  if (!dayKey) {
+    return { loggedAt: Timestamp.fromDate(now), dayKey: todayKey, isBackdated: false };
+  }
+  const validation = validateLoggedAtDayKey(dayKey, now);
+  if (!validation.ok) {
+    throw new Error(validation.error);
+  }
+  if (!validation.isBackdated) {
+    return { loggedAt: Timestamp.fromDate(now), dayKey: validation.dayKey, isBackdated: false };
+  }
+  return {
+    loggedAt: Timestamp.fromDate(bangkokLoggedAtForDayKey(validation.dayKey, now)),
+    dayKey: validation.dayKey,
+    isBackdated: true
+  };
+}
+
+async function readProfileStreak(canonicalUserId: string) {
+  const profileSnap = await db.collection("profiles").doc(canonicalUserId).get();
+  return normalizeStreak(profileSnap.exists ? profileSnap.data() ?? {} : {});
 }
 
 async function updateMealStreak(
@@ -3087,6 +3172,30 @@ async function handleLineEvent(event: LineEvent) {
     return { ok: true, type: event.type, canonicalUserId, status: "subscription-required-before-meal" };
   }
 
+  const backdateFromText = parseMealBackdateCommand(text);
+  if (backdateFromText && !backdateFromText.mealText) {
+    // Absolute date alone (e.g. "19 ก.ย.") acts like a bare backdate command.
+    await db.collection("backdateIntents").doc(canonicalUserId).set({
+      dayKey: backdateFromText.dayKey,
+      label: backdateFromText.label,
+      createdAt: Timestamp.now()
+    });
+    const cfg = await getAppRuntimeConfig();
+    const mealLogUrl = buildLiffMealLogUrl(cfg.liffSettingsUrl, backdateFromText.dayKey);
+    await replyToLineMessages(replyToken, [buildBackdatePromptMessage(mealLogUrl, backdateFromText.label)]);
+    return {
+      ok: true,
+      type: event.type,
+      canonicalUserId,
+      status: "backdate-intent-set",
+      dayKey: backdateFromText.dayKey
+    };
+  }
+
+  const intentDayKey = backdateFromText ? null : await consumeBackdateIntent(canonicalUserId);
+  const loggedAtDayKey = backdateFromText?.dayKey ?? intentDayKey ?? undefined;
+  const mealText = backdateFromText?.mealText || text;
+
   try {
     await showLoadingAnimation(lineUserId, 15);
     const saved = await analyzeAndSaveMeal({
@@ -3094,17 +3203,21 @@ async function handleLineEvent(event: LineEvent) {
       canonicalUserId,
       source: "line",
       inputType: "text",
-      text
+      text: mealText,
+      loggedAtDayKey
     });
 
     await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...saved.mealLog, id: saved.mealLogId });
     return {
       ok: true,
       type: event.type,
-      status: "meal-analyzed-and-replied",
+      status: loggedAtDayKey && saved.mealLog.backdated
+        ? "backdated-meal-analyzed-and-replied"
+        : "meal-analyzed-and-replied",
       canonicalUserId,
       runId: saved.runId,
-      mealLogId: saved.mealLogId
+      mealLogId: saved.mealLogId,
+      loggedAtDayKey: loggedAtDayKey ?? null
     };
   } catch (error) {
     await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์อาหารขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง");
@@ -3127,6 +3240,20 @@ async function markLineMessageIfNew(messageId: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function consumeBackdateIntent(canonicalUserId: string): Promise<string | null> {
+  const ref = db.collection("backdateIntents").doc(canonicalUserId);
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const data = snap.data() ?? {};
+  const createdAt = normalizeTimestamp(data.createdAt);
+  const ageMs = Timestamp.now().toMillis() - (createdAt?.toMillis() ?? 0);
+  await ref.delete();
+  if (ageMs >= 10 * 60 * 1000) return null;
+  const dayKey = String(data.dayKey ?? "");
+  const validation = validateLoggedAtDayKey(dayKey);
+  return validation.ok ? validation.dayKey : null;
 }
 
 async function handleLineImageMessage(
@@ -3154,6 +3281,10 @@ async function handleLineImageMessage(
     const leftoverIntentActive = leftoverIntentSnap.exists &&
       Timestamp.now().toMillis() - (normalizeTimestamp(leftoverIntentSnap.data()?.createdAt)?.toMillis() ?? 0) < 10 * 60 * 1000;
     if (leftoverIntentSnap.exists) await leftoverIntentRef.delete();
+
+    // Backdate intent (from "บันทึกเมื่อวาน" etc.) applies only to a new food
+    // image — leftover intent takes priority when both are somehow present.
+    const backdateDayKey = leftoverIntentActive ? null : await consumeBackdateIntent(canonicalUserId);
 
     // Give the classifier the latest meal name so it can tell a leftover of that
     // meal apart from a new dish (GAS parity).
@@ -3251,19 +3382,23 @@ async function handleLineImageMessage(
       text: "LINE image food analysis",
       imageUrl: `line-message://${messageId}`,
       imageBase64: content.base64,
-      mimeType: content.mimeType
+      mimeType: content.mimeType,
+      loggedAtDayKey: backdateDayKey ?? undefined
     });
 
     await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...saved.mealLog, id: saved.mealLogId });
     return {
       ok: true,
       type: event.type,
-      status: "image-meal-analyzed-and-replied",
+      status: saved.mealLog.backdated
+        ? "backdated-image-meal-analyzed-and-replied"
+        : "image-meal-analyzed-and-replied",
       canonicalUserId,
       runId: saved.runId,
       mealLogId: saved.mealLogId,
       mimeType: content.mimeType,
-      imageType: classification.type
+      imageType: classification.type,
+      loggedAtDayKey: backdateDayKey
     };
   } catch (error) {
     await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์รูปอาหารขัดข้องชั่วคราว กรุณาลองส่งรูปอีกครั้ง");
@@ -3673,6 +3808,28 @@ async function handleLineTextCommand(
     await db.collection("leftoverIntents").doc(canonicalUserId).set({ createdAt: Timestamp.now() });
     await replyToLine(replyToken, "ส่งรูปของเหลือของมื้อล่าสุดมาได้เลยครับ ระบบจะหักออกจากที่บันทึกไว้ให้");
     return { status: "leftover-intent-set" };
+  }
+
+  const bareBackdate = isBareBackdateCommand(text);
+  if (bareBackdate) {
+    const readiness = await getUserReadiness(canonicalUserId);
+    if (!readiness.profileComplete) {
+      await replyWithOnboarding(replyToken, lineUserId);
+      return { status: "profile-required-before-backdate" };
+    }
+    if (!readiness.subscriptionActive) {
+      await handleSubscriptionRequest(replyToken, canonicalUserId, lineUserId, "วันใช้งานหมดแล้วครับ");
+      return { status: "subscription-required-before-backdate" };
+    }
+    await db.collection("backdateIntents").doc(canonicalUserId).set({
+      dayKey: bareBackdate.dayKey,
+      label: bareBackdate.label,
+      createdAt: Timestamp.now()
+    });
+    const cfg = await getAppRuntimeConfig();
+    const mealLogUrl = buildLiffMealLogUrl(cfg.liffSettingsUrl, bareBackdate.dayKey);
+    await replyToLineMessages(replyToken, [buildBackdatePromptMessage(mealLogUrl, bareBackdate.label)]);
+    return { status: "backdate-intent-set", dayKey: bareBackdate.dayKey };
   }
 
   if (text === "ไม่ปรับเป้าหมาย") {
@@ -4451,6 +4608,54 @@ function buildLiffMealPageUrl(liffSettingsUrl: string, page: "meal-edit" | "left
   return url.toString();
 }
 
+function buildLiffMealLogUrl(liffSettingsUrl: string, dayKey?: string): string {
+  const url = new URL(liffSettingsUrl);
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/meal-log`;
+  url.search = "";
+  if (dayKey) url.searchParams.set("date", dayKey);
+  return url.toString();
+}
+
+function buildBackdatePromptMessage(mealLogUrl: string, dayLabel: string): LineMessage {
+  return {
+    type: "flex",
+    altText: `บันทึกมื้อย้อนหลัง · ${dayLabel}`,
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "บันทึกมื้อย้อนหลัง", weight: "bold", size: "lg", color: "#146E33" },
+          {
+            type: "text",
+            text: `จะบันทึกเป็นวันที่ ${dayLabel} ครับ พิมพ์ชื่ออาหาร ส่งรูป หรือเปิดหน้าเลือกวันได้เลย`,
+            wrap: true,
+            size: "sm",
+            color: "#647067"
+          }
+        ]
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: "#146E33",
+            height: "sm",
+            action: { type: "uri", label: "เปิดหน้าเลือกวัน", uri: mealLogUrl }
+          }
+        ]
+      }
+    }
+  };
+}
+
 async function createDashboardAccessUrl(canonicalUserId: string) {
   const token = randomBytes(32).toString("base64url");
   const now = Timestamp.now();
@@ -4832,7 +5037,11 @@ async function getUserProfile(userId: string): Promise<UserProfile> {
 }
 
 async function getTodaySummary(userId: string, profile: UserProfile): Promise<TodaySummary> {
-  const { startDate, endDate } = getBangkokDayRange(new Date());
+  return getDaySummary(userId, profile, new Date());
+}
+
+async function getDaySummary(userId: string, profile: UserProfile, day: Date): Promise<TodaySummary> {
+  const { startDate, endDate } = getBangkokDayRange(day);
   const [mealSnap, exerciseSnap] = await Promise.all([
     db.collection("mealLogs")
       .where("userId", "==", userId)
@@ -6436,10 +6645,11 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
       contents: [
         card("1 / 4", "บันทึกมื้อให้แม่น", "ส่งรูปหรือข้อความ แล้วจัดการมื้อนั้นจากการ์ดได้เลย", [
           guideRow("camera", "บันทึกอาหาร", "ส่งรูป หรือพิมพ์ชื่ออาหาร เช่น “ข้าวมันไก่”"),
-          guideRow("edit", "จัดการเฉพาะมื้อ", "แก้ผล หักของเหลือ หรือลบจากปุ่มใต้การ์ด"),
-          guideRow("check", "ตรวจสอบก่อนบันทึก", "ระบบจะแสดงมื้อที่เลือกและให้ยืนยันทุกครั้ง")
+          guideRow("edit", "บันทึกย้อนหลัง", "พิมพ์ “เมื่อวาน กิน…” หรือ “บันทึกย้อนหลัง” แล้วเลือกวัน"),
+          guideRow("check", "จัดการเฉพาะมื้อ", "แก้ผล หักของเหลือ หรือลบจากปุ่มใต้การ์ด")
         ], [
-          uriBtn("ถ่ายรูปอาหาร", "https://line.me/R/nv/camera/", FLEX_CUSTOMER.green)
+          uriBtn("ถ่ายรูปอาหาร", "https://line.me/R/nv/camera/", FLEX_CUSTOMER.green),
+          msgBtn("บันทึกย้อนหลัง", "บันทึกย้อนหลัง")
         ]),
         card("2 / 4", "ร่างกายและกิจกรรม", "เก็บข้อมูลที่ช่วยให้เป้าหมายรายวันแม่นขึ้น", [
           guideRow("dumbbell", "บันทึกกิจกรรม", "เช่น “วิ่ง 30 นาที” ระบบจะปรับโควต้าวันนี้"),
@@ -6626,7 +6836,8 @@ async function replyWithMealCard(replyToken: string, canonicalUserId: string, li
 
 async function buildMealCardMessage(canonicalUserId: string, mealLog: Record<string, unknown>): Promise<LineMessage> {
   const profile = await getUserProfile(canonicalUserId);
-  const summary = await getTodaySummary(canonicalUserId, profile);
+  const summaryDay = resolveMealCardSummaryDay(mealLog);
+  const summary = await getDaySummary(canonicalUserId, profile, summaryDay);
   const appConfig = await getAppRuntimeConfig();
   const mealLogId = String(mealLog.id ?? "");
   return buildMealReplyMessage(
@@ -6639,6 +6850,19 @@ async function buildMealCardMessage(canonicalUserId: string, mealLog: Record<str
       deleteUrl: mealLogId ? buildLiffMealPageUrl(appConfig.liffSettingsUrl, "meal-delete", mealLogId) : ""
     }
   );
+}
+
+function resolveMealCardSummaryDay(mealLog: Record<string, unknown>): Date {
+  const intended = typeof mealLog.intendedDayKey === "string" ? mealLog.intendedDayKey : "";
+  if (intended && /^\d{4}-\d{2}-\d{2}$/.test(intended)) {
+    const [year, month, day] = intended.split("-").map(Number);
+    return new Date(Date.UTC(year, month - 1, day, 5, 0, 0, 0));
+  }
+  if (mealLog.backdated) {
+    const loggedAt = normalizeTimestamp(mealLog.loggedAt);
+    if (loggedAt) return loggedAt.toDate();
+  }
+  return new Date();
 }
 
 async function pushRefreshedMealCard(canonicalUserId: string, lineUserId: string, mealLogId: string): Promise<boolean> {
@@ -6679,11 +6903,21 @@ function buildMealReplyMessage(
   const portionDescription = String(mealLog.portionDescription ?? "").trim();
   const scoreChip = flexHealthScoreChip(rating.score);
   const mealName = String(mealLog.mealNameTh ?? mealLog.mealNameEn ?? "มื้ออาหาร");
+  const isBackdated = Boolean(mealLog.backdated);
+  const backdateLabel = typeof mealLog.intendedDayKey === "string" && mealLog.intendedDayKey
+    ? formatThaiShortDayLabel(mealLog.intendedDayKey)
+    : "";
 
   const headerContents: Array<Record<string, unknown>> = [
-    { type: "text", text: "บันทึกแล้ว", weight: "bold", size: "lg", color: "#FFFFFF" }
+    {
+      type: "text",
+      text: isBackdated && backdateLabel ? `บันทึกย้อนหลัง · ${backdateLabel}` : "บันทึกแล้ว",
+      weight: "bold",
+      size: "lg",
+      color: "#FFFFFF"
+    }
   ];
-  if (streakCount > 1) {
+  if (!isBackdated && streakCount > 1) {
     headerContents.push({
       type: "box",
       layout: "horizontal",
@@ -6775,12 +7009,19 @@ function buildMealReplyMessage(
     dayConsumed,
     dayRemaining,
     overTarget,
-    streakCount
+    isBackdated ? 0 : streakCount
   );
 
   bodyContents.push(
     { type: "separator", margin: "lg" },
-    { type: "text", text: "ยอดวันนี้", size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, margin: "none" },
+    {
+      type: "text",
+      text: isBackdated && backdateLabel ? `ยอด ${backdateLabel}` : "ยอดวันนี้",
+      size: "sm",
+      weight: "bold",
+      color: FLEX_CUSTOMER.ink,
+      margin: "none"
+    },
     {
       type: "box",
       layout: "horizontal",
@@ -6819,7 +7060,7 @@ function buildMealReplyMessage(
         { type: "text", text: comment, size: "sm", color: FLEX_CUSTOMER.ink, wrap: true, margin: "sm" }
       ]
     });
-  } else if (streakCount <= 1) {
+  } else if (!isBackdated && streakCount <= 1) {
     bodyContents.push({
       type: "text",
       text: "วันแรกที่บันทึก — ไปต่อกันนะ",

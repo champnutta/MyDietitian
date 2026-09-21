@@ -51,6 +51,14 @@
         "destination": "/leftover.html"
       },
       {
+        "source": "/meal-log",
+        "destination": "/meal-log.html"
+      },
+      {
+        "source": "/settings/meal-log",
+        "destination": "/meal-log.html"
+      },
+      {
         "source": "/admin",
         "destination": "/admin.html"
       }
@@ -63,13 +71,13 @@
         ]
       },
       {
-        "source": "/@(settings|dashboard|meal-edit|meal-delete|leftover|admin)",
+        "source": "/@(settings|dashboard|meal-edit|meal-delete|leftover|meal-log|admin)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
         ]
       },
       {
-        "source": "/settings/@(meal-edit|meal-delete|leftover)",
+        "source": "/settings/@(meal-edit|meal-delete|leftover|meal-log)",
         "headers": [
           { "key": "Cache-Control", "value": "no-cache, max-age=0, must-revalidate" }
         ]

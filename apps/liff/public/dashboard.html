@@ -61,6 +61,10 @@
       .meal .nm { font-weight: 600; } .meal .mt { color: var(--muted); font-size: 12px; margin-top: 2px; }
       .meal .kc { font-weight: 700; white-space: nowrap; color: var(--green-d); }
       .empty { color: var(--muted); font-size: 14px; padding: 10px 0; }
+      .add-meal { display: block; width: 100%; margin-top: 12px; min-height: 44px; border: 1px solid #C7ECDE;
+        background: #E7F7F0; color: var(--green-d); border-radius: 12px; font: inherit; font-size: 14px;
+        font-weight: 700; cursor: pointer; text-decoration: none; text-align: center; line-height: 44px; }
+      .add-meal[hidden] { display: none; }
       .toggle { display: flex; gap: 8px; margin-bottom: 14px; }
       .toggle button { flex: 1; padding: 8px 2px; border: 1px solid var(--line); background: #fff;
         border-radius: 10px; font-size: 12.5px; color: var(--muted); cursor: pointer; font-weight: 600; white-space: nowrap; }
@@ -107,8 +111,9 @@
         </div>
         <div class="remain ok" id="todayRemain">—</div>
         <div id="todayMacros"></div>
-        <h3>มื้อวันนี้</h3>
+        <h3 id="todayMealsHeading">มื้อวันนี้</h3>
         <div id="todayMeals"><div class="empty">—</div></div>
+        <a class="add-meal" id="addMealBtn" href="#" hidden>เพิ่มมื้อวันนี้</a>
       </section>
 
       <section class="card" id="trendCard">
@@ -293,6 +298,17 @@
         }).join("");
 
         renderMealList("todayMeals", mealsOn(t.date));
+        const addBtn = document.getElementById("addMealBtn");
+        const mealsHeading = document.getElementById("todayMealsHeading");
+        mealsHeading.textContent = isToday ? "มื้อวันนี้" : `มื้อวันที่ ${t.date || ""}`;
+        const iso = t.isoDate || "";
+        if (iso) {
+          addBtn.hidden = false;
+          addBtn.textContent = isToday ? "เพิ่มมื้อวันนี้" : `เพิ่มมื้อวันที่ ${t.date || ""}`;
+          addBtn.href = `https://liff.line.me/2009365288-Aua3Fli1/meal-log?date=${encodeURIComponent(iso)}`;
+        } else {
+          addBtn.hidden = true;
+        }
       }
 
       function setMacroMode(mode) {

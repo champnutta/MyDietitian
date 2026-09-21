@@ -226,9 +226,13 @@ Leftover image subtraction stores an additional `adjustments[]` entry with `type
   },
   "loggedAt": "timestamp",
   "createdAt": "timestamp",
-  "updatedAt": "timestamp"
+  "updatedAt": "timestamp",
+  "backdated": true,
+  "intendedDayKey": "2026-09-20"
 }
 ```
+
+When a meal is logged for a past Bangkok calendar day (chat prefix like `เมื่อวาน กิน…` or LIFF date picker), `loggedAt` is set to that day (keeping the current Bangkok clock time), `createdAt` stays as the real write time, and `backdated` / `intendedDayKey` are stamped. Backdated meals update that day's totals but do **not** call `updateMealStreak`. Future days and days older than 14 are rejected server-side.
 
 ### `exerciseLogs/{exerciseLogId}`
 
