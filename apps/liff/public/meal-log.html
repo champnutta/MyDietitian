@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <title>บันทึกมื้อย้อนหลัง | MyDietitian</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+      :root { --green:#1f8a43; --green-d:#146e33; --bg:#f4f6f5; --ink:#1f2937; --muted:#6b7280; --line:#dfe7e2; --danger:#c33d2d; }
+      * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans Thai",sans-serif; }
+      main { max-width:560px; margin:0 auto; padding:20px 16px 36px; } h1 { margin:0; font-size:23px; } h2 { margin:0; font-size:18px; } p { line-height:1.5; }
+      .eyebrow { color:var(--green-d); font-size:13px; font-weight:700; margin-bottom:6px; } .hint,.muted { color:var(--muted); font-size:14px; }
+      .card { background:#fff; border-radius:18px; padding:18px; margin:15px 0; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+      label { display:block; color:#48545c; font-size:14px; font-weight:650; margin:0 0 8px; }
+      input[type="date"], textarea { width:100%; border:1px solid var(--line); border-radius:12px; padding:12px; font:inherit; font-size:15px; background:#fff; color:var(--ink); }
+      textarea { min-height:110px; resize:vertical; }
+      .camera { display:grid; place-items:center; min-height:140px; border:2px dashed #a8cdb3; border-radius:16px; background:#f7fbf8; color:var(--green-d); cursor:pointer; margin-top:8px; padding:18px; text-align:center; }
+      .camera b { display:block; font-size:16px; margin-top:8px; } .camera small { color:var(--muted); margin-top:6px; } .camera span { font-size:32px; }
+      img.preview { display:block; max-width:100%; max-height:260px; border-radius:14px; margin:12px auto 0; }
+      .hidden { display:none!important; }
+      button.primary, button.secondary { width:100%; min-height:50px; border:0; border-radius:12px; font:inherit; font-size:16px; font-weight:700; cursor:pointer; margin-top:14px; }
+      button.primary { background:var(--green); color:#fff; } button.secondary { background:#fff; color:var(--green-d); border:1px solid #b8d9c2; }
+      button:disabled { opacity:.55; cursor:wait; }
+      #status { min-height:20px; margin:12px 2px; font-size:14px; color:var(--green-d); } #status.error { color:var(--danger); }
+      .success { text-align:center; padding:28px 12px; } .check { width:58px;height:58px;border-radius:50%;background:#e7f7ed;color:var(--green-d);display:grid;place-items:center;font-size:32px;margin:0 auto 14px; }
+      .notice { background:#eff8f1; color:var(--green-d); border-radius:10px; padding:10px 12px; font-size:14px; margin-top:12px; }
+    </style>
+  </head>
+  <body>
+    <main id="app">
+      <div class="eyebrow">MYDIETITIAN</div>
+      <h1>บันทึกมื้อย้อนหลัง</h1>
+      <p class="hint">เลือกวันที่กินจริง แล้วพิมพ์ชื่ออาหารหรือถ่ายรูป — ยอดจะไปวันนั้นโดยไม่กระทบ streak วันนี้</p>
+      <section class="card" id="formCard">
+        <label for="dayInput">วันที่กิน</label>
+        <input id="dayInput" type="date" required>
+        <div class="notice" id="dayHint">ย้อนหลังได้ไม่เกิน 14 วัน</div>
+        <label for="note" style="margin-top:18px">ชื่ออาหาร / รายละเอียด</label>
+        <textarea id="note" maxlength="600" placeholder="เช่น ข้าวกะเพราหมู ไม่มีไข่ดาว"></textarea>
+        <label style="margin-top:18px">หรือถ่ายรูปอาหาร</label>
+        <label class="camera" for="imageInput"><span>📷</span><b>ถ่ายรูปหรือเลือกจากอัลบั้ม</b><small>JPEG / PNG / WebP</small></label>
+        <input class="hidden" id="imageInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+        <img class="hidden preview" id="previewImage" alt="ภาพอาหารที่เลือก">
+        <button class="primary" id="save" type="button">บันทึกมื้อนี้</button>
+        <button class="secondary" id="close" type="button">กลับไปที่แชต</button>
+      </section>
+      <div id="status" aria-live="polite"></div>
+    </main>
+    <script src="/config.js"></script>
+    <script>
+      const LIFF_ID = "2009365288-Aua3Fli1";
+      const API = `${window.MD_FUNCTIONS_BASE}/`;
+      const params = new URLSearchParams(location.search);
+      const state = { idToken:"", lineUserId:"", file:null, dataUrl:null, mimeType:"" };
+      const $ = (id) => document.getElementById(id);
+
+      $("imageInput").addEventListener("change", chooseImage);
+      $("save").addEventListener("click", save);
+      $("close").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
+      init();
+
+      async function init() {
+        try {
+          setupDateBounds();
+          await liff.init({ liffId: LIFF_ID });
+          if (!liff.isLoggedIn()) { liff.login({ redirectUri: location.href }); return; }
+          state.idToken = liff.getIDToken() || "";
+          const profile = await liff.getProfile();
+          state.lineUserId = profile.userId || "";
+          if (!state.idToken || !state.lineUserId) throw new Error("ไม่สามารถยืนยันตัวตนผ่าน LINE ได้");
+        } catch (error) {
+          setStatus(error.message || "เปิดหน้าไม่สำเร็จ", true);
+        }
+      }
+
+      function bangkokTodayParts() {
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit"
+        }).formatToParts(new Date());
+        const year = Number(parts.find((p) => p.type === "year").value);
+        const month = Number(parts.find((p) => p.type === "month").value);
+        const day = Number(parts.find((p) => p.type === "day").value);
+        return { year, month, day };
+      }
+
+      function toIso(year, month, day) {
+        return `${String(year).padStart(4,"0")}-${String(month).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+      }
+
+      function shiftIso(iso, deltaDays) {
+        const [y, m, d] = iso.split("-").map(Number);
+        const date = new Date(Date.UTC(y, m - 1, d, -7, 0, 0, 0));
+        date.setUTCDate(date.getUTCDate() + deltaDays);
+        const parts = new Intl.DateTimeFormat("en-CA", {
+          timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit"
+        }).formatToParts(date);
+        return `${parts.find((p)=>p.type==="year").value}-${parts.find((p)=>p.type==="month").value}-${parts.find((p)=>p.type==="day").value}`;
+      }
+
+      function setupDateBounds() {
+        const todayParts = bangkokTodayParts();
+        const today = toIso(todayParts.year, todayParts.month, todayParts.day);
+        const min = shiftIso(today, -14);
+        const input = $("dayInput");
+        input.max = today;
+        input.min = min;
+        const requested = params.get("date") || "";
+        input.value = (requested >= min && requested <= today) ? requested : today;
+        $("dayHint").textContent = `เลือกได้ตั้งแต่ ${min} ถึง ${today}`;
+      }
+
+      function chooseImage(event) {
+        const file = event.target.files && event.target.files[0];
+        if (!file) return;
+        if (!["image/jpeg","image/png","image/webp"].includes(file.type)) {
+          setStatus("รองรับเฉพาะ JPEG / PNG / WebP", true);
+          return;
+        }
+        state.file = file;
+        state.mimeType = file.type;
+        const reader = new FileReader();
+        reader.onload = () => {
+          state.dataUrl = String(reader.result || "");
+          $("previewImage").src = state.dataUrl;
+          $("previewImage").classList.remove("hidden");
+          setStatus("");
+        };
+        reader.readAsDataURL(file);
+      }
+
+      async function save() {
+        const button = $("save");
+        const dayKey = $("dayInput").value;
+        const note = $("note").value.trim();
+        if (!dayKey) { setStatus("กรุณาเลือกวันที่", true); return; }
+        if (!note && !state.dataUrl) { setStatus("พิมพ์ชื่ออาหารหรือเลือกรูปอย่างน้อยอย่างใดอย่างหนึ่ง", true); return; }
+        try {
+          button.disabled = true;
+          setStatus("กำลังวิเคราะห์และบันทึก…");
+          const body = {
+            source: "line",
+            loggedAtDayKey: dayKey
+          };
+          if (state.file) {
+            const image = await compressImage(state.file);
+            body.inputType = "image";
+            body.imageBase64 = image.base64;
+            body.mimeType = image.mimeType;
+            body.text = note || "LIFF backdated meal image";
+          } else {
+            body.inputType = "text";
+            body.text = note;
+          }
+          const result = await request("analyzeMeal", body);
+          const label = formatThaiDay(dayKey);
+          $("app").innerHTML = `<div class="success"><div class="check">✓</div><h1>บันทึกมื้อแล้ว</h1><p class="hint">${escapeHtml(result.analysis?.mealNameTh || "มื้ออาหาร")} · ${label}<br>ยอดโภชนาการของวันนั้นได้รับการอัปเดตแล้ว</p><button class="primary" id="done">กลับไปที่แชต</button></div>`;
+          $("done").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
+        } catch (error) {
+          setStatus(error.message || "บันทึกไม่สำเร็จ", true);
+          button.disabled = false;
+        }
+      }
+
+      async function request(path, body) {
+        const response = await fetch(API + path, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Line-Id-Token": state.idToken },
+          body: JSON.stringify({ userId: state.lineUserId, lineUserId: state.lineUserId, ...body })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) throw new Error(result.message || result.error || "ทำรายการไม่สำเร็จ");
+        return result;
+      }
+
+      // Same limits as leftover.html: phone photos are 5–12MB, far past what the
+      // analyzer should receive inline.
+      function compressImage(file) {
+        return new Promise((resolve, reject) => {
+          const image = new Image(); image.onload = () => {
+            const max = 1600, scale = Math.min(1, max / Math.max(image.width, image.height));
+            const canvas = document.createElement("canvas"); canvas.width = Math.round(image.width * scale); canvas.height = Math.round(image.height * scale);
+            canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+            let quality = .82, dataUrl = canvas.toDataURL("image/jpeg", quality);
+            while (dataUrl.length > 2_650_000 && quality > .45) { quality -= .1; dataUrl = canvas.toDataURL("image/jpeg", quality); }
+            if (dataUrl.length > 2_750_000) return reject(new Error("รูปมีขนาดใหญ่เกินไป กรุณาถ่ายใหม่ให้ใกล้ขึ้น"));
+            resolve({ mimeType:"image/jpeg", base64:dataUrl.split(",")[1] });
+          }; image.onerror = () => reject(new Error("ไม่สามารถอ่านรูปภาพได้")); image.src = URL.createObjectURL(file);
+        });
+      }
+
+      function formatThaiDay(iso) {
+        const [y, m, d] = iso.split("-").map(Number);
+        const date = new Date(Date.UTC(y, m - 1, d, 5, 0, 0, 0));
+        return new Intl.DateTimeFormat("th-TH", { timeZone: "Asia/Bangkok", day: "numeric", month: "short", year: "numeric" }).format(date);
+      }
+
+      function escapeHtml(value) {
+        return String(value).replace(/[&<>"']/g, (ch) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[ch]));
+      }
+
+      function setStatus(message, error = false) {
+        const el = $("status");
+        el.textContent = message;
+        el.classList.toggle("error", error);
+      }
+    </script>
+  </body>
+</html>

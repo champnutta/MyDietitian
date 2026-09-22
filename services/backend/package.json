@@ -6,7 +6,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "serve": "firebase emulators:start --only functions",
-    "lint": "tsc -p tsconfig.json --noEmit"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "deploy": "npm run build && node ../../tools/firebase_deploy.js --only functions,hosting",
+    "deploy:functions": "npm run build && node ../../tools/firebase_deploy.js --only functions",
+    "deploy:hosting": "node ../../tools/firebase_deploy.js --only hosting"
   },
   "engines": {
     "node": "22"

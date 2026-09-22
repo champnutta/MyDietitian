@@ -135,6 +135,10 @@ export interface AnalyzeMealRequest {
   // น้ำมันมะกอกกับบัลซามิก ไม่ใช่น้ำตาล"). Passed verbatim so the prompt can
   // reconcile it against the image — fixes dish name, condiments, and macros.
   userCorrection?: string;
+  // Optional Bangkok calendar day (YYYY-MM-DD) to attribute the meal to.
+  // Validated server-side; future days and days older than 14 are rejected.
+  // When omitted, the meal is logged as "now".
+  loggedAtDayKey?: string;
 }
 
 export interface AnalyzeExerciseRequest {
