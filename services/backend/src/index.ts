@@ -2526,13 +2526,23 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
     // The chat's backdate card links here; once the user logs through the page,
     // the pending chat intent must not capture their next real-time meal.
     if (loggedAtDayKey) await clearBackdateIntent(canonicalUserId);
+    // A meal logged from the LIFF day picker has no chat reply of its own, so
+    // push the usual meal card (that day's totals + edit/leftover/delete
+    // buttons) to the user's LINE chat.
+    // Only the token-verified LINE id: body.lineUserId is caller-supplied and
+    // would let a request push someone's meal card to another chat.
+    const pushLineUserId = owner.lineUserId;
+    const cardPushed = loggedAtDayKey && pushLineUserId
+      ? await pushRefreshedMealCard(canonicalUserId, pushLineUserId, saved.mealLogId)
+      : false;
 
     response.json({
       ok: true,
       canonicalUserId,
       runId: saved.runId,
       mealLogId: saved.mealLogId,
-      analysis: saved.mealLog
+      analysis: saved.mealLog,
+      cardPushed
     });
   } catch (error) {
     if (error instanceof ProfileAuthError) {
