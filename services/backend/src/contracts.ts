@@ -217,7 +217,14 @@ export interface ConfirmLeftoverFromLiffRequest extends LiffMealRequestIdentity 
 
 export interface DeleteMealFromLiffRequest extends GetMealForLiffRequest {}
 
+export interface GetExerciseForLiffRequest extends LiffMealRequestIdentity {
+  exerciseLogId: string;
+}
+
+export interface DeleteExerciseFromLiffRequest extends GetExerciseForLiffRequest {}
+
 export interface MealAnalysisResult {
+  analysis_status?: "ok" | "unclear_image";
   dish_name: {
     th: string;
     en: string;
@@ -238,7 +245,7 @@ export interface MealAnalysisResult {
 }
 
 export interface ImageClassificationResult {
-  type: "food" | "slip" | "bia" | "leftover" | "other";
+  type: "food" | "unclear_food" | "slip" | "bia" | "leftover" | "other";
   confidence?: number;
   slip_data?: {
     amount?: number;

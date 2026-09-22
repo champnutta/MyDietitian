@@ -40,6 +40,13 @@ type GeminiGenerationConfig = {
 // message cap.
 const COACH_MAX_OUTPUT_TOKENS = 2048;
 
+export class MealImageUnclearError extends Error {
+  constructor(message = "The image does not contain enough recognizable food detail for a reliable estimate") {
+    super(message);
+    this.name = "MealImageUnclearError";
+  }
+}
+
 type AiProviderApiKeys = {
   gemini?: string;
   anthropic?: string;
@@ -103,10 +110,23 @@ export async function callGeminiMealAnalysis(
       temperature: agent.temperature,
       response_mime_type: "application/json"
     },
-    errorPrefix: "Gemini meal analysis"
+    errorPrefix: "Gemini meal analysis",
+    jsonFailureError: request.inputType === "image"
+      ? () => new MealImageUnclearError()
+      : undefined
   });
 
-  return parseJsonOutput(text);
+  const parsed = parseJsonOutput<unknown>(text);
+  if (!isMealAnalysisResult(parsed)) {
+    if (request.inputType === "image") {
+      throw new MealImageUnclearError("The image analysis did not contain a usable food estimate");
+    }
+    throw new Error("Meal analysis returned an invalid result structure");
+  }
+  if (request.inputType === "image" && parsed.analysis_status === "unclear_image") {
+    throw new MealImageUnclearError();
+  }
+  return parsed;
 }
 
 export async function callGeminiLeftoverAnalysis(
@@ -322,8 +342,10 @@ async function callGeminiWithFallback(input: {
   anthropicImage?: { base64: string; mimeType: string };
   generationConfig: GeminiGenerationConfig;
   errorPrefix: string;
+  jsonFailureError?: () => Error;
 }): Promise<string> {
   const errors: string[] = [];
+  let jsonParseFailureCount = 0;
   for (const candidate of expandGeminiCandidates(input.agent)) {
     try {
       let text: string;
@@ -365,6 +387,7 @@ async function callGeminiWithFallback(input: {
       input.agent.temperature = candidate.temperature;
       return text;
     } catch (error) {
+      if (error instanceof SyntaxError) jsonParseFailureCount += 1;
       errors.push(`${candidate.provider}/${candidate.model}: ${error instanceof Error ? error.message : String(error)}`);
       console.warn(`${input.errorPrefix} candidate failed`, {
         provider: candidate.provider,
@@ -374,6 +397,9 @@ async function callGeminiWithFallback(input: {
     }
   }
 
+  if (input.jsonFailureError && errors.length > 0 && jsonParseFailureCount === errors.length) {
+    throw input.jsonFailureError();
+  }
   throw new Error(`${input.errorPrefix} failed for all candidates: ${errors.join(" | ")}`);
 }
 
@@ -607,6 +633,12 @@ STEP 2 — Identify the SPECIFIC main dish from its distinctive visual cues — 
 
 ${inputHint}${correctionHint}
 
+Image quality gate:
+- For image input, first decide whether enough edible food and portion detail is visible for a credible nutrition estimate.
+- If the image is too blurry, dark, obstructed, tightly cropped, shows only closed packaging, is not actually food, or otherwise cannot support a credible estimate, set "analysis_status" to "unclear_image", use neutral names, and return zeros. Do NOT guess.
+- Otherwise set "analysis_status" to "ok".
+- For text input, always set "analysis_status" to "ok".
+
 Analysis priority:
 1. Inventory every edible item across all containers, then identify the specific main dish (as described above).
 2. The nutrient totals MUST be the SUM of ALL items you inventoried — every protein, side, and the contents of any separate bag/packet — not just the main dish.
@@ -623,6 +655,7 @@ Language: "dish_name.th", "portion_description", and "health_rating.comment" MUS
 
 Return JSON only with this exact shape:
 {
+  "analysis_status": "ok" | "unclear_image",
   "dish_name": { "th": "Thai dish name", "en": "English dish name" },
   "portion_description": "Detailed Thai assessment of portion, visible components, sides/sauces, and key uncertainty",
   "nutrients": {
@@ -682,7 +715,7 @@ function buildImageClassificationPrompt(latestMealName = ""): string {
 
 Return JSON only with this exact shape:
 {
-  "type": "food" | "slip" | "bia" | "leftover" | "other",
+  "type": "food" | "unclear_food" | "slip" | "bia" | "leftover" | "other",
   "confidence": 0.0,
   "slip_data": {
     "amount": 0,
@@ -698,7 +731,8 @@ Rules:
 - "slip" means bank transfer slip, payment confirmation, QR payment receipt, or mobile banking transfer screenshot.
 - "bia" means InBody/body composition/smart scale/medical report/table of health metrics.
 - "leftover" means a mostly eaten meal, empty/near-empty plate, bones, sauce/soup residue, wrappers, or scraps intended to subtract from the latest food log.
-- "food" means food, drink, snack, menu, or nutrition label.
+- "food" means food, drink, snack, menu, or nutrition label with enough visible detail to support a credible nutrition estimate.
+- "unclear_food" means the image probably contains food, but it is too blurry, dark, obstructed, tightly cropped, hidden inside closed packaging, or otherwise lacks enough visible detail for a credible estimate. Use this instead of guessing "food".
 - "other" means anything else.
 - If not a payment slip, omit slip_data or set fields empty.
 - Use numeric amount only when visible.${leftoverContext}`;
@@ -779,7 +813,27 @@ Rules:
 }
 
 function normalizeImageType(type: unknown): ImageClassificationResult["type"] {
+  if (type === "unclear_food" || type === "unclear-food" || type === "unclear") return "unclear_food";
   return type === "slip" || type === "bia" || type === "leftover" || type === "other" ? type : "food";
+}
+
+function isMealAnalysisResult(value: unknown): value is MealAnalysisResult {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Partial<MealAnalysisResult>;
+  return Boolean(
+    result.dish_name &&
+    typeof result.dish_name.th === "string" &&
+    typeof result.dish_name.en === "string" &&
+    typeof result.portion_description === "string" &&
+    result.nutrients &&
+    typeof result.nutrients.calories_kcal === "number" &&
+    typeof result.nutrients.protein_g === "number" &&
+    typeof result.nutrients.carbs_g === "number" &&
+    typeof result.nutrients.fat_g === "number" &&
+    result.health_rating &&
+    typeof result.health_rating.score === "number" &&
+    typeof result.health_rating.comment === "string"
+  );
 }
 
 function buildExercisePrompt(request: AnalyzeExerciseRequest): string {

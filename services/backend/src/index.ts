@@ -10,7 +10,8 @@ import {
   callGeminiImageClassification,
   callGeminiLeftoverAnalysis,
   callGeminiMealAnalysis,
-  getAiAgentConfig
+  getAiAgentConfig,
+  MealImageUnclearError
 } from "./ai-provider.js";
 import type {
   AnalyzeExerciseRequest,
@@ -19,7 +20,9 @@ import type {
   CoachConsultationRequest,
   ConfirmLeftoverFromLiffRequest,
   DashboardDataRequest,
+  DeleteExerciseFromLiffRequest,
   DeleteMealFromLiffRequest,
+  GetExerciseForLiffRequest,
   GetMealForLiffRequest,
   LinkLineAccountRequest,
   LineWebhookEvent,
@@ -60,6 +63,7 @@ import {
   type VerifiedProfileOwner
 } from "./profile-auth.js";
 import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
+import { isDeleteExerciseCommand, looksLikeExerciseLog } from "./exercise-detection.js";
 import { normalizeSupportText, parseSupportReplyControl } from "./support-utils.js";
 import {
   DEFAULT_SUBSCRIPTION_PLANS,
@@ -78,6 +82,11 @@ const DEFAULT_APP_RUNTIME_CONFIG: AppRuntimeConfig = {
   liffSettingsUrl: "https://liff.line.me/2009365288-Aua3Fli1?page=form&v=20260620b",
   paymentQrImage: "https://img2.pic.in.th/1613478.jpg"
 };
+
+const UNREADABLE_FOOD_IMAGE_REPLY = [
+  "ยังไม่แน่ใจว่าภาพนี้เป็นอาหารครับ เลยยังไม่ประเมินและไม่บันทึกมื้อนี้",
+  "ลองถ่ายใหม่ให้เห็นอาหารทั้งจาน มีแสงชัดขึ้น หรือส่งจากมุมอื่นอีกครั้งนะครับ"
+].join("\n");
 
 const AI_PROVIDER_SECRETS = [GEMINI_API_KEY, ANTHROPIC_API_KEY];
 
@@ -1284,6 +1293,75 @@ export const deleteMealFromLiff = onRequest(async (request, response) => {
   }
 });
 
+export const getExerciseForLiff = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  const body = request.body as GetExerciseForLiffRequest;
+  try {
+    const owner = await resolveLiffMealOwner(request, body);
+    const exercise = await getOwnedExerciseLog(owner.canonicalUserId, body.exerciseLogId);
+    if (!exercise) {
+      response.status(404).json({ ok: false, error: "exercise-not-found", message: "ไม่พบรายการออกกำลังกายนี้" });
+      return;
+    }
+    response.json({ ok: true, exercise: serializeExerciseForLiff(exercise.id, exercise.data() ?? {}) });
+  } catch (error) {
+    respondToLiffMealError(response, error);
+  }
+});
+
+export const deleteExerciseFromLiff = onRequest(async (request, response) => {
+  if (handleCorsPreflight(request, response)) return;
+  if (request.method !== "POST") {
+    response.status(405).json({ ok: false, error: "method-not-allowed" });
+    return;
+  }
+  const body = request.body as DeleteExerciseFromLiffRequest;
+  try {
+    const owner = await resolveLiffMealOwner(request, body);
+    const exercise = await getOwnedExerciseLog(owner.canonicalUserId, body.exerciseLogId);
+    if (!exercise) {
+      response.status(404).json({ ok: false, error: "exercise-not-found", message: "ไม่พบรายการออกกำลังกายนี้" });
+      return;
+    }
+
+    const data = exercise.data() ?? {};
+    const activityName = String(data.activityName ?? data.exerciseName ?? "ออกกำลังกาย");
+    const caloriesBurned = Math.max(0, Math.round(Number(data.caloriesBurned ?? 0)));
+    const eventRef = db.collection("profileEvents").doc();
+    const batch = db.batch();
+    batch.delete(exercise.ref);
+    batch.set(eventRef, {
+      type: "exercise-delete-from-liff",
+      canonicalUserId: owner.canonicalUserId,
+      lineUserId: owner.lineUserId,
+      exerciseLogId: exercise.id,
+      activityName,
+      caloriesBurned,
+      deletedAt: Timestamp.now()
+    });
+    await batch.commit();
+
+    const profile = await getUserProfile(owner.canonicalUserId);
+    const summary = await getTodaySummary(owner.canonicalUserId, profile);
+    response.json({
+      ok: true,
+      exerciseLogId: exercise.id,
+      activityName,
+      removedCalorieCredit: caloriesBurned,
+      today: {
+        dynamicTargetCalories: Math.round(summary.dynamicTarget),
+        remainingCalories: Math.round(summary.remaining.cal)
+      }
+    });
+  } catch (error) {
+    respondToLiffMealError(response, error);
+  }
+});
+
 // Allowlist of admin Google accounts for the admin web app. Move to Firestore
 // config once the admin app can manage it.
 const ADMIN_EMAILS = ["znak.iiz@gmail.com"];
@@ -1339,13 +1417,12 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
 
   // Avoid a status+createdAt composite index by fetching pending reviews
   // unordered and sorting in memory.
-  const [usersCount, expiredSubs, newUsers7, mealsToday, pendingCount, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap, openSupportCount] = await Promise.all([
+  const [usersCount, expiredSubs, newUsers7, mealsToday, pendingSnap, aiRunsSnap, meals14Snap, reviews30Snap, activeSubsSnap, profilesSnap, auditSnap, aiAgentsSnap, openSupportCount] = await Promise.all([
     db.collection("users").count().get(),
     db.collection("subscriptions").where("expiresAt", "<", now).count().get(),
     db.collection("users").where("createdAt", ">=", since7).count().get(),
     db.collection("mealLogs").where("loggedAt", ">=", Timestamp.fromDate(todayStart)).count().get(),
-    db.collection("paymentReviews").where("status", "==", "pending-admin-review").count().get(),
-    db.collection("paymentReviews").where("status", "==", "pending-admin-review").limit(50).get(),
+    db.collection("paymentReviews").where("status", "==", "pending-admin-review").limit(450).get(),
     db.collection("aiRuns").where("createdAt", ">=", since7).get(),
     db.collection("mealLogs").where("loggedAt", ">=", since14).get(),
     db.collection("paymentReviews").where("createdAt", ">=", since30).get(),
@@ -1398,9 +1475,18 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
 
   // Approved-slip revenue over the last 30 days.
   let revenue30 = 0;
+  const latestDecisionAtByUser = new Map<string, number>();
   reviews30Snap.forEach((doc) => {
     const data = doc.data();
-    if (data.status === "approved") revenue30 += Number(data.amount) || 0;
+    if (data.status === "approved") revenue30 += Number(data.amount ?? data.slipData?.amount) || 0;
+    if (data.status === "pending-admin-review") return;
+    const canonicalUserId = String(data.canonicalUserId ?? "");
+    const decidedAt = normalizeTimestamp(data.reviewedAt ?? data.updatedAt);
+    if (!canonicalUserId || !decidedAt) return;
+    latestDecisionAtByUser.set(
+      canonicalUserId,
+      Math.max(latestDecisionAtByUser.get(canonicalUserId) ?? 0, decidedAt.toMillis())
+    );
   });
 
   // Retention: paying users (active subscription) who have gone quiet. No meal in
@@ -1478,13 +1564,22 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
     };
   });
 
-  const pending = pendingSnap.docs.map((doc) => {
+  // Older duplicate slips can survive when an operator approves only the newest
+  // one. A later decision for the same user makes those older rows non-actionable.
+  const actionablePendingDocs = pendingSnap.docs.filter((doc) => {
+    const data = doc.data();
+    const canonicalUserId = String(data.canonicalUserId ?? "");
+    const createdAt = normalizeTimestamp(data.createdAt);
+    const latestDecisionAt = latestDecisionAtByUser.get(canonicalUserId);
+    return !createdAt || !latestDecisionAt || createdAt.toMillis() > latestDecisionAt;
+  });
+  const pending = actionablePendingDocs.map((doc) => {
     const data = doc.data();
     return {
       id: doc.id,
       lineUserId: data.lineUserId ?? null,
       canonicalUserId: data.canonicalUserId ?? null,
-      amount: data.amount ?? null,
+      amount: data.amount ?? data.slipData?.amount ?? null,
       createdAt: timestampToIso(data.createdAt)
     };
   }).sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? ""))).slice(0, 20);
@@ -1502,7 +1597,7 @@ export const getAdminMonitoring = onRequest(async (request, response) => {
       expiringSoon: expiringSoonAll.length,
       expired: expiredSubs.data().count,
       revenue30d: revenue30,
-      pendingReviews: pendingCount.data().count,
+      pendingReviews: actionablePendingDocs.length,
       supportOpen: openSupportCount.data().count,
       mealsToday: mealsToday.data().count,
       aiRuns7d: aiTotal,
@@ -1946,7 +2041,7 @@ export const adminPushToUsers = onRequest(
   }
 );
 
-export const getSupportTickets = onRequest(async (request, response) => {
+export const getSupportTickets = onRequest({ invoker: "public" }, async (request, response) => {
   if (handleCorsPreflight(request, response)) return;
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
@@ -1997,7 +2092,7 @@ export const getSupportTickets = onRequest(async (request, response) => {
   }
 });
 
-export const getSupportThread = onRequest(async (request, response) => {
+export const getSupportThread = onRequest({ invoker: "public" }, async (request, response) => {
   if (handleCorsPreflight(request, response)) return;
   if (request.method !== "POST") {
     response.status(405).json({ ok: false, error: "method-not-allowed" });
@@ -2070,7 +2165,7 @@ export const getSupportThread = onRequest(async (request, response) => {
 });
 
 export const replySupportTicket = onRequest(
-  { secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 60 },
+  { secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 60, invoker: "public" },
   async (request, response) => {
     if (handleCorsPreflight(request, response)) return;
     if (request.method !== "POST") {
@@ -2156,7 +2251,7 @@ export const replySupportTicket = onRequest(
 );
 
 export const closeSupportTicket = onRequest(
-  { secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 60 },
+  { secrets: [LINE_CHANNEL_ACCESS_TOKEN], timeoutSeconds: 60, invoker: "public" },
   async (request, response) => {
     if (handleCorsPreflight(request, response)) return;
     if (request.method !== "POST") {
@@ -2396,6 +2491,14 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
   } catch (error) {
     if (error instanceof ProfileAuthError) {
       sendProfileAuthError(response, error);
+      return;
+    }
+    if (error instanceof MealImageUnclearError) {
+      response.status(422).json({
+        ok: false,
+        error: "meal-image-unclear",
+        message: error.message
+      });
       return;
     }
     response.status(500).json({
@@ -2700,11 +2803,17 @@ async function analyzeAndSaveMeal(
     return { runId: aiRunRef.id, mealLogId: mealLogRef.id, mealLog: mealLogWithStreak };
   } catch (error) {
     await aiRunRef.set(
-      {
-        status: "failed",
-        failedAt: Timestamp.now(),
-        error: error instanceof Error ? error.message : String(error)
-      },
+      error instanceof MealImageUnclearError
+        ? {
+            status: "not-analyzable",
+            rejectedAt: Timestamp.now(),
+            reason: "unclear-image"
+          }
+        : {
+            status: "failed",
+            failedAt: Timestamp.now(),
+            error: error instanceof Error ? error.message : String(error)
+          },
       { merge: true }
     );
     throw error;
@@ -3233,8 +3342,13 @@ async function handleLineImageMessage(
       };
     }
 
+    if (classifiedType === "unclear_food") {
+      await replyToLine(replyToken, UNREADABLE_FOOD_IMAGE_REPLY);
+      return { ok: true, type: event.type, status: "unclear-food-image-replied", canonicalUserId };
+    }
+
     if (classifiedType === "other") {
-      await replyToLine(replyToken, "ยังไม่สามารถอ่านรูปนี้ได้ครับ กรุณาส่งรูปอาหาร สลิปโอนเงิน หรือรายงาน BIA ที่เห็นชัด");
+      await replyToLine(replyToken, UNREADABLE_FOOD_IMAGE_REPLY);
       return { ok: true, type: event.type, status: "other-image-replied", canonicalUserId };
     }
 
@@ -3266,6 +3380,15 @@ async function handleLineImageMessage(
       imageType: classification.type
     };
   } catch (error) {
+    if (error instanceof MealImageUnclearError) {
+      await replyToLine(replyToken, UNREADABLE_FOOD_IMAGE_REPLY);
+      return {
+        ok: true,
+        type: event.type,
+        status: "unclear-food-image-replied",
+        canonicalUserId
+      };
+    }
     await replyToLine(replyToken, "ขออภัยครับ ระบบวิเคราะห์รูปอาหารขัดข้องชั่วคราว กรุณาลองส่งรูปอีกครั้ง");
     return {
       ok: false,
@@ -3537,6 +3660,7 @@ async function handleSlipPaymentImage(input: {
     canonicalUserId: input.canonicalUserId,
     lineUserId: input.lineUserId,
     displayName: profile.name,
+    amount,
     status: "pending-admin-review",
     source: "line-image",
     lineMessageId: input.messageId,
@@ -3818,7 +3942,11 @@ async function handleLineTextCommand(
     });
     const profile = await getUserProfile(canonicalUserId);
     const summary = await getTodaySummary(canonicalUserId, profile);
-    await replyToLine(replyToken, formatExerciseReply(saved.exerciseLog, summary));
+    await replyToLineMessages(replyToken, [await buildExerciseCardMessage(
+      canonicalUserId,
+      { ...saved.exerciseLog, id: saved.exerciseLogId },
+      summary
+    )]);
     return {
       status: "exercise-logged",
       runId: saved.runId,
@@ -3846,6 +3974,22 @@ async function handleLineTextCommand(
       await createDashboardAccessUrl(canonicalUserId)
     )]);
     return { status: "daily-summary-replied" };
+  }
+
+  if (isDeleteExerciseCommand(text)) {
+    const result = await deleteLastExerciseLog(canonicalUserId);
+    if (!result.deleted) {
+      await replyToLine(replyToken, result.message);
+      return { status: "last-exercise-not-found" };
+    }
+    const profile = await getUserProfile(canonicalUserId);
+    const summary = await getTodaySummary(canonicalUserId, profile);
+    await replyToLine(replyToken, [
+      result.message,
+      `เป้าหมายวันนี้กลับเป็น ${Math.round(summary.dynamicTarget)} kcal`,
+      `ยังกินได้อีก ${Math.round(summary.remaining.cal)} kcal`
+    ].join("\n"));
+    return { status: "last-exercise-deleted", exerciseLogId: result.exerciseLogId };
   }
 
   if (text === "ลบ" || text === "ยกเลิก" || lower === "undo") {
@@ -4236,25 +4380,27 @@ async function handleAdminSubscriptionCommand(
 
   if (command.action === "reject") {
     const now = Timestamp.now();
-    const pendingReview = await getLatestPendingPaymentReview(target.canonicalUserId);
+    const pendingReviews = await getPendingPaymentReviews(target.canonicalUserId);
     const reviewPayload = {
       status: "rejected",
+      adminDecision: "rejected",
       reason: command.reason,
       reviewedBy: adminLineUserId,
       reviewedAt: now,
       updatedAt: now
     };
-    if (pendingReview) {
-      await pendingReview.ref.set(reviewPayload, { merge: true });
+    const batch = db.batch();
+    if (pendingReviews.length) {
+      pendingReviews.forEach((review) => batch.set(review.ref, reviewPayload, { merge: true }));
     } else {
-      await db.collection("paymentReviews").add({
+      batch.set(db.collection("paymentReviews").doc(), {
         canonicalUserId: target.canonicalUserId,
         lineUserId: target.lineUserId,
         ...reviewPayload,
         createdAt: now
       });
     }
-    await db.collection("subscriptionEvents").add({
+    batch.set(db.collection("subscriptionEvents").doc(), {
       type: "admin-reject",
       canonicalUserId: target.canonicalUserId,
       lineUserId: target.lineUserId,
@@ -4262,6 +4408,7 @@ async function handleAdminSubscriptionCommand(
       adminLineUserId,
       createdAt: now
     });
+    await batch.commit();
     if (target.lineUserId) {
       await pushMessage(target.lineUserId, "สลิปของคุณยังไม่ผ่านการตรวจสอบครับ กรุณาติดต่อแอดมินหรือลองส่งใหม่อีกครั้ง");
     }
@@ -4274,12 +4421,14 @@ async function handleAdminSubscriptionCommand(
     await replyToLine(replyToken, "แพ็กเกจ/จำนวนวันไม่ถูกต้องครับ เช่น `อนุมัติ Uxxxxxxxx 30`, `approve Uxxxxxxxx 90d`, หรือ `approve Uxxxxxxxx lifetime`");
     return { ok: false, reason: "invalid-subscription-grant", grantInput: command.grantInput };
   }
-  const currentExpiry = await getSubscriptionExpiry(target.canonicalUserId);
+  const [currentExpiry, pendingReviews] = await Promise.all([
+    getSubscriptionExpiry(target.canonicalUserId),
+    getPendingPaymentReviews(target.canonicalUserId)
+  ]);
   const expiresAt = grant.lifetime ? null : subscriptionExpiryAfterDays(grant.days ?? 0, currentExpiry);
   const now = Timestamp.now();
-  const pendingReview = await getLatestPendingPaymentReview(target.canonicalUserId);
-  await Promise.all([
-    db.collection("subscriptions").doc(target.canonicalUserId).set({
+  const batch = db.batch();
+  batch.set(db.collection("subscriptions").doc(target.canonicalUserId), {
       userId: target.canonicalUserId,
       canonicalUserId: target.canonicalUserId,
       status: "active",
@@ -4293,21 +4442,26 @@ async function handleAdminSubscriptionCommand(
       lastApprovedBy: adminLineUserId,
       lastApprovedAt: now,
       updatedAt: now
-    }, { merge: true }),
-    db.collection("users").doc(target.canonicalUserId).set({
+    }, { merge: true });
+  batch.set(db.collection("users").doc(target.canonicalUserId), {
       subscriptionStatus: "active",
       subscriptionExpiresAt: expiresAt,
       subscriptionLifetime: grant.lifetime,
       updatedAt: now
-    }, { merge: true }),
-    db.collection("profiles").doc(target.canonicalUserId).set({
+    }, { merge: true });
+  batch.set(db.collection("profiles").doc(target.canonicalUserId), {
       expiresAt,
       lifetime: grant.lifetime,
       updatedAt: now
-    }, { merge: true }),
-    pendingReview
-      ? pendingReview.ref.set({
+    }, { merge: true });
+
+  let approvedReviewId: string | null = null;
+  if (pendingReviews.length) {
+    const [approvedReview, ...duplicateReviews] = pendingReviews;
+    approvedReviewId = approvedReview.id;
+    batch.set(approvedReview.ref, {
         status: "approved",
+        adminDecision: "approved",
         days: grant.days,
         planId: grant.planId,
         planLabel: grant.labelTh,
@@ -4316,11 +4470,23 @@ async function handleAdminSubscriptionCommand(
         reviewedBy: adminLineUserId,
         reviewedAt: now,
         updatedAt: now
-      }, { merge: true })
-      : db.collection("paymentReviews").add({
+      }, { merge: true });
+    duplicateReviews.forEach((review) => batch.set(review.ref, {
+      status: "superseded",
+      adminDecision: "superseded-by-approval",
+      supersededByPaymentReviewId: approvedReview.id,
+      reviewedBy: adminLineUserId,
+      reviewedAt: now,
+      updatedAt: now
+    }, { merge: true }));
+  } else {
+    const approvedReview = db.collection("paymentReviews").doc();
+    approvedReviewId = approvedReview.id;
+    batch.set(approvedReview, {
         canonicalUserId: target.canonicalUserId,
         lineUserId: target.lineUserId,
         status: "approved",
+        adminDecision: "approved",
         days: grant.days,
         planId: grant.planId,
         planLabel: grant.labelTh,
@@ -4329,9 +4495,11 @@ async function handleAdminSubscriptionCommand(
         reviewedBy: adminLineUserId,
         reviewedAt: now,
         createdAt: now
-      }),
-    db.collection("subscriptionEvents").add({
+      });
+  }
+  batch.set(db.collection("subscriptionEvents").doc(), {
       type: "admin-approve",
+      paymentReviewId: approvedReviewId,
       canonicalUserId: target.canonicalUserId,
       lineUserId: target.lineUserId,
       days: grant.days,
@@ -4342,8 +4510,8 @@ async function handleAdminSubscriptionCommand(
       expiresAt,
       adminLineUserId,
       createdAt: now
-    })
-  ]);
+    });
+  await batch.commit();
 
   if (target.lineUserId) {
     await pushMessage(target.lineUserId, `ชำระเงินสำเร็จ ระบบเปิดสิทธิ์ ${grant.labelTh}\nหมดอายุ: ${formatSubscriptionStatus(expiresAt, grant.lifetime)}`);
@@ -4388,14 +4556,14 @@ async function resolveSubscriptionTarget(target: string): Promise<SubscriptionTa
   };
 }
 
-async function getLatestPendingPaymentReview(canonicalUserId: string) {
+async function getPendingPaymentReviews(canonicalUserId: string) {
   const snap = await db.collection("paymentReviews")
     .where("canonicalUserId", "==", canonicalUserId)
     .where("status", "==", "pending-admin-review")
     .orderBy("createdAt", "desc")
-    .limit(1)
+    .limit(450)
     .get();
-  return snap.empty ? null : snap.docs[0];
+  return snap.docs;
 }
 
 async function getSubscriptionExpiry(canonicalUserId: string): Promise<Timestamp | null> {
@@ -4448,6 +4616,14 @@ function buildLiffMealPageUrl(liffSettingsUrl: string, page: "meal-edit" | "left
   url.pathname = `${url.pathname.replace(/\/+$/, "")}/${page}`;
   url.search = "";
   url.searchParams.set("mealId", mealLogId);
+  return url.toString();
+}
+
+function buildLiffExercisePageUrl(liffSettingsUrl: string, exerciseLogId: string): string {
+  const url = new URL(liffSettingsUrl);
+  url.pathname = `${url.pathname.replace(/\/+$/, "")}/exercise-delete`;
+  url.search = "";
+  url.searchParams.set("exerciseId", exerciseLogId);
   return url.toString();
 }
 
@@ -4900,16 +5076,6 @@ function parseWeightCommand(text: string): { weightKg: number; bodyFatPct: numbe
   };
 }
 
-function looksLikeExerciseLog(text: string): boolean {
-  const lower = text.toLowerCase();
-  const hasExerciseKeyword =
-    /วิ่ง|เดิน|เดินชัน|เวท|ยกน้ำหนัก|ปั่น|จักรยาน|ว่ายน้ำ|โยคะ|พิลาทิส|hiit|cardio|run|running|walk|walking|bike|cycling|swim|weight|workout|exercise/.test(lower);
-  const hasMeasure =
-    /\d+\s*(นาที|ชม|ชั่วโมง|hr|hrs|hour|hours|min|mins|minute|minutes|km|กม|กิโล|รอบ|sets?|reps?)/i.test(text);
-  const asksQuestion = /ดีไหม|อะไรดี|แนะนำ|ควร|ไหม|\?/.test(text);
-  return hasExerciseKeyword && hasMeasure && !asksQuestion;
-}
-
 function looksLikeMenuRecommendationRequest(text: string): boolean {
   const lower = text.toLowerCase();
   return /กินไรดี|กินอะไรดี|เมนู|แนะนำเมนู|แนะนำอาหาร|หิว|อะไรดี/.test(text) ||
@@ -5046,6 +5212,7 @@ function parseMealCorrectionText(text: string): string | null {
 
 type LiffMealOwner = { canonicalUserId: string; lineUserId: string };
 type MealLogSnapshot = DocumentSnapshot;
+type ExerciseLogSnapshot = DocumentSnapshot;
 
 async function resolveLiffMealOwner(
   request: Parameters<Parameters<typeof onRequest>[0]>[0],
@@ -5096,6 +5263,13 @@ async function getOwnedMealLog(userId: string, mealLogId: string): Promise<MealL
   return meal;
 }
 
+async function getOwnedExerciseLog(userId: string, exerciseLogId: string): Promise<ExerciseLogSnapshot | null> {
+  if (!isSafePublicId(exerciseLogId)) throw new LiffMealValidationError("invalid exerciseLogId");
+  const exercise = await db.collection("exerciseLogs").doc(exerciseLogId).get();
+  if (!exercise.exists || String(exercise.data()?.userId ?? "") !== userId) return null;
+  return exercise;
+}
+
 function serializeMealForLiff(mealLogId: string, data: Record<string, unknown>) {
   const nutrients = (data.nutrients ?? {}) as Record<string, unknown>;
   return {
@@ -5112,6 +5286,17 @@ function serializeMealForLiff(mealLogId: string, data: Record<string, unknown>) 
       fatG: Math.round(Number(nutrients.fatG ?? 0)),
       fiberG: Number(Number(nutrients.fiberG ?? 0).toFixed(1))
     }
+  };
+}
+
+function serializeExerciseForLiff(exerciseLogId: string, data: Record<string, unknown>) {
+  return {
+    id: exerciseLogId,
+    activityName: String(data.activityName ?? data.exerciseName ?? "ออกกำลังกาย"),
+    rawCaloriesBurned: Math.max(0, Math.round(Number(data.rawCaloriesBurned ?? data.caloriesBurned ?? 0))),
+    caloriesBurned: Math.max(0, Math.round(Number(data.caloriesBurned ?? 0))),
+    safetyFactor: Number(data.safetyFactor ?? 0.5),
+    commentTh: String(data.commentTh ?? "")
   };
 }
 
@@ -5668,6 +5853,44 @@ async function deleteLastMealLog(userId: string): Promise<{ deleted: boolean; me
   };
 }
 
+async function deleteLastExerciseLog(userId: string): Promise<{
+  deleted: boolean;
+  message: string;
+  exerciseLogId?: string;
+}> {
+  const snap = await db.collection("exerciseLogs")
+    .where("userId", "==", userId)
+    .orderBy("loggedAt", "desc")
+    .limit(1)
+    .get();
+
+  if (snap.empty) {
+    return { deleted: false, message: "ไม่พบรายการออกกำลังกายของคุณในประวัติครับ" };
+  }
+
+  const doc = snap.docs[0];
+  const data = doc.data();
+  const activityName = String(data.activityName ?? data.exerciseName ?? "ออกกำลังกาย");
+  const caloriesBurned = Math.max(0, Math.round(Number(data.caloriesBurned ?? 0)));
+  const eventRef = db.collection("profileEvents").doc();
+  const batch = db.batch();
+  batch.delete(doc.ref);
+  batch.set(eventRef, {
+    type: "exercise-delete-from-chat",
+    canonicalUserId: userId,
+    exerciseLogId: doc.id,
+    activityName,
+    caloriesBurned,
+    deletedAt: Timestamp.now()
+  });
+  await batch.commit();
+  return {
+    deleted: true,
+    exerciseLogId: doc.id,
+    message: `ลบกิจกรรมล่าสุด: ${activityName} และนำโควต้าที่เพิ่ม ${caloriesBurned} kcal ออกแล้วครับ`
+  };
+}
+
 function formatProfileReply(profile: UserProfile): string {
   const expireText = formatSubscriptionStatus(profile.expiresAt ?? null, Boolean(profile.lifetime));
   return [
@@ -6012,6 +6235,156 @@ function formatExerciseReply(exerciseLog: Record<string, unknown>, summary: Toda
   ].join("\n");
 }
 
+async function buildExerciseCardMessage(
+  canonicalUserId: string,
+  exerciseLog: Record<string, unknown>,
+  summary: TodaySummary
+): Promise<LineMessage> {
+  const [appConfig, dashboardUrl] = await Promise.all([
+    getAppRuntimeConfig(),
+    createDashboardAccessUrl(canonicalUserId)
+  ]);
+  const exerciseLogId = String(exerciseLog.id ?? "");
+  const deleteUrl = exerciseLogId
+    ? buildLiffExercisePageUrl(appConfig.liffSettingsUrl, exerciseLogId)
+    : "";
+  const activityName = String(exerciseLog.activityName ?? "ออกกำลังกาย");
+  const rawCaloriesBurned = Math.max(0, Math.round(Number(exerciseLog.rawCaloriesBurned ?? 0)));
+  const caloriesBurned = Math.max(0, Math.round(Number(exerciseLog.caloriesBurned ?? 0)));
+  const dayTarget = Math.round(summary.dynamicTarget);
+  const dayConsumed = Math.round(summary.consumed.cal);
+  const dayRemaining = Math.round(summary.remaining.cal);
+  const overTarget = dayRemaining < 0;
+  const comment = String(exerciseLog.commentTh ?? "").trim();
+
+  const bodyContents: Array<Record<string, unknown>> = [
+    {
+      type: "text",
+      text: activityName,
+      weight: "bold",
+      size: "md",
+      color: FLEX_CUSTOMER.ink,
+      wrap: true,
+      maxLines: 2
+    },
+    {
+      type: "box",
+      layout: "baseline",
+      margin: "md",
+      contents: [
+        { type: "text", text: `${rawCaloriesBurned}`, size: "xxl", weight: "bold", color: FLEX_CUSTOMER.ink, flex: 0 },
+        { type: "text", text: "kcal ที่เบิร์น", size: "sm", color: FLEX_CUSTOMER.muted, margin: "sm", flex: 0 }
+      ]
+    },
+    {
+      type: "box",
+      layout: "horizontal",
+      alignItems: "center",
+      backgroundColor: FLEX_CUSTOMER.tint,
+      cornerRadius: "12px",
+      paddingAll: "12px",
+      margin: "md",
+      contents: [
+        {
+          type: "box",
+          layout: "vertical",
+          flex: 1,
+          contents: [
+            { type: "text", text: "เพิ่มโควต้าอาหารวันนี้", size: "xs", color: FLEX_CUSTOMER.muted },
+            { type: "text", text: "คิดให้ 50% จากพลังงานที่เบิร์น", size: "xs", color: FLEX_CUSTOMER.inkSoft, margin: "xs", wrap: true }
+          ]
+        },
+        { type: "text", text: `+${caloriesBurned} kcal`, size: "md", weight: "bold", color: FLEX_CUSTOMER.greenDeep, flex: 0, align: "end" }
+      ]
+    },
+    { type: "separator", margin: "lg" },
+    { type: "text", text: "ยอดวันนี้", size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, margin: "lg" },
+    {
+      type: "box",
+      layout: "horizontal",
+      margin: "sm",
+      contents: [
+        { type: "text", text: "กินแล้ว", size: "sm", color: FLEX_CUSTOMER.muted, flex: 1 },
+        { type: "text", text: `${dayConsumed} / ${dayTarget} kcal`, size: "sm", weight: "bold", color: FLEX_CUSTOMER.ink, align: "end" }
+      ]
+    },
+    flexProgressBar(dayTarget ? (dayConsumed / dayTarget) * 100 : 0, overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.green),
+    {
+      type: "text",
+      text: overTarget ? `เกินเป้าวันนี้ ${Math.abs(dayRemaining)} kcal` : `ยังกินได้อีก ${dayRemaining} kcal`,
+      size: "sm",
+      weight: "bold",
+      color: overTarget ? FLEX_CUSTOMER.danger : FLEX_CUSTOMER.greenDeep,
+      margin: "sm",
+      wrap: true
+    }
+  ];
+
+  if (comment) {
+    bodyContents.push({
+      type: "box",
+      layout: "vertical",
+      backgroundColor: FLEX_CUSTOMER.track,
+      cornerRadius: "12px",
+      paddingAll: "12px",
+      margin: "lg",
+      contents: [
+        { type: "text", text: "จากโค้ช", size: "xs", color: FLEX_CUSTOMER.muted },
+        { type: "text", text: comment, size: "sm", color: FLEX_CUSTOMER.ink, margin: "sm", wrap: true }
+      ]
+    });
+  }
+
+  return {
+    type: "flex",
+    altText: `บันทึก ${activityName} แล้ว · เบิร์น ${rawCaloriesBurned} kcal · เพิ่มโควต้า ${caloriesBurned} kcal`,
+    contents: {
+      type: "bubble",
+      size: "mega",
+      header: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.greenDeep,
+        paddingAll: "20px",
+        contents: [
+          { type: "text", text: "บันทึกการออกกำลังกายแล้ว", weight: "bold", size: "lg", color: FLEX_CUSTOMER.surface }
+        ]
+      },
+      body: {
+        type: "box",
+        layout: "vertical",
+        backgroundColor: FLEX_CUSTOMER.surface,
+        paddingAll: "16px",
+        contents: bodyContents
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        spacing: "sm",
+        paddingAll: "12px",
+        contents: [
+          {
+            type: "button",
+            style: "primary",
+            color: FLEX_CUSTOMER.green,
+            height: "sm",
+            action: { type: "uri", label: "เปิดแดชบอร์ด", uri: dashboardUrl }
+          },
+          {
+            type: "button",
+            style: "secondary",
+            color: FLEX_CUSTOMER.danger,
+            height: "sm",
+            action: deleteUrl
+              ? { type: "uri", label: "ลบกิจกรรมนี้", uri: deleteUrl }
+              : { type: "message", label: "ลบกิจกรรมล่าสุด", text: "ลบออกกำลังกาย" }
+          }
+        ]
+      }
+    }
+  };
+}
+
 function formatCoachConsultationReply(answer: string, mode: CoachConsultationRequest["mode"]): string {
   const title = mode === "menu_recommendation" ? "คำแนะนำเมนูวันนี้" : "คำแนะนำจากโค้ช";
   return [
@@ -6201,7 +6574,8 @@ function formatHelpReply(): string {
   return [
     "คู่มือใช้งานแบบย่อ",
     "บันทึกอาหาร: พิมพ์ชื่ออาหาร หรือส่งรูป",
-    "แก้/หักของเหลือ/ลบ: ใช้ปุ่มใต้การ์ดมื้ออาหารเพื่อแก้เฉพาะมื้อนั้นและยืนยันก่อนบันทึก",
+    "แก้/หักของเหลือ/ลบอาหาร: ใช้ปุ่มใต้การ์ดมื้ออาหารเพื่อจัดการเฉพาะมื้อนั้น",
+    "ลบกิจกรรม: ใช้ปุ่มใต้การ์ดออกกำลังกาย หรือพิมพ์ `ลบออกกำลังกาย`",
     "สรุปวันนี้: พิมพ์ `สรุป` หรือ `ยอด`",
     "จดน้ำหนัก: `หนัก 65 fat 20 muscle 28`",
     "โค้ช AI: พิมพ์ `กินอะไรดี` หรือถามเรื่องอาหารได้เลย",
@@ -6442,7 +6816,7 @@ function buildHelpFlexMessage(liffUrl: string, dashboardUrl: string): LineMessag
           uriBtn("ถ่ายรูปอาหาร", "https://line.me/R/nv/camera/", FLEX_CUSTOMER.green)
         ]),
         card("2 / 4", "ร่างกายและกิจกรรม", "เก็บข้อมูลที่ช่วยให้เป้าหมายรายวันแม่นขึ้น", [
-          guideRow("dumbbell", "บันทึกกิจกรรม", "เช่น “วิ่ง 30 นาที” ระบบจะปรับโควต้าวันนี้"),
+          guideRow("dumbbell", "บันทึกกิจกรรม", "เช่น “วิ่ง 30 นาที” ระบบจะปรับโควต้า และลบได้จากการ์ด"),
           guideRow("scale", "ติดตามน้ำหนัก", "เช่น “หนัก 65 fat 20 muscle 28”"),
           guideRow("report", "วิเคราะห์ BIA", "ส่งรายงาน InBody/BIA เป็นรูปหรือ PDF")
         ], [

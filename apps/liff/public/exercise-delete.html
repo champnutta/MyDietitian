@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="th">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#f4f6f5">
+    <title>ลบกิจกรรม | MyDietitian</title>
+    <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+    <style>
+      :root {
+        color-scheme: light;
+        --danger: #e0533f;
+        --green: #1f8a43;
+        --green-deep: #146e33;
+        --ink: #1f2937;
+        --ink-soft: color-mix(in srgb, var(--ink) 64%, #7a8088);
+        --muted: color-mix(in srgb, var(--ink) 64%, #7a8088);
+        --surface: #ffffff;
+        --canvas: #f4f6f5;
+        --line: #eef0ef;
+        --focus: #185fa5;
+      }
+
+      * { box-sizing: border-box; }
+      ::selection { background: var(--line); color: var(--ink); }
+
+      body {
+        min-height: 100vh;
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans Thai", sans-serif;
+      }
+
+      main {
+        width: min(100%, 560px);
+        margin: 0 auto;
+        padding: max(28px, env(safe-area-inset-top)) 16px max(36px, env(safe-area-inset-bottom));
+      }
+
+      h1, h2, p { margin: 0; }
+      h1 { font-size: 20px; line-height: 1.3; letter-spacing: -0.02em; }
+      h2 { font-size: 15px; line-height: 1.4; }
+
+      .intro {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .panel {
+        margin-top: 22px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--surface);
+        box-shadow: 0 1px 3px rgba(31, 41, 55, 0.05);
+      }
+
+      .loading {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .activity {
+        margin-top: 16px;
+        padding: 15px;
+        border-radius: 14px;
+        background: var(--canvas);
+      }
+
+      .activity-name {
+        font-size: 15px;
+        font-weight: 700;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .facts {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+
+      .fact {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 16px;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+
+      .fact strong {
+        flex: 0 0 auto;
+        color: var(--ink);
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .warning {
+        margin-top: 16px;
+        color: var(--ink);
+        font-size: 14px;
+        line-height: 1.65;
+      }
+
+      .actions { margin-top: 20px; }
+
+      button {
+        width: 100%;
+        min-height: 52px;
+        margin-top: 12px;
+        border-radius: 10px;
+        font: inherit;
+        font-size: 15px;
+        font-weight: 700;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+
+      button:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+      button:disabled { cursor: wait; opacity: 0.58; }
+      .primary { border: 0; background: color-mix(in srgb, var(--danger) 76%, #000000); color: #ffffff; }
+      .primary:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 68%, #000000); }
+      .primary:active:not(:disabled) { background: color-mix(in srgb, var(--danger) 62%, #000000); }
+      .secondary { border: 1px solid var(--line); background: var(--surface); color: var(--green-deep); }
+      .secondary:hover:not(:disabled) { background: var(--canvas); }
+      .secondary:active:not(:disabled) { background: var(--line); }
+
+      #status {
+        min-height: 24px;
+        margin: 14px 2px 0;
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .success { padding: 40px 4px 24px; text-align: center; }
+      .success-mark {
+        display: grid;
+        width: 60px;
+        height: 60px;
+        margin: 0 auto 18px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--canvas);
+        color: var(--green-deep);
+        font-size: 25px;
+        font-weight: 700;
+      }
+
+      .updated-total {
+        margin-top: 20px;
+        padding: 16px;
+        border-radius: 14px;
+        background: var(--surface);
+        color: var(--ink-soft);
+        font-size: 14px;
+        line-height: 1.7;
+      }
+
+      .updated-total strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+      @media (max-width: 360px) {
+        main { padding-inline: 12px; }
+        .panel { padding: 17px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after { scroll-behavior: auto !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <main id="app" aria-busy="true">
+      <h1>ลบกิจกรรมนี้?</h1>
+      <p class="intro">ตรวจสอบกิจกรรมและโควต้าแคลอรีก่อนยืนยัน</p>
+      <section class="panel" id="panel">
+        <p class="loading">กำลังเปิดข้อมูลการออกกำลังกาย…</p>
+      </section>
+      <div id="status" role="status" aria-live="polite"></div>
+    </main>
+
+    <script src="/config.js"></script>
+    <script>
+      const LIFF_ID = "2009365288-Aua3Fli1";
+      const API = `${window.MD_FUNCTIONS_BASE}/`;
+      const search = new URLSearchParams(location.search);
+      const exerciseLogId = search.get("exerciseId") || "";
+      const localPreview = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) ? search.get("preview") : "";
+      const state = { idToken: "", lineUserId: "", exercise: null };
+      const $ = (id) => document.getElementById(id);
+
+      init();
+
+      async function init() {
+        try {
+          if (localPreview === "confirm") {
+            state.exercise = { activityName: "เดินชันบนลู่วิ่ง 45 นาที", rawCaloriesBurned: 360, caloriesBurned: 180 };
+            renderConfirmation();
+            return;
+          }
+          if (localPreview === "success") {
+            renderSuccess({ today: { dynamicTargetCalories: 1980, remainingCalories: 540 } });
+            return;
+          }
+          if (!exerciseLogId) throw new Error("ไม่พบกิจกรรมที่ต้องการลบ");
+          await liff.init({ liffId: LIFF_ID });
+          if (!liff.isLoggedIn()) {
+            liff.login({ redirectUri: location.href });
+            return;
+          }
+          state.idToken = liff.getIDToken() || "";
+          const profile = await liff.getProfile();
+          state.lineUserId = profile.userId || "";
+          if (!state.idToken || !state.lineUserId) throw new Error("ไม่สามารถยืนยันตัวตนผ่าน LINE ได้");
+
+          const result = await request("getExerciseForLiff", { exerciseLogId });
+          state.exercise = result.exercise;
+          renderConfirmation();
+        } catch (error) {
+          showError(error.message || "เปิดข้อมูลไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+        } finally {
+          $("app").setAttribute("aria-busy", "false");
+        }
+      }
+
+      function renderConfirmation() {
+        const exercise = state.exercise;
+        $("panel").innerHTML = `
+          <h2>รายการที่จะลบ</h2>
+          <div class="activity">
+            <div class="activity-name">${escapeHtml(exercise.activityName)}</div>
+            <div class="facts">
+              <div class="fact"><span>พลังงานที่เบิร์น</span><strong>${formatNumber(exercise.rawCaloriesBurned)} kcal</strong></div>
+              <div class="fact"><span>โควต้าที่เคยเพิ่ม</span><strong>+${formatNumber(exercise.caloriesBurned)} kcal</strong></div>
+            </div>
+          </div>
+          <p class="warning">เมื่อลบแล้ว โควต้าอาหารวันนี้จะลดลง ${formatNumber(exercise.caloriesBurned)} kcal และระบบจะคำนวณยอดคงเหลือใหม่ทันที</p>
+          <div class="actions">
+            <button class="primary" id="confirm" type="button">ลบกิจกรรมนี้</button>
+            <button class="secondary" id="cancel" type="button">ยกเลิก</button>
+          </div>`;
+        $("confirm").addEventListener("click", removeExercise);
+        $("cancel").addEventListener("click", closeWindow);
+      }
+
+      async function request(path, body) {
+        const response = await fetch(API + path, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Line-Id-Token": state.idToken
+          },
+          body: JSON.stringify({
+            userId: state.lineUserId,
+            lineUserId: state.lineUserId,
+            ...body
+          })
+        });
+        const result = await response.json();
+        if (!response.ok || !result.ok) {
+          throw new Error(result.message || friendlyApiError(result.error));
+        }
+        return result;
+      }
+
+      async function removeExercise() {
+        const confirmButton = $("confirm");
+        const cancelButton = $("cancel");
+        try {
+          confirmButton.disabled = true;
+          cancelButton.disabled = true;
+          setStatus("กำลังลบกิจกรรมและคำนวณยอดใหม่…");
+          const result = await request("deleteExerciseFromLiff", { exerciseLogId });
+          renderSuccess(result);
+        } catch (error) {
+          showError(error.message || "ลบกิจกรรมไม่สำเร็จ กรุณาลองใหม่อีกครั้ง");
+          confirmButton.disabled = false;
+          cancelButton.disabled = false;
+        }
+      }
+
+      function renderSuccess(result) {
+        const today = result.today || {};
+        $("app").innerHTML = `
+          <section class="success">
+            <div class="success-mark" aria-hidden="true">✓</div>
+            <h1>ลบกิจกรรมแล้ว</h1>
+            <p class="intro">นำโควต้าที่เพิ่มจากกิจกรรมนี้ออกเรียบร้อย</p>
+            <div class="updated-total">
+              เป้าหมายวันนี้ <strong>${formatNumber(today.dynamicTargetCalories)} kcal</strong><br>
+              ยังกินได้อีก <strong>${formatNumber(today.remainingCalories)} kcal</strong>
+            </div>
+            <button class="secondary" id="done" type="button">กลับไปที่แชต</button>
+          </section>`;
+        $("done").addEventListener("click", closeWindow);
+      }
+
+      function friendlyApiError(code) {
+        if (code === "exercise-not-found") return "กิจกรรมนี้ถูกลบไปแล้วหรือไม่พบในประวัติ";
+        if (code === "profile-auth-failed") return "ยืนยันตัวตนไม่สำเร็จ กรุณาเปิดลิงก์จาก LINE อีกครั้ง";
+        return "ทำรายการไม่สำเร็จ กรุณาลองใหม่อีกครั้ง";
+      }
+
+      function closeWindow() {
+        if (liff.isInClient()) liff.closeWindow();
+        else history.back();
+      }
+
+      function setStatus(message) { $("status").textContent = message; }
+      function showError(message) { setStatus(message); }
+      function formatNumber(value) { return Math.round(Number(value) || 0).toLocaleString("th-TH"); }
+      function escapeHtml(value) {
+        const node = document.createElement("div");
+        node.textContent = String(value || "");
+        return node.innerHTML;
+      }
+    </script>
+  </body>
+</html>

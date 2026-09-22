@@ -22,6 +22,7 @@
     "test:portion-adjustment": "npm --workspace @mydietitian/backend run build && node tools/portion_adjustment_contract_check.js",
     "test:subscription": "npm --workspace @mydietitian/backend run build && node tools/subscription_contract_check.js",
     "test:target-confirmation": "npm --workspace @mydietitian/backend run build && node tools/target_confirmation_contract_check.js",
+    "test:exercise-detection": "npm --workspace @mydietitian/backend run build && node tools/exercise_detection_contract_check.js",
     "test:support-ticket": "npm --workspace @mydietitian/backend run build && node tools/support_ticket_contract_check.js",
     "dashboard:contract": "node tools/dashboard_contract_check.js",
     "dashboard:parity-plan": "node tools/dashboard_parity_plan.js",

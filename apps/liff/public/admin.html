@@ -320,6 +320,7 @@
       const BASE = window.MD_FUNCTIONS_BASE;
       const $ = (id) => document.getElementById(id);
       let chart, token, DATA, curName, CUSTOMERS = null;
+      let monitoringRefreshTimer = null, monitoringLoadInFlight = false;
       let SUPPORT_TICKETS = null, SUPPORT_SELECTED = null, SUPPORT_THREAD = null;
 
       const TABS = [
@@ -349,15 +350,25 @@
       $("signout").onclick = () => signOut(auth);
 
       onAuthStateChanged(auth, async (user) => {
+        if (monitoringRefreshTimer) clearInterval(monitoringRefreshTimer);
+        monitoringRefreshTimer = null;
         if (!user) { $("signin").hidden = false; $("panel").hidden = true; $("signout").hidden = true; return; }
         $("signin").hidden = true; $("signout").hidden = false; $("who").textContent = user.email;
         token = await user.getIdToken();
         await load();
+        monitoringRefreshTimer = setInterval(() => load({ silent: true }), 60_000);
       });
 
-      async function load() {
-        msg("กำลังโหลด…");
+      document.addEventListener("visibilitychange", () => {
+        if (!document.hidden && auth.currentUser) load({ silent: true });
+      });
+
+      async function load({ silent = false } = {}) {
+        if (monitoringLoadInFlight) return;
+        monitoringLoadInFlight = true;
+        if (!silent) msg("กำลังโหลด…");
         try {
+          token = await auth.currentUser?.getIdToken() ?? token;
           const res = await fetch(`${BASE}/getAdminMonitoring`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
           const data = await res.json();
           if (res.status === 401) throw new Error("บัญชีนี้ไม่มีสิทธิ์ admin");
@@ -367,7 +378,9 @@
         } catch (e) {
           $("msg").classList.add("error");
           $("msg").innerHTML = `โหลดข้อมูลไม่สำเร็จ: ${esc(e.message || String(e))} <button id="retryBtn" class="primary" style="margin-left:8px;padding:6px 14px">ลองใหม่</button>`;
-          $("retryBtn").onclick = load;
+          $("retryBtn").onclick = () => load();
+        } finally {
+          monitoringLoadInFlight = false;
         }
       }
 
