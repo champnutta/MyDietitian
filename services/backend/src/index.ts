@@ -63,8 +63,11 @@ import { parsePortionAdjustmentCommand } from "./portion-adjustment.js";
 import {
   bangkokLoggedAtForDayKey,
   formatThaiShortDayLabel,
+  findRejectedBackdate,
   isBareBackdateCommand,
+  MAX_BACKDATE_DAYS,
   parseMealBackdateCommand,
+  type RejectedBackdate,
   validateLoggedAtDayKey
 } from "./meal-backdate.js";
 import { normalizeSupportText, parseSupportReplyControl } from "./support-utils.js";
@@ -2425,6 +2428,9 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
       userId: canonicalUserId,
       loggedAtDayKey
     });
+    // The chat's backdate card links here; once the user logs through the page,
+    // the pending chat intent must not capture their next real-time meal.
+    if (loggedAtDayKey) await clearBackdateIntent(canonicalUserId);
 
     response.json({
       ok: true,
@@ -3192,7 +3198,20 @@ async function handleLineEvent(event: LineEvent) {
     };
   }
 
-  const intentDayKey = backdateFromText ? null : await consumeBackdateIntent(canonicalUserId);
+  const rejectedBackdate = backdateFromText ? null : findRejectedBackdate(text);
+  if (rejectedBackdate) {
+    await replyToLine(replyToken, formatRejectedBackdateReply(rejectedBackdate));
+    return {
+      ok: true,
+      type: event.type,
+      canonicalUserId,
+      status: "backdate-day-rejected",
+      error: rejectedBackdate.error,
+      dayKey: rejectedBackdate.dayKey
+    };
+  }
+
+  const intentDayKey = backdateFromText ? null : await readBackdateIntent(canonicalUserId);
   const loggedAtDayKey = backdateFromText?.dayKey ?? intentDayKey ?? undefined;
   const mealText = backdateFromText?.mealText || text;
 
@@ -3206,6 +3225,7 @@ async function handleLineEvent(event: LineEvent) {
       text: mealText,
       loggedAtDayKey
     });
+    if (intentDayKey) await markBackdateIntentUsed(canonicalUserId);
 
     await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...saved.mealLog, id: saved.mealLogId });
     return {
@@ -3242,18 +3262,59 @@ async function markLineMessageIfNew(messageId: string): Promise<boolean> {
   }
 }
 
-async function consumeBackdateIntent(canonicalUserId: string): Promise<string | null> {
+// A backdate intent ("บันทึกเมื่อวาน") waits up to 10 minutes for the first
+// meal. Once used it stays open only briefly so a burst of photos from the same
+// day all land there, without capturing a real-time meal sent minutes later.
+const BACKDATE_INTENT_TTL_MS = 10 * 60 * 1000;
+const BACKDATE_INTENT_FOLLOW_UP_MS = 2 * 60 * 1000;
+
+// Read without consuming: the intent is only marked used after the meal saves,
+// so a failed analysis (e.g. Gemini 503) keeps it for the retry.
+async function readBackdateIntent(canonicalUserId: string): Promise<string | null> {
+  return (await readBackdateIntentState(canonicalUserId))?.dayKey ?? null;
+}
+
+async function readBackdateIntentState(
+  canonicalUserId: string
+): Promise<{ dayKey: string; label: string; used: boolean } | null> {
   const ref = db.collection("backdateIntents").doc(canonicalUserId);
   const snap = await ref.get();
   if (!snap.exists) return null;
   const data = snap.data() ?? {};
-  const createdAt = normalizeTimestamp(data.createdAt);
-  const ageMs = Timestamp.now().toMillis() - (createdAt?.toMillis() ?? 0);
-  await ref.delete();
-  if (ageMs >= 10 * 60 * 1000) return null;
-  const dayKey = String(data.dayKey ?? "");
-  const validation = validateLoggedAtDayKey(dayKey);
-  return validation.ok ? validation.dayKey : null;
+  const nowMs = Timestamp.now().toMillis();
+  const createdAtMs = normalizeTimestamp(data.createdAt)?.toMillis() ?? 0;
+  const lastUsedAtMs = normalizeTimestamp(data.lastUsedAt)?.toMillis();
+  const active = lastUsedAtMs === undefined
+    ? nowMs - createdAtMs < BACKDATE_INTENT_TTL_MS
+    : nowMs - lastUsedAtMs < BACKDATE_INTENT_FOLLOW_UP_MS;
+  const validation = validateLoggedAtDayKey(String(data.dayKey ?? ""));
+  if (!active || !validation.ok) {
+    await ref.delete();
+    return null;
+  }
+  return {
+    dayKey: validation.dayKey,
+    label: String(data.label ?? formatThaiShortDayLabel(validation.dayKey)),
+    used: lastUsedAtMs !== undefined
+  };
+}
+
+function formatRejectedBackdateReply(rejected: RejectedBackdate): string {
+  const label = formatThaiShortDayLabel(rejected.dayKey);
+  return rejected.error === "future-day-not-allowed"
+    ? `วันที่ ${label} ยังมาไม่ถึงครับ บันทึกมื้อล่วงหน้าไม่ได้ ยังไม่ได้บันทึกมื้อนี้`
+    : `บันทึกย้อนหลังได้ไม่เกิน ${MAX_BACKDATE_DAYS} วันครับ (วันที่ ${label} เกินกำหนด) ยังไม่ได้บันทึกมื้อนี้`;
+}
+
+async function markBackdateIntentUsed(canonicalUserId: string): Promise<void> {
+  await db.collection("backdateIntents").doc(canonicalUserId)
+    .set({ lastUsedAt: Timestamp.now() }, { merge: true })
+    .catch((error) => console.warn("backdate intent touch failed", canonicalUserId, error));
+}
+
+async function clearBackdateIntent(canonicalUserId: string): Promise<void> {
+  await db.collection("backdateIntents").doc(canonicalUserId).delete()
+    .catch((error) => console.warn("backdate intent clear failed", canonicalUserId, error));
 }
 
 async function handleLineImageMessage(
@@ -3284,7 +3345,7 @@ async function handleLineImageMessage(
 
     // Backdate intent (from "บันทึกเมื่อวาน" etc.) applies only to a new food
     // image — leftover intent takes priority when both are somehow present.
-    const backdateDayKey = leftoverIntentActive ? null : await consumeBackdateIntent(canonicalUserId);
+    const backdateDayKey = leftoverIntentActive ? null : await readBackdateIntent(canonicalUserId);
 
     // Give the classifier the latest meal name so it can tell a leftover of that
     // meal apart from a new dish (GAS parity).
@@ -3385,6 +3446,7 @@ async function handleLineImageMessage(
       mimeType: content.mimeType,
       loggedAtDayKey: backdateDayKey ?? undefined
     });
+    if (backdateDayKey) await markBackdateIntentUsed(canonicalUserId);
 
     await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...saved.mealLog, id: saved.mealLogId });
     return {
@@ -3810,6 +3872,22 @@ async function handleLineTextCommand(
     return { status: "leftover-intent-set" };
   }
 
+  // Leave backdate mode. Plain "ยกเลิก" normally undoes the last meal, but while
+  // a backdate intent is still waiting for its first meal, cancelling the mode
+  // is what the user means — deleting an unrelated meal would be destructive.
+  if (/^ยกเลิก\s*(?:บันทึก)?\s*(?:ย้อนหลัง|เมื่อวาน|มื้อเก่า)$/.test(text) || text === "ยกเลิก") {
+    const pending = await readBackdateIntentState(canonicalUserId);
+    if (pending && (text !== "ยกเลิก" || !pending.used)) {
+      await clearBackdateIntent(canonicalUserId);
+      await replyToLine(replyToken, `ยกเลิกบันทึกย้อนหลัง (${pending.label}) แล้วครับ มื้อต่อไปจะบันทึกเป็นวันนี้`);
+      return { status: "backdate-intent-cancelled", dayKey: pending.dayKey };
+    }
+    if (text !== "ยกเลิก") {
+      await replyToLine(replyToken, "ตอนนี้ไม่ได้อยู่ในโหมดบันทึกย้อนหลังครับ มื้อต่อไปจะบันทึกเป็นวันนี้");
+      return { status: "backdate-intent-none" };
+    }
+  }
+
   const bareBackdate = isBareBackdateCommand(text);
   if (bareBackdate) {
     const readiness = await getUserReadiness(canonicalUserId);
@@ -3956,6 +4034,15 @@ async function handleLineTextCommand(
   }
 
   if (looksLikeExerciseLog(text)) {
+    // Exercise logs always count toward today's burn, so a past-day workout
+    // must not be silently added to today's quota.
+    if (parseMealBackdateCommand(text) || findRejectedBackdate(text)) {
+      await replyToLine(
+        replyToken,
+        "ตอนนี้บันทึกกิจกรรมย้อนหลังยังไม่ได้ครับ บันทึกได้เฉพาะกิจกรรมของวันนี้ (บันทึกย้อนหลังได้เฉพาะมื้ออาหาร)"
+      );
+      return { status: "backdated-exercise-not-supported" };
+    }
     const readiness = await getUserReadiness(canonicalUserId);
     if (!readiness.profileComplete) {
       await replyWithOnboarding(replyToken, lineUserId);
@@ -4007,6 +4094,8 @@ async function handleLineTextCommand(
 
   if (text === "ลบ" || text === "ยกเลิก" || lower === "undo") {
     const result = await deleteLastMealLog(canonicalUserId);
+    // Undoing a mis-dated meal should not let the next photo land there too.
+    await clearBackdateIntent(canonicalUserId);
     await replyToLine(replyToken, result.message);
     return { status: result.deleted ? "last-meal-deleted" : "last-meal-not-found" };
   }
@@ -4631,7 +4720,7 @@ function buildBackdatePromptMessage(mealLogUrl: string, dayLabel: string): LineM
           { type: "text", text: "บันทึกมื้อย้อนหลัง", weight: "bold", size: "lg", color: "#146E33" },
           {
             type: "text",
-            text: `จะบันทึกเป็นวันที่ ${dayLabel} ครับ พิมพ์ชื่ออาหาร ส่งรูป หรือเปิดหน้าเลือกวันได้เลย`,
+            text: `จะบันทึกเป็นวันที่ ${dayLabel} ครับ พิมพ์ชื่ออาหาร ส่งรูป หรือเปิดหน้าเลือกวันได้เลย (ภายใน 10 นาที)`,
             wrap: true,
             size: "sm",
             color: "#647067"
@@ -4641,6 +4730,7 @@ function buildBackdatePromptMessage(mealLogUrl: string, dayLabel: string): LineM
       footer: {
         type: "box",
         layout: "vertical",
+        spacing: "sm",
         paddingAll: "12px",
         contents: [
           {
@@ -4649,6 +4739,13 @@ function buildBackdatePromptMessage(mealLogUrl: string, dayLabel: string): LineM
             color: "#146E33",
             height: "sm",
             action: { type: "uri", label: "เปิดหน้าเลือกวัน", uri: mealLogUrl }
+          },
+          {
+            type: "button",
+            style: "link",
+            color: "#647067",
+            height: "sm",
+            action: { type: "message", label: "ยกเลิก", text: "ยกเลิกบันทึกย้อนหลัง" }
           }
         ]
       }
@@ -5357,10 +5454,14 @@ function validateLiffImageMimeType(value: unknown): string {
   return mimeType;
 }
 
+// "Latest" means the meal the user most recently sent, so order by createdAt:
+// a backdated meal carries an old loggedAt but is still the one follow-up
+// commands (portion, leftover, correction) refer to. Migrated GAS meals have
+// createdAt = loggedAt, so the ordering is unchanged for them.
 async function getLatestMealLog(userId: string) {
   const snap = await db.collection("mealLogs")
     .where("userId", "==", userId)
-    .orderBy("loggedAt", "desc")
+    .orderBy("createdAt", "desc")
     .limit(1)
     .get();
   return snap.empty ? null : snap.docs[0];
@@ -5858,17 +5959,13 @@ async function saveWeightLog(
 }
 
 async function deleteLastMealLog(userId: string): Promise<{ deleted: boolean; message: string }> {
-  const snap = await db.collection("mealLogs")
-    .where("userId", "==", userId)
-    .orderBy("loggedAt", "desc")
-    .limit(1)
-    .get();
-
-  if (snap.empty) {
+  // "ลบ/ยกเลิก" undoes the meal just sent — including a backdated one — so it
+  // shares getLatestMealLog's createdAt ordering.
+  const doc = await getLatestMealLog(userId);
+  if (!doc) {
     return { deleted: false, message: "ไม่พบรายการอาหารของคุณในประวัติครับ" };
   }
 
-  const doc = snap.docs[0];
   const data = doc.data();
   await doc.ref.delete();
   return {

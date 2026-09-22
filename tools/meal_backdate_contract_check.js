@@ -8,6 +8,7 @@ main().catch((error) => {
 async function main() {
   const {
     parseMealBackdateCommand,
+    findRejectedBackdate,
     isBareBackdateCommand,
     validateLoggedAtDayKey,
     shiftBangkokDayKey,
@@ -86,11 +87,50 @@ async function main() {
       name: "too old rejected by parse",
       text: "2026-08-01 กินข้าว",
       expect: null
+    },
+    {
+      name: "day/month with วันที่ cue",
+      text: "วันที่ 19/9 ข้าวต้ม",
+      expect: { dayKey: "2026-09-19", mealText: "ข้าวต้ม", daysAgo: 2 }
+    },
+    {
+      name: "buddhist-era year (full)",
+      text: "19 ก.ย. 2569 ข้าวมันไก่",
+      expect: { dayKey: "2026-09-19", mealText: "ข้าวมันไก่", daysAgo: 2 }
+    },
+    {
+      name: "buddhist-era year (2-digit)",
+      text: "19/9/69 ข้าวมันไก่",
+      expect: { dayKey: "2026-09-19", mealText: "ข้าวมันไก่", daysAgo: 2 }
+    },
+    {
+      name: "remark about the day is not a meal",
+      text: "เมื่อวานกินเยอะไปหน่อย",
+      expect: null
+    },
+    // Portions must never read as dates, even when d/m lands inside the window.
+    {
+      name: "portion 1/2 in early February",
+      text: "1/2 จาน ข้าวผัดกุ้ง",
+      now: new Date("2026-02-10T05:00:00.000Z"),
+      expect: null
+    },
+    {
+      name: "portion range 2-3 in early March",
+      text: "2-3 ชิ้น ไก่ทอด",
+      now: new Date("2026-03-10T05:00:00.000Z"),
+      expect: null
+    },
+    {
+      name: "portion 3/4 in early April",
+      text: "3/4 ถ้วย ข้าวสวย",
+      now: new Date("2026-04-10T05:00:00.000Z"),
+      expect: null
     }
   ];
 
   const results = cases.map((item) => {
-    const actual = parseMealBackdateCommand(item.text, now);
+    const actual = parseMealBackdateCommand(item.text, item.now ?? now);
     let ok = false;
     if (item.expect === null) {
       ok = actual === null;
@@ -120,6 +160,21 @@ async function main() {
     return { name: `validate ${item.dayKey}`, ok, expected: item, actual };
   });
 
+  const rejectionCases = [
+    { text: "2026-08-01 กินข้าว", expect: "day-too-old" },
+    { text: "2026-09-22 กินข้าว", expect: "future-day-not-allowed" },
+    { text: "1 ส.ค. ข้าวผัด", expect: "day-too-old" },
+    { text: "วันที่ 31 ข้าวต้ม", expect: "day-too-old" }, // Sep 31 invalid → Aug 31
+    { text: "2026-09-19 ไข่ต้ม", expect: null }, // in range → normal parse
+    { text: "เมื่อวาน ข้าวมันไก่", expect: null },
+    { text: "1/2 จาน ข้าวผัดกุ้ง", expect: null },
+    { text: "ข้าวมันไก่", expect: null }
+  ].map((item) => {
+    const actual = findRejectedBackdate(item.text, now);
+    const ok = item.expect === null ? actual === null : actual?.error === item.expect;
+    return { name: `rejected: ${item.text}`, ok, expected: item.expect, actual };
+  });
+
   const bare = isBareBackdateCommand("มื้อเก่า", now);
   const bareOk = Boolean(bare && bare.dayKey === "2026-09-20" && bare.mealText === "");
 
@@ -134,6 +189,7 @@ async function main() {
   const all = [
     ...results,
     ...validationCases,
+    ...rejectionCases,
     { name: "bare มื้อเก่า", ok: bareOk, expected: true, actual: bare },
     { name: "bangkokLoggedAt preserves clock", ok: timeOk, expected: "2026-09-19 08:30Z", actual: loggedAt.toISOString() },
     { name: "shift max backdate window", ok: shiftOk, expected: "2026-09-07", actual: shiftBangkokDayKey("2026-09-21", -MAX_BACKDATE_DAYS) }

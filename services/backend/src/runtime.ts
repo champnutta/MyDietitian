@@ -33,9 +33,11 @@ onInit(() => {
 });
 
 export const db: Firestore = new Proxy({} as Firestore, {
-  get(_target, property, receiver) {
+  get(_target, property) {
     const instance = ensureAdminApp();
-    const value = Reflect.get(instance as object, property, receiver);
+    // Resolve against the real instance (not the proxy) so getters and any
+    // private state inside the SDK see the genuine Firestore object.
+    const value = Reflect.get(instance as object, property, instance);
     return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(instance) : value;
   }
 });

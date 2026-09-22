@@ -190,7 +190,33 @@ function matchRelativePrefix(text: string, now: Date): MealBackdateParse | null 
   return null;
 }
 
+export type RejectedBackdate = {
+  dayKey: string;
+  error: "future-day-not-allowed" | "day-too-old";
+};
+
+/**
+ * A message that clearly opens with a calendar date the user cannot log to
+ * (future, or older than MAX_BACKDATE_DAYS). The caller should explain the
+ * limit instead of silently logging the meal as today.
+ */
+export function findRejectedBackdate(text: string, now: Date = new Date()): RejectedBackdate | null {
+  const match = matchAbsoluteDate(text.trim(), now);
+  if (!match) return null;
+  const mealText = cleanMealRemainder(match.remainder);
+  if (mealText && looksLikeNonMealRemainder(mealText)) return null;
+  const validation = validateLoggedAtDayKey(match.dayKey, now);
+  if (validation.ok || validation.error === "invalid-day-key") return null;
+  return { dayKey: match.dayKey, error: validation.error as RejectedBackdate["error"] };
+}
+
 function matchAbsolutePrefix(text: string, now: Date): MealBackdateParse | null {
+  const match = matchAbsoluteDate(text, now);
+  return match ? finalizeAbsolute(match.dayKey, match.remainder, now) : null;
+}
+
+// Find a leading calendar date without judging whether it is in range.
+function matchAbsoluteDate(text: string, now: Date): { dayKey: string; remainder: string } | null {
   const todayKey = formatBangkokIsoDayKey(now);
   const todayParts = todayKey.split("-").map(Number);
   const todayYear = todayParts[0];
@@ -199,18 +225,21 @@ function matchAbsolutePrefix(text: string, now: Date): MealBackdateParse | null 
   // ISO: 2026-09-19 ...
   const iso = text.match(/^(\d{4}-\d{2}-\d{2})\s*[:\-–]?\s*/);
   if (iso) {
-    return finalizeAbsolute(iso[1], text.slice(iso[0].length), now);
+    return isIsoDayKey(iso[1]) ? { dayKey: iso[1], remainder: text.slice(iso[0].length) } : null;
   }
 
-  // Numeric: 19/9/2026 or 19/9/26 or 19-9-2026
-  const slash = text.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?\s*[:\-–]?\s*/);
-  if (slash) {
-    const day = Number(slash[1]);
-    const month = Number(slash[2]);
-    let year = slash[3] ? Number(slash[3]) : todayYear;
-    if (year < 100) year += 2000;
+  // Numeric: 19/9/2026, 19/9/69, 19-9-2569, or "วันที่ 19/9". A bare "d/m"
+  // without a year or the วันที่ cue is ambiguous with portions ("1/2 จาน",
+  // "2-3 ชิ้น"), so it is never treated as a date.
+  const slash = text.match(
+    /^(?:(วันที่)\s*)?(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?(?![\d\/\-.])\s*[:\-–]?\s*/
+  );
+  if (slash && (slash[1] || slash[4])) {
+    const day = Number(slash[2]);
+    const month = Number(slash[3]);
+    const year = slash[4] ? normalizeYear(Number(slash[4])) : todayYear;
     const dayKey = toDayKey(year, month, day);
-    if (dayKey) return finalizeAbsolute(dayKey, text.slice(slash[0].length), now);
+    if (dayKey) return { dayKey, remainder: text.slice(slash[0].length) };
   }
 
   // Thai: วันที่ 19 ก.ย. 2026 / 19 ก.ย. / วันที่ 19 กันยายน
@@ -220,10 +249,9 @@ function matchAbsolutePrefix(text: string, now: Date): MealBackdateParse | null 
     );
     if (!thai) continue;
     const day = Number(thai[1]);
-    let year = thai[2] ? Number(thai[2]) : todayYear;
-    if (year < 100) year += 2000;
+    const year = thai[2] ? normalizeYear(Number(thai[2])) : todayYear;
     const dayKey = toDayKey(year, month, day);
-    if (dayKey) return finalizeAbsolute(dayKey, text.slice(thai[0].length), now);
+    if (dayKey) return { dayKey, remainder: text.slice(thai[0].length) };
   }
 
   // Day-only: วันที่ 19 / วันที่19
@@ -231,7 +259,7 @@ function matchAbsolutePrefix(text: string, now: Date): MealBackdateParse | null 
   if (dayOnly) {
     const day = Number(dayOnly[1]);
     const dayKey = resolveRecentDayOfMonth(day, todayYear, todayMonth, todayKey);
-    if (dayKey) return finalizeAbsolute(dayKey, text.slice(dayOnly[0].length), now);
+    if (dayKey) return { dayKey, remainder: text.slice(dayOnly[0].length) };
   }
 
   return null;
@@ -279,7 +307,9 @@ function resolveRecentDayOfMonth(
     const daysAgo = daysBetweenBangkokDayKeys(candidate, todayKey);
     if (daysAgo >= 0 && daysAgo <= MAX_BACKDATE_DAYS) return candidate;
   }
-  return null;
+  // Nothing in range: return the latest past candidate so the caller can
+  // report it as too old rather than logging the meal as today.
+  return candidates.find((candidate) => daysBetweenBangkokDayKeys(candidate, todayKey) > 0) ?? null;
 }
 
 function toDayKey(year: number, month: number, day: number): string | null {
@@ -287,6 +317,14 @@ function toDayKey(year: number, month: number, day: number): string | null {
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   const key = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
   return isIsoDayKey(key) ? key : null;
+}
+
+// Accept Gregorian (2026 / 26) and Buddhist-era (2569 / 69) years. Thai users
+// commonly write พ.ศ.; a two-digit year above 50 can only be a BE year here.
+function normalizeYear(year: number): number {
+  if (year >= 2400) return year - 543;
+  if (year < 100) return year > 50 ? year + 2500 - 543 : year + 2000;
+  return year;
 }
 
 function cleanMealRemainder(text: string): string {
@@ -297,5 +335,8 @@ function cleanMealRemainder(text: string): string {
 }
 
 function looksLikeNonMealRemainder(text: string): boolean {
-  return /อะไรดี|ดีไหม|ควร|แนะนำ|ไหม|มั้ย|\?|should i|what should/i.test(text);
+  // Questions, plus remarks about how the day went ("เมื่อวานกินเยอะไป",
+  // "เมื่อวานไม่ได้กินเลย") that name no food and must not become a meal.
+  return /อะไรดี|ดีไหม|ควร|แนะนำ|ไหม|มั้ย|\?|should i|what should/i.test(text) ||
+    /^(?:เยอะ|มาก|เกิน|หนัก|ไม่ได้|ไม่ค่อย|นิดเดียว|อิ่ม|หิว|นอน|ท้อง)/.test(text);
 }

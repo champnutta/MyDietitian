@@ -17,6 +17,14 @@
       ]
     },
     {
+      "collectionGroup": "mealLogs",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "userId", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    },
+    {
       "collectionGroup": "weightLogs",
       "queryScope": "COLLECTION",
       "fields": [
