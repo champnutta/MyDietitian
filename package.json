@@ -21,6 +21,8 @@
     "line:uat-report": "node tools/line_staging_uat_report.js",
     "test:portion-adjustment": "npm --workspace @mydietitian/backend run build && node tools/portion_adjustment_contract_check.js",
     "test:meal-backdate": "npm --workspace @mydietitian/backend run build && node tools/meal_backdate_contract_check.js",
+    "deploy:functions": "npm --workspace @mydietitian/backend run deploy:functions",
+    "deploy:app": "npm --workspace @mydietitian/backend run deploy",
     "test:subscription": "npm --workspace @mydietitian/backend run build && node tools/subscription_contract_check.js",
     "test:target-confirmation": "npm --workspace @mydietitian/backend run build && node tools/target_confirmation_contract_check.js",
     "test:support-ticket": "npm --workspace @mydietitian/backend run build && node tools/support_ticket_contract_check.js",
