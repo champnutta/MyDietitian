@@ -2526,23 +2526,16 @@ export const analyzeMeal = onRequest({ secrets: AI_PROVIDER_SECRETS }, async (re
     // The chat's backdate card links here; once the user logs through the page,
     // the pending chat intent must not capture their next real-time meal.
     if (loggedAtDayKey) await clearBackdateIntent(canonicalUserId);
-    // A meal logged from the LIFF day picker has no chat reply of its own, so
-    // push the usual meal card (that day's totals + edit/leftover/delete
-    // buttons) to the user's LINE chat.
-    // Only the token-verified LINE id: body.lineUserId is caller-supplied and
-    // would let a request push someone's meal card to another chat.
-    const pushLineUserId = owner.lineUserId;
-    const cardPushed = loggedAtDayKey && pushLineUserId
-      ? await pushRefreshedMealCard(canonicalUserId, pushLineUserId, saved.mealLogId)
-      : false;
+    // No push here (it costs OA message quota). The LIFF page instead sends a
+    // "บันทึกย้อนหลังแล้ว …" message as the user via liff.sendMessages, and the
+    // webhook replies to it with the meal card for free.
 
     response.json({
       ok: true,
       canonicalUserId,
       runId: saved.runId,
       mealLogId: saved.mealLogId,
-      analysis: saved.mealLog,
-      cardPushed
+      analysis: saved.mealLog
     });
   } catch (error) {
     if (error instanceof ProfileAuthError) {
@@ -3385,6 +3378,8 @@ async function markLineMessageIfNew(messageId: string): Promise<boolean> {
 // meal. Once used it stays open only briefly so a burst of photos from the same
 // day all land there, without capturing a real-time meal sent minutes later.
 const BACKDATE_INTENT_TTL_MS = 10 * 60 * 1000;
+// Must match the message meal-log.html sends after saving (backdated / today).
+const LIFF_MEAL_SAVED_PREFIXES = ["บันทึกย้อนหลังแล้ว", "บันทึกมื้อแล้ว"];
 const BACKDATE_INTENT_FOLLOW_UP_MS = 2 * 60 * 1000;
 
 // Read without consuming: the intent is only marked used after the meal saves,
@@ -4004,6 +3999,23 @@ async function handleLineTextCommand(
     await db.collection("leftoverIntents").doc(canonicalUserId).set({ createdAt: Timestamp.now() });
     await replyToLine(replyToken, "ส่งรูปของเหลือของมื้อล่าสุดมาได้เลยครับ ระบบจะหักออกจากที่บันทึกไว้ให้");
     return { status: "leftover-intent-set" };
+  }
+
+  // Sent by meal-log.html (liff.sendMessages, as the user) right after a LIFF
+  // backdated save. Replying — rather than pushing from analyzeMeal — shows the
+  // meal card without spending push quota. The card is for the meal just
+  // created, so only a meal saved in the last 10 minutes qualifies. Always
+  // returns, so the message itself is never analysed as food.
+  if (LIFF_MEAL_SAVED_PREFIXES.some((prefix) => text.startsWith(prefix))) {
+    const latest = await getLatestMealLog(canonicalUserId);
+    const data = latest?.data() ?? {};
+    const createdAtMs = normalizeTimestamp(data.createdAt)?.toMillis() ?? 0;
+    if (latest && Timestamp.now().toMillis() - createdAtMs < 10 * 60 * 1000) {
+      await replyWithMealCard(replyToken, canonicalUserId, lineUserId, { ...data, id: latest.id });
+      return { status: "liff-backdate-card-replied", mealLogId: latest.id };
+    }
+    await replyToLine(replyToken, "รับทราบครับ ดูหรือแก้ไขมื้อย้อนหลังได้จากแดชบอร์ด (พิมพ์ กราฟ)");
+    return { status: "liff-backdate-card-not-found" };
   }
 
   // Leave backdate mode. Plain "ยกเลิก" normally undoes the last meal, but while

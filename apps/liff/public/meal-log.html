@@ -153,11 +153,36 @@
           }
           const result = await request("analyzeMeal", body);
           const label = formatThaiDay(dayKey);
-          $("app").innerHTML = `<div class="success"><div class="check">✓</div><h1>บันทึกมื้อแล้ว</h1><p class="hint">${escapeHtml(result.analysis?.mealNameTh || "มื้ออาหาร")} · ${label}<br>ยอดโภชนาการของวันนั้นได้รับการอัปเดตแล้ว${result.cardPushed ? "<br>ส่งการ์ดสรุปไปที่แชตแล้ว — แก้ไขหรือลบได้จากปุ่มใต้การ์ด" : ""}</p><button class="primary" id="done">กลับไปที่แชต</button></div>`;
+          const mealName = String(result.analysis?.mealNameTh || "มื้ออาหาร");
+          const sentToChat = await announceInChat(dayKey, mealName, label);
+          const deleteUrl = `https://liff.line.me/${LIFF_ID}/meal-delete?mealId=${encodeURIComponent(result.mealLogId || "")}`;
+          const followUp = sentToChat
+            ? "<br>การ์ดสรุปจะขึ้นในแชต — แก้ไขหรือลบได้จากปุ่มใต้การ์ด"
+            : `<br><a href="${deleteUrl}">ลบมื้อนี้</a>`;
+          $("app").innerHTML = `<div class="success"><div class="check">✓</div><h1>บันทึกมื้อแล้ว</h1><p class="hint">${escapeHtml(mealName)} · ${label}<br>ยอดโภชนาการของวันนั้นได้รับการอัปเดตแล้ว${followUp}</p><button class="primary" id="done">กลับไปที่แชต</button></div>`;
           $("done").addEventListener("click", () => liff.isInClient() ? liff.closeWindow() : history.back());
         } catch (error) {
           setStatus(error.message || "บันทึกไม่สำเร็จ", true);
           button.disabled = false;
+        }
+      }
+
+      // Post a message into the chat as the user; the bot replies to it with the
+      // meal card. A reply costs no OA push quota, unlike a server push. Needs
+      // the LIFF app's chat_message.write scope and the LINE in-app browser;
+      // returns false when unavailable so the page offers its own delete link.
+      // The prefix must match the backend's LIFF_MEAL_SAVED_PREFIXES.
+      async function announceInChat(dayKey, mealName, label) {
+        try {
+          if (!liff.isInClient()) return false;
+          const isToday = dayKey === $("dayInput").max;
+          const prefix = isToday ? "บันทึกมื้อแล้ว" : "บันทึกย้อนหลังแล้ว";
+          const name = mealName.length > 40 ? `${mealName.slice(0, 40)}…` : mealName;
+          await liff.sendMessages([{ type: "text", text: `${prefix} · ${name} (${label})` }]);
+          return true;
+        } catch (error) {
+          console.warn("liff.sendMessages failed", error);
+          return false;
         }
       }
 
